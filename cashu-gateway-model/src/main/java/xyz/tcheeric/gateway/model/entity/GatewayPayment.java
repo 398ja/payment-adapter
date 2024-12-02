@@ -18,6 +18,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.io.Serial;
 import java.time.Instant;
 import xyz.tcheeric.gateway.model.entity.enums.State;
 
@@ -36,6 +37,7 @@ import xyz.tcheeric.gateway.model.entity.enums.State;
 @Setter
 public class GatewayPayment implements GatewayEntity {
 
+    @Serial
     private static final long serialVersionUID = 1089714744450886412L;
 
     @Id

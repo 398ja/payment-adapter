@@ -26,7 +26,7 @@ import java.util.logging.Level;
 @RequiredArgsConstructor
 public abstract class AbstractBaseClient<T extends GatewayEntity> {
 
-    protected RestTemplate restTemplate = new RestTemplate();
+    protected final RestTemplate restTemplate = new RestTemplate();
     private final String entity;
     private final Class entityClass;
 

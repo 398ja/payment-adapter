@@ -26,7 +26,7 @@ public class PhoenixdGatewayTest {
 
     private PhoenixdGateway gateway;
 
-    private static Properties properties = new Properties();
+    private static final Properties properties = new Properties();
     private final static String CONFIG_FILE_PATH = "gw-test.properties";
     static {
         String configFilePath = System.getProperty(CONFIG_FILE_PATH);
@@ -36,7 +36,7 @@ public class PhoenixdGatewayTest {
             }
             properties.load(input);
         } catch (IOException ex) {
-            ex.printStackTrace();
+            log.log(Level.SEVERE, "Unable to load configuration", ex);
         }
     }
 

@@ -155,6 +155,7 @@ public class PhoenixdGateway implements Gateway {
             basePayRequest = new PayLightningAddressRequest(param);
         }
 
+        assert basePayRequest != null;
         Response response = basePayRequest.getResponse();
 
         if (response instanceof PayInvoiceResponse payInvoiceResponse) {

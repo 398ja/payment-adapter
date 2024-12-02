@@ -1,12 +1,15 @@
 package xyz.tcheeric.util;
 
 import lombok.NonNull;
+import lombok.extern.java.Log;
 
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
+import java.util.logging.Level;
 
+@Log
 public class Configuration {
 
     private final static Properties properties = new Properties();
@@ -20,7 +23,7 @@ public class Configuration {
             }
             properties.load(input);
         } catch (IOException ex) {
-            ex.printStackTrace();
+            log.log(Level.SEVERE, "Unable to load configuration", ex);
         }
     }
 

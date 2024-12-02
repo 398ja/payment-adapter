@@ -46,7 +46,4 @@ public class WebhookServlet extends HttpServlet {
 
     }
 
-    @Override
-    public void destroy() {
-    }
 }

@@ -3,7 +3,6 @@ package xyz.tcheeric.gateway.client;
 
 import lombok.extern.java.Log;
 import org.springframework.http.ResponseEntity;
-import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 import xyz.tcheeric.gateway.model.entity.GatewayQuote;
 
 import java.util.logging.Level;

@@ -20,6 +20,8 @@ import lombok.Setter;
 import xyz.tcheeric.gateway.model.entity.enums.Direction;
 import xyz.tcheeric.gateway.model.entity.enums.State;
 
+import java.io.Serial;
+
 /**
  *
  * @author eric
@@ -34,6 +36,7 @@ import xyz.tcheeric.gateway.model.entity.enums.State;
 @Setter
 public class GatewayQuote implements GatewayEntity {
 
+    @Serial
     private static final long serialVersionUID = 296731830847697981L;
         
     @Id
