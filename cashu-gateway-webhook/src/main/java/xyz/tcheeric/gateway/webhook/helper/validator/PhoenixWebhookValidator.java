@@ -6,6 +6,7 @@ import xyz.tcheeric.gateway.client.QuoteClient;
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 import xyz.tcheeric.gateway.model.entity.GatewayQuote;
 import xyz.tcheeric.gateway.model.entity.enums.Direction;
+import xyz.tcheeric.gateway.model.entity.enums.State;
 import xyz.tcheeric.gateway.webhook.helper.PhoenixdWebhookRequest;
 
 import java.util.logging.Level;
@@ -63,6 +64,11 @@ public class PhoenixWebhookValidator extends BaseWebhookValidator {
             log.log(Level.WARNING, "Amount mismatch: amountSat={0}, expected={1}",
                     new Object[]{amountSat, payment.getAmount()});
             throw new IllegalArgumentException("Amount mismatch");
+        }
+
+        if(payment.getState() == null || payment.getState() != State.PAID) {
+            log.log(Level.WARNING, "Invalid payment state: state={0}", payment.getState());
+            throw new IllegalArgumentException("Invalid payment state");
         }
 
         if (type != null && !type.equals("payment_received")) {

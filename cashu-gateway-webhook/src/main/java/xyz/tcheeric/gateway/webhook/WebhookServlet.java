@@ -10,6 +10,7 @@ import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 import xyz.tcheeric.gateway.model.entity.enums.State;
 import xyz.tcheeric.gateway.webhook.helper.validator.RequestValidatorFacade;
 
+import java.time.Instant;
 import java.util.logging.Level;
 
 @WebServlet(name = "WebhookServlet", value = "/webhook")
@@ -33,6 +34,7 @@ public class WebhookServlet extends HttpServlet {
 
             log.log(Level.INFO, "Confirming the payment: paymentId={0}", payment.getPaymentId());
             payment.setState(State.CONFIRMED);
+            payment.setConfirmedDate(Instant.now());
 
             log.log(Level.FINE, "Updating the payment: payment={0}", payment);
             PaymentClient paymentClient = new PaymentClient();

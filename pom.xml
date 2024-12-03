@@ -18,6 +18,7 @@
         <module>cashu-gateway-model</module>
         <module>cashu-gateway-rest</module>
         <module>cashu-gateway-client</module>
+        <module>cashu-gateway-dummy</module>
     </modules>
 
     <properties>
