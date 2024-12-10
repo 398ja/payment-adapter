@@ -46,7 +46,7 @@ public class PhoenixWebhookValidator extends BaseWebhookValidator {
 
         // Find the payment
         PaymentClient paymentClient = new PaymentClient();
-        GatewayPayment payment = paymentClient.getByLnInvoice(quote.getRequest());
+        GatewayPayment payment = paymentClient.getByQuoteId(quote.getQuoteId());
 
         // Validate the payment
         if (payment == null) {

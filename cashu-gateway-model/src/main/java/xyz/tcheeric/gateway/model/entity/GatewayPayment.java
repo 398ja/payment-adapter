@@ -29,12 +29,14 @@ import xyz.tcheeric.gateway.model.entity.enums.State;
 @Data
 @Entity(name = "payment")
 @Table(indexes = {
-        @Index(name = "idx_gatewaypayment_ln_invoice", columnList = "ln_invoice"),
-        @Index(name = "idx_gatewaypayment_payment_id", columnList = "payment_id")
+        @Index(name = "idx_gatewaypayment_request", columnList = "request"),
+        @Index(name = "idx_gatewaypayment_payment_id", columnList = "payment_id"),
+        @Index(name = "idx_gatewaypayment_quote_id", columnList = "quote_id")
 })
 @NoArgsConstructor
 @Getter
 @Setter
+// TODO - Create a static factory method to create a GatewayPayment with default values
 public class GatewayPayment implements GatewayEntity {
 
     @Serial
@@ -45,8 +47,9 @@ public class GatewayPayment implements GatewayEntity {
     private Long id;
 
     @Column(length = 1024)
-    private String lnInvoice;
+    private String request;
     private String paymentId;
+    private String quoteId;
 
     @Enumerated(EnumType.STRING)
     private State state;

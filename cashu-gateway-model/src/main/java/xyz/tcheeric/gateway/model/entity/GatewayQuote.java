@@ -34,6 +34,7 @@ import java.io.Serial;
 @NoArgsConstructor
 @Getter
 @Setter
+// TODO - Create a static factory method to create a GatewayQuote with default values.
 public class GatewayQuote implements GatewayEntity {
 
     @Serial

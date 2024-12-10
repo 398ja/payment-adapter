@@ -1,20 +1,30 @@
 package xyz.tcheeric.gateway.dummy;
 
+import cashu.common.annotation.Supports;
+import cashu.common.model.PaymentMethod;
 import cashu.gateway.Gateway;
 import lombok.NonNull;
 import xyz.tcheeric.util.ConfigUtil;
 
 import java.util.UUID;
 
+@Supports({PaymentMethod.MOCK})
 public class DummyGateway implements Gateway {
 
+    private static final String GATEWAY_NAME = "dummy";
+
     @Override
-    public String createQuote(@NonNull Integer amount, String description) {
+    public String createMintQuote(@NonNull Integer amount, String description) {
         return UUID.randomUUID().toString();
     }
 
     @Override
-    public String createQuote(@NonNull Integer amount, @NonNull String lnIvoice, String description) {
+    public String createMeltQuote(@NonNull Integer amount, @NonNull String lnIvoice, String description) {
+        return UUID.randomUUID().toString();
+    }
+
+    @Override
+    public String createMeltQuote(@NonNull String s) {
         return UUID.randomUUID().toString();
     }
 
@@ -54,8 +64,8 @@ public class DummyGateway implements Gateway {
     }
 
     @Override
-    public String getMethod() {
-        return null;
+    public String getName() {
+        return GATEWAY_NAME;
     }
 
     private boolean getPaymentStatus() {

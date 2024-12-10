@@ -18,8 +18,8 @@ import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 public interface PaymentRepository extends PagingAndSortingRepository<GatewayPayment, Long>, CrudRepository<GatewayPayment,Long> {
     
     GatewayPayment findById(@Param("id") long id);
-    
+
     GatewayPayment findByPaymentId(@Param("paymentId") String paymentId);
 
-    GatewayPayment findByLnInvoice(@Param("lnInvoice") String lnInvoice);
+    GatewayPayment findByQuoteId(@Param("quoteId") String quoteId);
 }

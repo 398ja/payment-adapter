@@ -15,8 +15,8 @@ public class PaymentClient extends AbstractBaseClient<GatewayPayment> {
         super("payment", GatewayPayment.class);
     }
 
-    public GatewayPayment getByLnInvoice(String lnInvoice) {
-        String url = getBaseUrl() + "/search/findByLnInvoice?lnInvoice=" + lnInvoice;
+    public GatewayPayment getByQuoteId(String quoteId) {
+        String url = getBaseUrl() + "/search/findByQuoteId?quoteId=" + quoteId;
         log.log(Level.INFO, "Sending request: {0}", url);
         ResponseEntity<GatewayPayment> response = restTemplate.getForEntity(url, GatewayPayment.class);
         log.log(Level.INFO, "Received response: {0}", response.getBody());
