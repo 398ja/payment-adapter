@@ -12,4 +12,8 @@ public class ConfigUtil {
     public String get(String key) {
         return Configuration.getProperty(prefix + "." + key);
     }
+
+    public String get(String key, String defaultValue) {
+        return Configuration.getProperty(prefix + "." + key, defaultValue);
+    }
 }

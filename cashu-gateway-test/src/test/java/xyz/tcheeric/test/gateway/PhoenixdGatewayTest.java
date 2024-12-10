@@ -56,7 +56,7 @@ public class PhoenixdGatewayTest {
         QuoteClient client = new QuoteClient();
 
         // Act
-        System.setProperty("wid", "testCreateQuote");
+        System.setProperty("wid", "testCreateMintQuote");
         String quoteId = gateway.createMintQuote(10, "testCreateMintQuote" + System.currentTimeMillis());
         GatewayQuote quote = client.getByEntityId(quoteId);
 
@@ -64,6 +64,7 @@ public class PhoenixdGatewayTest {
         assertNotNull(quote);
         assertEquals(quoteId, quote.getQuoteId());
         assertNotEquals(State.CONFIRMED, quote.getState());
+        assertEquals(State.PENDING, quote.getState());
         log.log(Level.ALL, "LN Invoice: {0}", quote.getRequest());
 
     }

@@ -16,19 +16,21 @@ import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 import xyz.tcheeric.gateway.model.entity.GatewayQuote;
 import xyz.tcheeric.gateway.model.entity.enums.Direction;
 import xyz.tcheeric.gateway.model.entity.enums.State;
-import xyz.tcheeric.phoenixd.api.model.rest.CreateInvoiceParam;
-import xyz.tcheeric.phoenixd.api.model.rest.CreateInvoiceResponse;
-import xyz.tcheeric.phoenixd.api.model.rest.DecodeInvoiceParam;
-import xyz.tcheeric.phoenixd.api.model.rest.DecodeInvoiceResponse;
-import xyz.tcheeric.phoenixd.api.model.rest.PayBolt11InvoiceParam;
-import xyz.tcheeric.phoenixd.api.model.rest.PayInvoiceResponse;
-import xyz.tcheeric.phoenixd.api.model.rest.PayLightningAddressParam;
-import xyz.tcheeric.phoenixd.api.rest.BasePayRequest;
-import xyz.tcheeric.phoenixd.api.rest.CreateBolt11InvoiceRequest;
-import xyz.tcheeric.phoenixd.api.rest.DecodeInvoiceRequest;
-import xyz.tcheeric.phoenixd.api.rest.PayBolt11InvoiceRequest;
-import xyz.tcheeric.phoenixd.api.rest.PayLightningAddressRequest;
-import xyz.tcheeric.phoenixd.api.rest.PayRequestFactory;
+import xyz.tcheeric.phoenixd.model.param.CreateInvoiceParam;
+import xyz.tcheeric.phoenixd.model.param.DecodeInvoiceParam;
+import xyz.tcheeric.phoenixd.model.param.PayBolt11InvoiceParam;
+import xyz.tcheeric.phoenixd.model.param.PayLightningAddressParam;
+import xyz.tcheeric.phoenixd.model.response.CreateInvoiceResponse;
+import xyz.tcheeric.phoenixd.model.response.DecodeInvoiceResponse;
+import xyz.tcheeric.phoenixd.model.response.GetLightningAddressResponse;
+import xyz.tcheeric.phoenixd.model.response.PayInvoiceResponse;
+import xyz.tcheeric.phoenixd.request.impl.rest.BasePayRequest;
+import xyz.tcheeric.phoenixd.request.impl.rest.CreateBolt11InvoiceRequest;
+import xyz.tcheeric.phoenixd.request.impl.rest.DecodeInvoiceRequest;
+import xyz.tcheeric.phoenixd.request.impl.rest.GetLightningAddressRequest;
+import xyz.tcheeric.phoenixd.request.impl.rest.PayBolt11InvoiceRequest;
+import xyz.tcheeric.phoenixd.request.impl.rest.PayLightningAddressRequest;
+import xyz.tcheeric.phoenixd.request.impl.rest.PayRequestFactory;
 import xyz.tcheeric.util.ConfigUtil;
 
 import java.net.URI;
@@ -59,8 +61,8 @@ public class PhoenixdGateway implements Gateway {
         param.setWebhookUrl(getWebhookUrl());
 
         // Create the invoice
-        CreateBolt11InvoiceRequest request = new CreateBolt11InvoiceRequest(param);
-        CreateInvoiceResponse response = request.getResponse();
+        CreateBolt11InvoiceRequest createBolt11InvoiceRequest = new CreateBolt11InvoiceRequest(param);
+        CreateInvoiceResponse response = createBolt11InvoiceRequest.getResponse();
 
         // Create the GatewayQuote
         GatewayQuote quote = new GatewayQuote();
@@ -70,7 +72,7 @@ public class PhoenixdGateway implements Gateway {
         quote.setDescription(param.getDescription());
         quote.setAmount(response.getAmountSat());
         quote.setUnit(configUtil.get("currency"));
-        quote.setRequest(response.getSerialized());
+        quote.setRequest(getRequest(response));
         quote.setState(State.PENDING);
         quote.setDirection(Direction.RECEIVE);
 
@@ -275,5 +277,16 @@ public class PhoenixdGateway implements Gateway {
             throw new IllegalArgumentException("Missing webhook id");
         }
         return URI.create(cUtil.get("base_url") + "?wid=" + wid).toURL();
+    }
+
+    private String getRequest(@NonNull CreateInvoiceResponse response) {
+        boolean lnAddressFlag = configUtil.get("lnaddress", "off").equalsIgnoreCase("on");
+        return lnAddressFlag ? getLightningAddress() : response.getSerialized();
+    }
+
+    private String getLightningAddress() {
+        GetLightningAddressRequest getLightningAddressRequest = new GetLightningAddressRequest();
+        GetLightningAddressResponse getLightningAddressResponse = getLightningAddressRequest.getResponse();
+        return getLightningAddressResponse.getLightningAddress();
     }
 }

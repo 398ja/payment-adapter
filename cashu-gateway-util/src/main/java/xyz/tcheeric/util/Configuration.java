@@ -30,4 +30,8 @@ public class Configuration {
     static String getProperty(@NonNull String key) {
         return properties.getProperty(key);
     }
+
+    static String getProperty(@NonNull String key, String defaultValue) {
+        return properties.getProperty(key, defaultValue);
+    }
 }
