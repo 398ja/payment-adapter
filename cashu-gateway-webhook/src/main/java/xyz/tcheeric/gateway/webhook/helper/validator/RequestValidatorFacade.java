@@ -2,12 +2,11 @@ package xyz.tcheeric.gateway.webhook.helper.validator;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.NonNull;
+import xyz.tcheeric.common.config.Configuration;
 import xyz.tcheeric.gateway.client.PaymentClient;
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 import xyz.tcheeric.gateway.model.entity.enums.State;
 import xyz.tcheeric.gateway.webhook.helper.PhoenixdWebhookRequest;
-import xyz.tcheeric.gateway.webhook.helper.validator.PhoenixWebhookValidator;
-import xyz.tcheeric.util.ConfigUtil;
 
 import java.util.UUID;
 
@@ -16,7 +15,7 @@ public class RequestValidatorFacade {
     public static GatewayPayment validate(@NonNull HttpServletRequest request) {
 
         String prefix = request.getParameter("wid");
-        ConfigUtil configUtil = new ConfigUtil(prefix);
+        Configuration configUtil = new Configuration(prefix);
 
         String webhookId = configUtil.get("wid");
         if(webhookId == null) {

@@ -30,8 +30,7 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>cashu-gateway-util</artifactId>
-            <version>${project.version}</version>
+            <artifactId>tcheeric-common-config</artifactId>
         </dependency>
         <dependency>
             <groupId>xyz.tcheeric</groupId>

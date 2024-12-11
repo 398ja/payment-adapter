@@ -14,7 +14,6 @@
         <module>cashu-gateway-test</module>
         <module>cashu-gateway-phoenixd</module>
         <module>cashu-gateway-webhook</module>
-        <module>cashu-gateway-util</module>
         <module>cashu-gateway-model</module>
         <module>cashu-gateway-rest</module>
         <module>cashu-gateway-client</module>
@@ -27,7 +26,8 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
 
-        <!-- Annotation Dependency Versions -->
+        <tcheeric-common.version>1.0-SNAPSHOT</tcheeric-common.version>
+
         <lombok.version>1.18.36</lombok.version>
 
         <!-- xyz.tcheeric projects -->
@@ -57,9 +57,9 @@
         <dependencies>
             <!-- Annotation Dependencies -->
             <dependency>
-                <groupId>org.projectlombok</groupId>
-                <artifactId>lombok</artifactId>
-                <version>${lombok.version}</version>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>tcheeric-common-config</artifactId>
+                <version>${tcheeric-common.version}</version>
             </dependency>
             <!-- Test Dependencies -->
             <dependency>

@@ -3,13 +3,14 @@ package xyz.tcheeric.gateway.phoenixd;
 import cashu.common.annotation.Supports;
 import cashu.common.model.PaymentMethod;
 import cashu.gateway.Gateway;
-import cashu.gateway.model.Response;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.NoArgsConstructor;
 import lombok.NonNull;
 import lombok.SneakyThrows;
 import lombok.extern.java.Log;
+import xyz.tcheeric.common.config.Configuration;
+import xyz.tcheeric.common.rest.Response;
 import xyz.tcheeric.gateway.client.PaymentClient;
 import xyz.tcheeric.gateway.client.QuoteClient;
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
@@ -31,7 +32,6 @@ import xyz.tcheeric.phoenixd.request.impl.rest.GetLightningAddressRequest;
 import xyz.tcheeric.phoenixd.request.impl.rest.PayBolt11InvoiceRequest;
 import xyz.tcheeric.phoenixd.request.impl.rest.PayLightningAddressRequest;
 import xyz.tcheeric.phoenixd.request.impl.rest.PayRequestFactory;
-import xyz.tcheeric.util.ConfigUtil;
 
 import java.net.URI;
 import java.net.URL;
@@ -46,7 +46,7 @@ public class PhoenixdGateway implements Gateway {
 
     private static final String GATEWAY_NAME = "phoenixd";
 
-    private final static ConfigUtil configUtil = new ConfigUtil("phoenixd");
+    private final static Configuration config = new Configuration("phoenixd");
 
     @SneakyThrows
     @Override
@@ -56,7 +56,7 @@ public class PhoenixdGateway implements Gateway {
         CreateInvoiceParam param = new CreateInvoiceParam();
         param.setDescription(description);
         param.setAmountSat(amount);
-        param.setExpirySeconds(Integer.valueOf(configUtil.get("expiry")));
+        param.setExpirySeconds(Integer.valueOf(config.get("expiry")));
         param.setExternalId(UUID.randomUUID().toString());
         param.setWebhookUrl(getWebhookUrl());
 
@@ -71,7 +71,7 @@ public class PhoenixdGateway implements Gateway {
         quote.setExpiry(param.getExpirySeconds());
         quote.setDescription(param.getDescription());
         quote.setAmount(response.getAmountSat());
-        quote.setUnit(configUtil.get("currency"));
+        quote.setUnit(config.get("currency"));
         quote.setRequest(getRequest(response));
         quote.setState(State.PENDING);
         quote.setDirection(Direction.RECEIVE);
@@ -100,7 +100,7 @@ public class PhoenixdGateway implements Gateway {
         CreateInvoiceParam param = new CreateInvoiceParam();
         param.setDescription(description);
         param.setAmountSat(amount);
-        param.setExpirySeconds(Integer.valueOf(configUtil.get("expiry")));
+        param.setExpirySeconds(Integer.valueOf(config.get("expiry")));
         param.setExternalId(UUID.randomUUID().toString());
 
         // Create the GatewayQuote
@@ -110,7 +110,7 @@ public class PhoenixdGateway implements Gateway {
         quote.setExpiry(param.getExpirySeconds());
         quote.setDescription(param.getDescription());
         quote.setAmount(amount);
-        quote.setUnit(configUtil.get("currency"));
+        quote.setUnit(config.get("currency"));
         quote.setRequest(request);
         quote.setState(State.PENDING);
         quote.setDirection(Direction.SEND);
@@ -187,7 +187,7 @@ public class PhoenixdGateway implements Gateway {
             payment.setPaymentId(payInvoiceResponse.getPaymentId());
             payment.setRequest(request);
             payment.setQuoteId(quoteId);
-            payment.setSourceCurrency(configUtil.get("currency"));
+            payment.setSourceCurrency(config.get("currency"));
             payment.setPaymentHash(payInvoiceResponse.getPaymentHash());
             payment.setPaymentPreimage(payInvoiceResponse.getPaymentPreimage());
             payment.setLightningNetworkFee(payInvoiceResponse.getRoutingFeeSat());
@@ -229,8 +229,8 @@ public class PhoenixdGateway implements Gateway {
 */
         GatewayQuote quote = new QuoteClient().getByEntityId(quoteId);
         Integer amount = quote.getAmount();
-        Double feePercent = Double.valueOf(configUtil.get("fee.percent"));
-        Integer fixedFee = Integer.valueOf(configUtil.get("fee.fixed"));
+        Double feePercent = Double.valueOf(config.get("fee.percent"));
+        Integer fixedFee = Integer.valueOf(config.get("fee.fixed"));
         return (int) Math.round(amount * feePercent) + fixedFee;
     }
 
@@ -271,16 +271,16 @@ public class PhoenixdGateway implements Gateway {
 
     @SneakyThrows
     private URL getWebhookUrl() {
-        ConfigUtil cUtil = new ConfigUtil("webhook");
+        Configuration webhookConfig = new Configuration("webhook");
         String wid = System.getProperty("wid");
         if (wid == null) {
             throw new IllegalArgumentException("Missing webhook id");
         }
-        return URI.create(cUtil.get("base_url") + "?wid=" + wid).toURL();
+        return URI.create(webhookConfig.get("base_url") + "?wid=" + wid).toURL();
     }
 
     private String getRequest(@NonNull CreateInvoiceResponse response) {
-        boolean lnAddressFlag = configUtil.get("lnaddress", "off").equalsIgnoreCase("on");
+        boolean lnAddressFlag = config.get("lnaddress", "off").equalsIgnoreCase("on");
         return lnAddressFlag ? getLightningAddress() : response.getSerialized();
     }
 
