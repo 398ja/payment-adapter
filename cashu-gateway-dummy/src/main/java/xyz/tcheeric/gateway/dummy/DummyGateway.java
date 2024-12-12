@@ -1,9 +1,9 @@
 package xyz.tcheeric.gateway.dummy;
 
-import cashu.common.annotation.Supports;
-import cashu.common.model.PaymentMethod;
-import cashu.gateway.Gateway;
 import lombok.NonNull;
+import xyz.tcheeric.cashu.common.annotation.Supports;
+import xyz.tcheeric.cashu.common.model.PaymentMethod;
+import xyz.tcheeric.cashu.gateway.Gateway;
 import xyz.tcheeric.common.config.Configuration;
 
 import java.util.UUID;
