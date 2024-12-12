@@ -1,10 +1,10 @@
 package xyz.tcheeric.test.gateway;
 
-import cashu.common.model.PaymentMethod;
-import cashu.gateway.Gateway;
 import lombok.extern.java.Log;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import xyz.tcheeric.cashu.common.model.PaymentMethod;
+import xyz.tcheeric.cashu.gateway.Gateway;
 import xyz.tcheeric.gateway.client.PaymentClient;
 import xyz.tcheeric.gateway.client.QuoteClient;
 import xyz.tcheeric.gateway.phoenixd.PhoenixdGateway;
