@@ -5,10 +5,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import xyz.tcheeric.cashu.common.model.PaymentMethod;
 import xyz.tcheeric.cashu.gateway.Gateway;
+import xyz.tcheeric.common.config.Configuration;
 import xyz.tcheeric.gateway.client.PaymentClient;
 import xyz.tcheeric.gateway.client.QuoteClient;
+import xyz.tcheeric.gateway.model.entity.GatewayPayment;
+import xyz.tcheeric.gateway.model.entity.GatewayQuote;
+import xyz.tcheeric.gateway.model.entity.enums.State;
 import xyz.tcheeric.gateway.phoenixd.PhoenixdGateway;
-import xyz.tcheeric.util.Configuration;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -21,10 +24,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import xyz.tcheeric.gateway.model.entity.GatewayPayment;
-import xyz.tcheeric.gateway.model.entity.GatewayQuote;
-import xyz.tcheeric.gateway.model.entity.enums.State;
 
 @Log
 public class PhoenixdGatewayTest {

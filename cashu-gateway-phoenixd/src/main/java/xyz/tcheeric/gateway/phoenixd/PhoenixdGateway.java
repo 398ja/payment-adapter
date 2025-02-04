@@ -134,8 +134,9 @@ public class PhoenixdGateway implements Gateway {
     @Override
     public boolean checkPaymentStatus(String quoteId) {
         QuoteClient quoteClient = new QuoteClient();
-        GatewayQuote quote = quoteClient.getByEntityId(quoteId);
-        return State.CONFIRMED.equals(quote.getState());
+        //GatewayQuote quote = quoteClient.getByEntityId(quoteId);
+        GatewayPayment payment = new PaymentClient().getByQuoteId(quoteId);
+        return State.PAID.equals(payment.getState());
     }
 
     @Override
