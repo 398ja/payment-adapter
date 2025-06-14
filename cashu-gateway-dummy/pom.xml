@@ -25,7 +25,7 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>tcheeric-common-config</artifactId>
+            <artifactId>tcheeric-common-util</artifactId>
         </dependency>
     </dependencies>
 </project>
