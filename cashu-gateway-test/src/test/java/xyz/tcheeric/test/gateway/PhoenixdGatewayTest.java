@@ -1,11 +1,12 @@
 package xyz.tcheeric.test.gateway;
 
+import lombok.NoArgsConstructor;
 import lombok.extern.java.Log;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import xyz.tcheeric.cashu.common.model.PaymentMethod;
+import xyz.tcheeric.cashu.common.PaymentMethod;
 import xyz.tcheeric.cashu.gateway.Gateway;
-import xyz.tcheeric.common.config.Configuration;
+import xyz.tcheeric.common.util.Configuration;
 import xyz.tcheeric.gateway.client.PaymentClient;
 import xyz.tcheeric.gateway.client.QuoteClient;
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
@@ -13,10 +14,6 @@ import xyz.tcheeric.gateway.model.entity.GatewayQuote;
 import xyz.tcheeric.gateway.model.entity.enums.State;
 import xyz.tcheeric.gateway.phoenixd.PhoenixdGateway;
 
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.Properties;
 import java.util.logging.Level;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -26,23 +23,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Log
+@NoArgsConstructor
 public class PhoenixdGatewayTest {
 
     private PhoenixdGateway gateway;
 
-    private static final Properties properties = new Properties();
-    private final static String CONFIG_FILE_PATH = "gw-test.properties";
-    static {
-        String configFilePath = System.getProperty(CONFIG_FILE_PATH);
-        try (InputStream input = (configFilePath != null) ? new FileInputStream(configFilePath) : Configuration.class.getClassLoader().getResourceAsStream(CONFIG_FILE_PATH)) {
-            if (input == null) {
-                throw new IOException("Unable to find " + CONFIG_FILE_PATH);
-            }
-            properties.load(input);
-        } catch (IOException ex) {
-            log.log(Level.SEVERE, "Unable to load configuration", ex);
-        }
-    }
+    private static final Configuration configuration = new Configuration("phoenixd", PhoenixdGatewayTest.class.getClassLoader().getResource("gw-test.properties"));
 
     @BeforeEach
     public void init() {
@@ -75,7 +61,7 @@ public class PhoenixdGatewayTest {
         QuoteClient quoteClient = new QuoteClient();
 
         // Act
-        String payee = properties.getProperty("phoenixd.payee");
+        String payee = configuration.get("payee");
         String quoteId = gateway.createMeltQuote(10, payee,"testPayInvoice" + System.currentTimeMillis());
         String paymentId = gateway.pay(quoteId);
         GatewayPayment payment = paymentClient.getByEntityId(paymentId);
