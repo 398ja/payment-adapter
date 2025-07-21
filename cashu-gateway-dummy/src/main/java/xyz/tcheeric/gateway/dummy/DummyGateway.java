@@ -4,7 +4,7 @@ import cashu.common.annotation.Supports;
 import cashu.common.model.PaymentMethod;
 import cashu.gateway.Gateway;
 import lombok.NonNull;
-import xyz.tcheeric.common.config.Configuration;
+import xyz.tcheeric.gateway.config.AppConfig;
 
 import java.util.UUID;
 
@@ -87,7 +87,7 @@ public class DummyGateway implements Gateway {
     }
 
     private String getParameter(@NonNull String key) {
-        Configuration configUtil = new Configuration("dummy");
+        AppConfig configUtil = new AppConfig("dummy");
         return configUtil.get(key);
     }
 

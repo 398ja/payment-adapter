@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 import lombok.NonNull;
 import lombok.SneakyThrows;
 import lombok.extern.java.Log;
-import xyz.tcheeric.common.config.Configuration;
+import xyz.tcheeric.gateway.config.AppConfig;
 import xyz.tcheeric.common.rest.Response;
 import xyz.tcheeric.gateway.client.PaymentClient;
 import xyz.tcheeric.gateway.client.QuoteClient;
@@ -46,7 +46,7 @@ public class PhoenixdGateway implements Gateway {
 
     private static final String GATEWAY_NAME = "phoenixd";
 
-    private final static Configuration config = new Configuration("phoenixd");
+    private static final AppConfig config = new AppConfig("phoenixd");
 
     @SneakyThrows
     @Override
@@ -271,7 +271,7 @@ public class PhoenixdGateway implements Gateway {
 
     @SneakyThrows
     private URL getWebhookUrl() {
-        Configuration webhookConfig = new Configuration("webhook");
+        AppConfig webhookConfig = new AppConfig("webhook");
         String wid = System.getProperty("wid");
         if (wid == null) {
             throw new IllegalArgumentException("Missing webhook id");

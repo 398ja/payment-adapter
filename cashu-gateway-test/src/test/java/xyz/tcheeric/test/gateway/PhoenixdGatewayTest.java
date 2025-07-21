@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import xyz.tcheeric.gateway.client.PaymentClient;
 import xyz.tcheeric.gateway.client.QuoteClient;
 import xyz.tcheeric.gateway.phoenixd.PhoenixdGateway;
-import xyz.tcheeric.util.Configuration;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -35,7 +34,9 @@ public class PhoenixdGatewayTest {
     private final static String CONFIG_FILE_PATH = "gw-test.properties";
     static {
         String configFilePath = System.getProperty(CONFIG_FILE_PATH);
-        try (InputStream input = (configFilePath != null) ? new FileInputStream(configFilePath) : Configuration.class.getClassLoader().getResourceAsStream(CONFIG_FILE_PATH)) {
+        try (InputStream input = (configFilePath != null)
+                ? new FileInputStream(configFilePath)
+                : Thread.currentThread().getContextClassLoader().getResourceAsStream(CONFIG_FILE_PATH)) {
             if (input == null) {
                 throw new IOException("Unable to find " + CONFIG_FILE_PATH);
             }

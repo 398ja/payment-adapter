@@ -26,7 +26,6 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
 
-        <tcheeric-common.version>1.0-SNAPSHOT</tcheeric-common.version>
 
         <lombok.version>1.18.36</lombok.version>
 
@@ -51,16 +50,11 @@
         <logback.version>1.5.12</logback.version>
 
         <h2.version>2.3.232</h2.version>
+        <commons.configuration.version>2.10.1</commons.configuration.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
-            <!-- Annotation Dependencies -->
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>tcheeric-common-config</artifactId>
-                <version>${tcheeric-common.version}</version>
-            </dependency>
             <!-- Test Dependencies -->
             <dependency>
                 <groupId>org.junit.jupiter</groupId>
