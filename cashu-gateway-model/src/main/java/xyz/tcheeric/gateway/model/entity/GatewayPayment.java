@@ -17,10 +17,10 @@ import lombok.Data;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import xyz.tcheeric.gateway.model.entity.enums.State;
 
 import java.io.Serial;
 import java.time.Instant;
-import xyz.tcheeric.gateway.model.entity.enums.State;
 
 /**
  *
