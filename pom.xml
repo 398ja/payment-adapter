@@ -14,7 +14,6 @@
         <module>cashu-gateway-test</module>
         <module>cashu-gateway-phoenixd</module>
         <module>cashu-gateway-webhook</module>
-        <module>cashu-gateway-model</module>
         <module>cashu-gateway-rest</module>
         <module>cashu-gateway-client</module>
         <module>cashu-gateway-dummy</module>

@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.NoArgsConstructor;
 import lombok.NonNull;
 import lombok.SneakyThrows;
-import lombok.extern.java.Log;
+import lombok.extern.slf4j.Slf4j;
 import xyz.tcheeric.cashu.common.PaymentMethod;
 import xyz.tcheeric.cashu.entities.annotation.Supports;
 import xyz.tcheeric.cashu.gateway.Gateway;
@@ -39,7 +39,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.UUID;
 
-@Log
+@Slf4j
 @NoArgsConstructor
 @Supports({PaymentMethod.BOLT11, PaymentMethod.BOLT12, PaymentMethod.ON_CHAIN})
 public class PhoenixdGateway implements Gateway {
@@ -51,6 +51,8 @@ public class PhoenixdGateway implements Gateway {
     @SneakyThrows
     @Override
     public String createMintQuote(Integer amount, String description) {
+
+        log.info("Creating mint quote: amount={}, description={}", amount, description);
 
         // Create the invoice param
         CreateInvoiceParam param = new CreateInvoiceParam();
@@ -80,6 +82,7 @@ public class PhoenixdGateway implements Gateway {
         QuoteClient quoteClient = new QuoteClient();
         quoteClient.create(quote);
 
+        log.info("Mint quote created: {}", quote.getQuoteId());
         // Return the quote id
         return quote.getQuoteId();
     }
@@ -95,6 +98,8 @@ public class PhoenixdGateway implements Gateway {
 
     @Override
     public String createMeltQuote(Integer amount, String request, String description) {
+
+        log.info("Creating melt quote for request={}", request);
 
         // Create the invoice param
         CreateInvoiceParam param = new CreateInvoiceParam();
@@ -118,6 +123,8 @@ public class PhoenixdGateway implements Gateway {
         // Persist the GatewayQuote
         QuoteClient quoteClient = new QuoteClient();
         quoteClient.create(quote);
+
+        log.info("Melt quote created: {}", quote.getQuoteId());
 
         // Return the quote id
         return quote.getQuoteId();
@@ -149,6 +156,8 @@ public class PhoenixdGateway implements Gateway {
     @SneakyThrows
     @Override
     public String pay(String quoteId) {
+
+        log.info("Paying invoice for quote {}", quoteId);
 
         QuoteClient quoteClient = new QuoteClient();
         GatewayQuote quote = quoteClient.getByEntityId(quoteId);
@@ -200,6 +209,7 @@ public class PhoenixdGateway implements Gateway {
             PaymentClient client = new PaymentClient();
             client.create(payment);
 
+            log.info("Payment processed: {}", payInvoiceResponse.getPaymentId());
             return payInvoiceResponse.getPaymentId();
         }
 
