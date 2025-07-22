@@ -1,14 +1,13 @@
 package xyz.tcheeric.gateway.client;
 
-import lombok.extern.java.Log;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 
-import java.util.logging.Level;
 
-@Log
+@Slf4j
 public class PaymentClient extends AbstractBaseClient<GatewayPayment> {
 
     public PaymentClient() {
@@ -17,18 +16,18 @@ public class PaymentClient extends AbstractBaseClient<GatewayPayment> {
 
     public GatewayPayment getByQuoteId(String quoteId) {
         String url = getBaseUrl() + "/search/findByQuoteId?quoteId=" + quoteId;
-        log.log(Level.INFO, "Sending request: {0}", url);
+        log.info("Sending request: {}", url);
         ResponseEntity<GatewayPayment> response = restTemplate.getForEntity(url, GatewayPayment.class);
-        log.log(Level.INFO, "Received response: {0}", response.getBody());
+        log.info("Received response: {}", response.getBody());
         return response.getBody();
     }
 
     public GatewayPayment updatePayment(GatewayPayment payment) {
         String url = getBaseUrl() + "/" + payment.getId();
-        log.log(Level.INFO, "Sending update request: {0}", url);
+        log.info("Sending update request: {}", url);
         HttpEntity<GatewayPayment> request = new HttpEntity<>(payment);
         ResponseEntity<GatewayPayment> response = restTemplate.exchange(url, HttpMethod.PUT, request, GatewayPayment.class);
-        log.log(Level.INFO, "Received update response: {0}", response.getBody());
+        log.info("Received update response: {}", response.getBody());
         return response.getBody();
     }
 }
