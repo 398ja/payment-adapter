@@ -17,9 +17,9 @@ import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 @RepositoryRestResource(collectionResourceRel = "payments", path = "payment")
 public interface PaymentRepository extends PagingAndSortingRepository<GatewayPayment, Long>, CrudRepository<GatewayPayment,Long> {
 
-    @Query("select p from payment p where p.paymentId = :paymentId")
+    @Query("select p from GatewayPayment p where p.paymentId = :paymentId")
     GatewayPayment findByPaymentId(@Param("paymentId") String paymentId);
 
-    @Query("select p from payment p where p.quoteId = :quoteId")
+    @Query("select p from GatewayPayment p where p.quoteId = :quoteId")
     GatewayPayment findByQuoteId(@Param("quoteId") String quoteId);
 }
