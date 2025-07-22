@@ -56,9 +56,9 @@ docker-compose up
 
 This will start the following containers:
 
-* **db** – PostgreSQL database on port `5432`.
-* **phoenixd** – phoenixd Lightning node on port `9740`.
-* **rest** – Spring Boot application exposing HTTP on port `8080`.
+* **cashu-gateway-db-1** – PostgreSQL database on port `5432`.
+* **cashu-gateway-phoenixd-1** – phoenixd Lightning node on port `9740`.
+* **cashu-gateway-rest-1** – Spring Boot application exposing HTTP on port `8080`.
 
 The REST application can also be launched directly using Maven:
 
