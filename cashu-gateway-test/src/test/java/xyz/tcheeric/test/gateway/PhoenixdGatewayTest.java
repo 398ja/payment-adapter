@@ -1,7 +1,7 @@
 package xyz.tcheeric.test.gateway;
 
 import lombok.NoArgsConstructor;
-import lombok.extern.java.Log;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import xyz.tcheeric.cashu.common.PaymentMethod;
@@ -14,7 +14,6 @@ import xyz.tcheeric.gateway.model.entity.GatewayQuote;
 import xyz.tcheeric.gateway.model.entity.enums.State;
 import xyz.tcheeric.gateway.phoenixd.PhoenixdGateway;
 
-import java.util.logging.Level;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -22,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@Log
+@Slf4j
 @NoArgsConstructor
 public class PhoenixdGatewayTest {
 
@@ -50,7 +49,7 @@ public class PhoenixdGatewayTest {
         assertEquals(quoteId, quote.getQuoteId());
         assertNotEquals(State.CONFIRMED, quote.getState());
         assertEquals(State.PENDING, quote.getState());
-        log.log(Level.ALL, "LN Invoice: {0}", quote.getRequest());
+        log.debug("LN Invoice: {}", quote.getRequest());
 
     }
 
