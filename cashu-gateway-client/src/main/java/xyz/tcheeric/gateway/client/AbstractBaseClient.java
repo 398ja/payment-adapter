@@ -6,7 +6,7 @@ package xyz.tcheeric.gateway.client;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.java.Log;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
@@ -15,14 +15,13 @@ import xyz.tcheeric.gateway.model.entity.GatewayEntity;
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 import xyz.tcheeric.gateway.model.entity.GatewayQuote;
 
-import java.util.logging.Level;
 
 /**
  *
  * @author eric
  * @param <T>
  */
-@Log
+@Slf4j
 @RequiredArgsConstructor
 public abstract class AbstractBaseClient<T extends GatewayEntity> {
 
@@ -32,9 +31,9 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
 
     public T get(@NonNull Long id) {
         String url = getBaseUrl() + "/" + id;
-        log.log(Level.INFO, "Sending request: {0}", url);
+        log.info("Sending request: {}", url);
         ResponseEntity<T> response = restTemplate.getForEntity(url, entityClass);
-        log.log(Level.INFO, "Received response: {0}", response.getBody());
+        log.info("Received response: {}", response.getBody());
         return response.getBody();
     }
 
@@ -47,9 +46,9 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
         } else {
             throw new IllegalArgumentException("Unsupported entity type: " + entityClass.getName());
         }
-        log.log(Level.INFO, "Sending request: {0}", url);
+        log.info("Sending request: {}", url);
         ResponseEntity<T> response = restTemplate.getForEntity(url, entityClass);
-        log.log(Level.INFO, "Received response: {0}", response.getBody());
+        log.info("Received response: {}", response.getBody());
         return response.getBody();
     }
 
@@ -62,9 +61,9 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
 
     public void delete(@NonNull Long id) {
         String url = getBaseUrl() + "/" + id;
-        log.log(Level.INFO, "Sending request to delete entity with id: {0}", id);
+        log.info("Sending request to delete entity with id: {}", id);
         restTemplate.delete(url);
-        log.log(Level.INFO, "Deleted entity with id: {0}", id);
+        log.info("Deleted entity with id: {}", id);
     }
 
     protected String getBaseUrl() {
