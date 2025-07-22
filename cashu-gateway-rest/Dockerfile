@@ -1,12 +1,10 @@
-# Build stage
-FROM maven:3.9.6-eclipse-temurin-21 AS build
-WORKDIR /app
+FROM maven:3.9.7-eclipse-temurin-22 AS build
+WORKDIR /build
 COPY . .
-RUN mvn -pl cashu-gateway-rest -am package -DskipTests
+RUN mvn -B -pl cashu-gateway-rest -am package -DskipTests
 
-# Run stage
-FROM eclipse-temurin:21-jre
+FROM openjdk:22-slim
 WORKDIR /app
-COPY --from=build /app/cashu-gateway-rest/target/cashu-gateway-rest-*.jar app.jar
+COPY --from=build /build/cashu-gateway-rest/target/cashu-gateway-rest-*.jar cashu-gateway-rest.jar
 EXPOSE 8080
-ENTRYPOINT ["java","-jar","/app/app.jar"]
+ENTRYPOINT ["java", "-jar", "cashu-gateway-rest.jar"]
