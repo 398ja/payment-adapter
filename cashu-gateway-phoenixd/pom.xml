@@ -33,6 +33,10 @@
             <artifactId>tcheeric-common-util</artifactId>
         </dependency>
         <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>tcheeric-common-rest</artifactId>
+        </dependency>
+        <dependency>
             <groupId>xyz.tcheeric</groupId>
             <artifactId>cashu-gateway-rest</artifactId>
             <version>${project.version}</version>
