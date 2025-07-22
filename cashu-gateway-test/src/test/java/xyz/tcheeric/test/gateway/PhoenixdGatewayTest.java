@@ -6,8 +6,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import lombok.NoArgsConstructor;
-import lombok.extern.java.Log;
-import org.junit.jupiter.api.AfterEach;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import xyz.tcheeric.cashu.common.PaymentMethod;
@@ -20,7 +19,6 @@ import xyz.tcheeric.gateway.model.entity.GatewayQuote;
 import xyz.tcheeric.gateway.model.entity.enums.State;
 import xyz.tcheeric.gateway.phoenixd.PhoenixdGateway;
 
-import java.util.logging.Level;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -29,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-@Log
+@Slf4j
 @NoArgsConstructor
 public class PhoenixdGatewayTest {
 
@@ -78,6 +76,7 @@ public class PhoenixdGatewayTest {
         assertNotNull(quote);
         assertEquals(quoteId, quote.getQuoteId());
         assertEquals(State.PENDING, quote.getState());
+        log.debug("LN Invoice: {}", quote.getRequest());
     }
 
     @Test
