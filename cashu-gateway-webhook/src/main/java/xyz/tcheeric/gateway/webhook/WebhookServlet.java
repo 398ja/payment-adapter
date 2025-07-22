@@ -4,17 +4,16 @@ import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.extern.java.Log;
+import lombok.extern.slf4j.Slf4j;
 import xyz.tcheeric.gateway.client.PaymentClient;
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 import xyz.tcheeric.gateway.model.entity.enums.State;
 import xyz.tcheeric.gateway.webhook.helper.validator.RequestValidatorFacade;
 
 import java.time.Instant;
-import java.util.logging.Level;
 
 @WebServlet(name = "WebhookServlet", value = "/webhook")
-@Log
+@Slf4j
 public class WebhookServlet extends HttpServlet {
 
     @Override
@@ -32,17 +31,17 @@ public class WebhookServlet extends HttpServlet {
             // Validate the request
             GatewayPayment payment = RequestValidatorFacade.validate(request);
 
-            log.log(Level.INFO, "Confirming the payment: paymentId={0}", payment.getPaymentId());
+            log.info("Confirming the payment: paymentId={}", payment.getPaymentId());
             payment.setState(State.CONFIRMED);
             payment.setConfirmedDate(Instant.now());
 
-            log.log(Level.FINE, "Updating the payment: payment={0}", payment);
+            log.debug("Updating the payment: payment={}", payment);
             PaymentClient paymentClient = new PaymentClient();
             paymentClient.updatePayment(payment);
 
             response.setStatus(HttpServletResponse.SC_CREATED);
         } catch (Exception e) {
-            log.log(Level.SEVERE, "Error processing the webhook", e);
+            log.error("Error processing the webhook", e);
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         }
 
