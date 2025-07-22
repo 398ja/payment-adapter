@@ -78,14 +78,16 @@ SPRING_DATASOURCE_PASSWORD=password
 
 The REST layer is implemented using Spring Data REST. Once the service is running the following resources are available:
 
-* `GET /quote` – list or create quotes
+* `GET /quote` – list quotes
+* `POST /quote` – create a quote
 * `GET /quote/{id}` – fetch a quote by its numeric id
 * `GET /quote/search/findByQuoteId?quoteId=...` – fetch a quote using its external quote id
 * `GET /quote/search/findByInvoiceId?invoiceId=...` – find a quote by the Lightning invoice id
 
 Likewise for payments:
 
-* `GET /payment` – list or create payments
+* `GET /payment` – list payments
+* `POST /payment` – create a payment
 * `GET /payment/{id}` – fetch a payment by id
 * `GET /payment/search/findByPaymentId?paymentId=...`
 * `GET /payment/search/findByQuoteId?quoteId=...`
