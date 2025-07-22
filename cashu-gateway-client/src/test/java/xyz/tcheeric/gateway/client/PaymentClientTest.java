@@ -22,7 +22,7 @@ public class PaymentClientTest {
     @BeforeEach
     void setUp() {
         paymentClient = new PaymentClient();
-        server = MockRestServiceServer.bindTo(paymentClient.restTemplate).build();
+        server = MockRestServiceServer.bindTo(paymentClient.getRestTemplate()).build();
     }
 
     @Test

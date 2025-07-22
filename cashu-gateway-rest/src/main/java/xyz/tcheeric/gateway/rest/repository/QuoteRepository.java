@@ -4,6 +4,7 @@
  */
 package xyz.tcheeric.gateway.rest.repository;
 
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.CrudRepository;
 import org.springframework.data.repository.PagingAndSortingRepository;
 import org.springframework.data.repository.query.Param;
@@ -17,9 +18,9 @@ import xyz.tcheeric.gateway.model.entity.GatewayQuote;
 @RepositoryRestResource(collectionResourceRel = "quotes", path = "quote")
 public interface QuoteRepository extends PagingAndSortingRepository<GatewayQuote, Long>, CrudRepository<GatewayQuote,Long> {
 
-    @Query("select q from GatewayQuote q where q.quoteId = :quoteId")
+    @Query("select q from quote q where q.quoteId = :quoteId")
     GatewayQuote findByQuoteId(@Param("quoteId") String quoteId);
 
-    @Query("select q from GatewayQuote q where q.invoiceId = :invoiceId")
+    @Query("select q from quote q where q.invoiceId = :invoiceId")
     GatewayQuote findByInvoiceId(@Param("invoiceId") String invoiceId);
 }

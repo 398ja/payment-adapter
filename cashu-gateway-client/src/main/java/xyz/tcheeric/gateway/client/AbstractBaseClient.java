@@ -4,6 +4,7 @@
  */
 package xyz.tcheeric.gateway.client;
 
+import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +26,7 @@ import xyz.tcheeric.gateway.model.entity.GatewayQuote;
 @RequiredArgsConstructor
 public abstract class AbstractBaseClient<T extends GatewayEntity> {
 
+    @Getter
     protected final RestTemplate restTemplate = new RestTemplate();
     private final String entity;
     private final Class entityClass;
