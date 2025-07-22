@@ -16,10 +16,10 @@ import xyz.tcheeric.gateway.model.entity.GatewayQuote;
  */
 @RepositoryRestResource(collectionResourceRel = "quotes", path = "quote")
 public interface QuoteRepository extends PagingAndSortingRepository<GatewayQuote, Long>, CrudRepository<GatewayQuote,Long> {
-    
-    GatewayQuote findById(@Param("id") long id);
-    
+
+    @Query("select q from GatewayQuote q where q.quoteId = :quoteId")
     GatewayQuote findByQuoteId(@Param("quoteId") String quoteId);
 
+    @Query("select q from GatewayQuote q where q.invoiceId = :invoiceId")
     GatewayQuote findByInvoiceId(@Param("invoiceId") String invoiceId);
 }
