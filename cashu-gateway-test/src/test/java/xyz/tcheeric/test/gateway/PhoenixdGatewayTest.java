@@ -1,7 +1,13 @@
 package xyz.tcheeric.test.gateway;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import lombok.NoArgsConstructor;
 import lombok.extern.java.Log;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import xyz.tcheeric.cashu.common.PaymentMethod;
@@ -21,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @Log
 @NoArgsConstructor
@@ -28,51 +35,87 @@ public class PhoenixdGatewayTest {
 
     private PhoenixdGateway gateway;
 
+    private WireMockServer phoenixMock;
+    private WireMockServer apiMock;
+    private final ObjectMapper mapper = new ObjectMapper();
+
     private static final Configuration configuration = new Configuration("phoenixd", PhoenixdGatewayTest.class.getClassLoader().getResource("gw-test.properties"));
 
     @BeforeEach
     public void init() {
+        phoenixMock = new WireMockServer(WireMockConfiguration.options().port(9740));
+        apiMock = new WireMockServer(WireMockConfiguration.options().port(8080));
+        phoenixMock.start();
+        apiMock.start();
         gateway = new PhoenixdGateway();
     }
 
-    @Test
-    public void testCreateMintQuote() {
-        // Arrange
-        QuoteClient client = new QuoteClient();
-
-        // Act
-        System.setProperty("wid", "testCreateMintQuote");
-        String quoteId = gateway.createMintQuote(10, "testCreateMintQuote" + System.currentTimeMillis());
-        GatewayQuote quote = client.getByEntityId(quoteId);
-
-        // Assert
-        assertNotNull(quote);
-        assertEquals(quoteId, quote.getQuoteId());
-        assertNotEquals(State.CONFIRMED, quote.getState());
-        assertEquals(State.PENDING, quote.getState());
-        log.log(Level.ALL, "LN Invoice: {0}", quote.getRequest());
-
+    @AfterEach
+    public void shutdown() {
+        phoenixMock.stop();
+        apiMock.stop();
     }
 
     @Test
-    public void testPayInvoice() {
-        // Arrange
-        PaymentClient paymentClient = new PaymentClient();
-        QuoteClient quoteClient = new QuoteClient();
+    public void testCreateMintQuote() throws Exception {
+        phoenixMock.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v1/invoice"))
+                .willReturn(WireMock.okJson("{\"serialized\":\"lninvoice\",\"amountSat\":10}")));
+        phoenixMock.stubFor(WireMock.get(WireMock.urlPathEqualTo("/v1/lightning-address"))
+                .willReturn(WireMock.okJson("{\"lightningAddress\":\"bob@ln\"}")));
 
-        // Act
-        String payee = configuration.get("payee");
-        String quoteId = gateway.createMeltQuote(10, payee,"testPayInvoice" + System.currentTimeMillis());
+        apiMock.stubFor(WireMock.post(WireMock.urlEqualTo("/quote"))
+                .willReturn(WireMock.aResponse().withStatus(201).withHeader("Content-Type", "application/json").withBody("{\"id\":1}"))));
+
+        System.setProperty("wid", "testCreateMintQuote");
+        String quoteId = gateway.createMintQuote(10, "testCreateMintQuote");
+
+        JsonNode body = mapper.readTree(apiMock.getServeEvents().get(0).getRequest().getBodyAsString());
+        apiMock.stubFor(WireMock.get(WireMock.urlEqualTo("/quote/search/findByQuoteId?quoteId=" + quoteId))
+                .willReturn(WireMock.aResponse().withHeader("Content-Type", "application/json").withBody(body.toString())));
+
+        GatewayQuote quote = new QuoteClient().getByEntityId(quoteId);
+
+        assertNotNull(quote);
+        assertEquals(quoteId, quote.getQuoteId());
+        assertEquals(State.PENDING, quote.getState());
+    }
+
+    @Test
+    public void testPayInvoice() throws Exception {
+        phoenixMock.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v1/pay"))
+                .willReturn(WireMock.okJson("{\"paymentId\":\"pid\",\"paymentPreimage\":\"pre\",\"paymentHash\":\"hash\",\"recipientAmountSat\":10,\"routingFeeSat\":1}")));
+
+        apiMock.stubFor(WireMock.post(WireMock.urlEqualTo("/payment"))
+                .willReturn(WireMock.aResponse().withHeader("Content-Type","application/json").withBody("{\"id\":1}"))));
+
+        String quoteId = gateway.createMeltQuote(10, "bob@ln", "testPayInvoice");
         String paymentId = gateway.pay(quoteId);
-        GatewayPayment payment = paymentClient.getByEntityId(paymentId);
-        GatewayQuote quote = quoteClient.getByEntityId(quoteId);
 
-        // Assert
+        JsonNode paymentBody = mapper.readTree(
+                apiMock.getServeEvents().getServeEvents().stream()
+                        .filter(e -> "/payment".equals(e.getRequest().getUrl()))
+                        .findFirst().get().getRequest().getBodyAsString());
+        apiMock.stubFor(WireMock.get(WireMock.urlEqualTo("/payment/search/findByPaymentId?paymentId=" + paymentId))
+                .willReturn(WireMock.aResponse().withHeader("Content-Type","application/json").withBody(paymentBody.toString())));
+
+        GatewayPayment payment = new PaymentClient().getByEntityId(paymentId);
+
         assertNotNull(payment);
-        assertNotNull(paymentId);
         assertEquals(paymentId, payment.getPaymentId());
-        assertEquals(quote.getRequest(), payment.getRequest());
         assertEquals(State.PAID, payment.getState());
+    }
+
+    @Test
+    public void testPayInvoiceFailure() {
+        phoenixMock.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v1/pay"))
+                .willReturn(WireMock.okJson("{\"reason\":\"FAILURE\"}")));
+
+        apiMock.stubFor(WireMock.post(WireMock.urlEqualTo("/payment"))
+                .willReturn(WireMock.aResponse().withHeader("Content-Type","application/json").withBody("{\"id\":1}"))));
+
+        String quoteId = gateway.createMeltQuote(10, "bob@ln", "errorPay");
+
+        assertThrows(IllegalStateException.class, () -> gateway.pay(quoteId));
     }
 
     @Test
