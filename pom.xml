@@ -50,7 +50,7 @@
 
         <logback.version>1.5.12</logback.version>
 
-        <h2.version>2.3.232</h2.version>
+        <postgresql.version>42.7.3</postgresql.version>
     </properties>
 
     <dependencyManagement>
@@ -58,7 +58,12 @@
             <!-- Annotation Dependencies -->
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>tcheeric-common-config</artifactId>
+                <artifactId>tcheeric-common-util</artifactId>
+                <version>${tcheeric-common.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>tcheeric-common-rest</artifactId>
                 <version>${tcheeric-common.version}</version>
             </dependency>
             <!-- Test Dependencies -->

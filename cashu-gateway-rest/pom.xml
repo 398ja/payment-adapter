@@ -29,6 +29,7 @@
     <properties>
         <java.version>22</java.version>
         <maven.compiler.release>21</maven.compiler.release>
+        <spring.boot.version>3.5.0</spring.boot.version>
     </properties>
     <dependencies>
         <dependency>
@@ -36,9 +37,15 @@
             <artifactId>spring-boot-starter-data-rest</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>${postgresql.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <scope>runtime</scope>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

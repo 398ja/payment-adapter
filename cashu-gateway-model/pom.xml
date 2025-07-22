@@ -29,9 +29,9 @@
     </properties>
     <dependencies>
         <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <version>2.3.232</version>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>${postgresql.version}</version>
             <scope>runtime</scope>
         </dependency>
 
@@ -43,7 +43,7 @@
 
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>tcheeric-common-config</artifactId>
+            <artifactId>tcheeric-common-util</artifactId>
         </dependency>
 
         <!-- Spring Data JPA -->

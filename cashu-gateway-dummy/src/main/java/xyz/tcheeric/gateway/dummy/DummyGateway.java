@@ -1,10 +1,10 @@
 package xyz.tcheeric.gateway.dummy;
 
-import cashu.common.annotation.Supports;
-import cashu.common.model.PaymentMethod;
-import cashu.gateway.Gateway;
 import lombok.NonNull;
-import xyz.tcheeric.common.config.Configuration;
+import xyz.tcheeric.cashu.common.PaymentMethod;
+import xyz.tcheeric.cashu.entities.annotation.Supports;
+import xyz.tcheeric.cashu.gateway.Gateway;
+import xyz.tcheeric.common.util.Configuration;
 
 import java.util.UUID;
 
@@ -12,6 +12,7 @@ import java.util.UUID;
 public class DummyGateway implements Gateway {
 
     private static final String GATEWAY_NAME = "dummy";
+    private static Configuration configUtil = new Configuration("dummy");
 
     @Override
     public String createMintQuote(@NonNull Integer amount, String description) {
@@ -69,26 +70,19 @@ public class DummyGateway implements Gateway {
     }
 
     private boolean getPaymentStatus() {
-        String paymentStatus = getParameter("payment_status");
-        int status = Integer.parseInt(paymentStatus);
+        int status = configUtil.getInt("payment_status");
         return Math.random() < status / 100.0;
     }
 
     private Integer getAmount() {
-        return Integer.valueOf(getParameter("amount"));
+        return configUtil.getInt("amount");
     }
 
     private Integer getExpiry() {
-        return Integer.valueOf(getParameter("expiry"));
+        return configUtil.getInt("expiry");
     }
 
     private Integer getFeeReserve() {
-        return Integer.valueOf(getParameter("fee_reserve"));
+        return configUtil.getInt("fee_reserve");
     }
-
-    private String getParameter(@NonNull String key) {
-        Configuration configUtil = new Configuration("dummy");
-        return configUtil.get(key);
-    }
-
 }
