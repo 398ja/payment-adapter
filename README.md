@@ -56,9 +56,9 @@ docker-compose up
 
 This will start the following containers:
 
-* **cashu-gateway-db-1** – PostgreSQL database on port `5432`.
-* **cashu-gateway-phoenixd-1** – phoenixd Lightning node on port `9740`.
-* **cashu-gateway-rest-1** – Spring Boot application exposing HTTP on port `8080`.
+* **cashu-gateway-db** – PostgreSQL database on port `5432`.
+* **phoenixd** – phoenixd Lightning node on port `9740`.
+* **cashu-gateway-rest** – Spring Boot application exposing HTTP on port `8080`.
 
 The REST application can also be launched directly using Maven:
 
@@ -69,7 +69,7 @@ mvn -pl cashu-gateway-rest spring-boot:run
 Database connection properties can be overridden via environment variables. In `docker-compose.yml` these are set as:
 
 ```
-SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/gateway
+SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/cashu-gateway
 SPRING_DATASOURCE_USERNAME=postgres
 SPRING_DATASOURCE_PASSWORD=password
 ```
