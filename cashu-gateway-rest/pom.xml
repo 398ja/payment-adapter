@@ -29,6 +29,7 @@
     <properties>
         <java.version>22</java.version>
         <maven.compiler.release>21</maven.compiler.release>
+        <spring.boot.version>3.5.0</spring.boot.version>
     </properties>
     <dependencies>
         <dependency>

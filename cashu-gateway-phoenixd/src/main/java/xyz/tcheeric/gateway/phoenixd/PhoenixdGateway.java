@@ -1,16 +1,16 @@
 package xyz.tcheeric.gateway.phoenixd;
 
-import cashu.common.annotation.Supports;
-import cashu.common.model.PaymentMethod;
-import cashu.gateway.Gateway;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.NoArgsConstructor;
 import lombok.NonNull;
 import lombok.SneakyThrows;
 import lombok.extern.java.Log;
-import xyz.tcheeric.common.config.Configuration;
+import xyz.tcheeric.cashu.common.PaymentMethod;
+import xyz.tcheeric.cashu.entities.annotation.Supports;
+import xyz.tcheeric.cashu.gateway.Gateway;
 import xyz.tcheeric.common.rest.Response;
+import xyz.tcheeric.common.util.Configuration;
 import xyz.tcheeric.gateway.client.PaymentClient;
 import xyz.tcheeric.gateway.client.QuoteClient;
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
@@ -134,8 +134,9 @@ public class PhoenixdGateway implements Gateway {
     @Override
     public boolean checkPaymentStatus(String quoteId) {
         QuoteClient quoteClient = new QuoteClient();
-        GatewayQuote quote = quoteClient.getByEntityId(quoteId);
-        return State.CONFIRMED.equals(quote.getState());
+        //GatewayQuote quote = quoteClient.getByEntityId(quoteId);
+        GatewayPayment payment = new PaymentClient().getByQuoteId(quoteId);
+        return State.PAID.equals(payment.getState());
     }
 
     @Override

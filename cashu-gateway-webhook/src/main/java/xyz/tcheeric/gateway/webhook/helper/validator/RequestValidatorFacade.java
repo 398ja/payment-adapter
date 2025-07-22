@@ -2,7 +2,7 @@ package xyz.tcheeric.gateway.webhook.helper.validator;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.NonNull;
-import xyz.tcheeric.common.config.Configuration;
+import xyz.tcheeric.common.util.Configuration;
 import xyz.tcheeric.gateway.client.PaymentClient;
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 import xyz.tcheeric.gateway.model.entity.enums.State;
