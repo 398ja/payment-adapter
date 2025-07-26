@@ -69,6 +69,10 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
     }
 
     protected String getBaseUrl() {
-        return "http://localhost:8080/" + entity;
+        String baseUrl = System.getProperty("gateway.api.base_url", "http://localhost:8080");
+        if (!baseUrl.endsWith("/")) {
+            baseUrl += "/";
+        }
+        return baseUrl + entity;
     }
 }
