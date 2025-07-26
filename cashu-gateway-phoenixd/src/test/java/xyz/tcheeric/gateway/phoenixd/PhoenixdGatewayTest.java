@@ -1,10 +1,15 @@
 package xyz.tcheeric.gateway.phoenixd;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.tomakehurst.wiremock.WireMockServer;
-import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
-import com.github.tomakehurst.wiremock.client.WireMock;
-import com.fasterxml.jackson.databind.JsonNode;
+import xyz.tcheeric.phoenixd.model.response.CreateInvoiceResponse;
+import xyz.tcheeric.phoenixd.model.response.GetLightningAddressResponse;
+import xyz.tcheeric.phoenixd.model.response.PayInvoiceResponse;
+import xyz.tcheeric.phoenixd.request.impl.rest.CreateBolt11InvoiceRequest;
+import xyz.tcheeric.phoenixd.request.impl.rest.GetLightningAddressRequest;
+import xyz.tcheeric.phoenixd.request.impl.rest.PayBolt11InvoiceRequest;
+import xyz.tcheeric.phoenixd.request.impl.rest.PayLightningAddressRequest;
+import org.mockito.MockedConstruction;
+import org.mockito.junit.jupiter.MockitoExtension;
+import static org.mockito.Mockito.*;
 import xyz.tcheeric.gateway.client.PaymentClient;
 import xyz.tcheeric.gateway.client.QuoteClient;
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
@@ -19,92 +24,131 @@ import xyz.tcheeric.cashu.common.PaymentMethod;
 import xyz.tcheeric.gateway.common.Gateway;
 
 @NoArgsConstructor
+@org.junit.jupiter.api.extension.ExtendWith(MockitoExtension.class)
 public class PhoenixdGatewayTest {
 
     private PhoenixdGateway gateway;
 
-    private WireMockServer phoenixMock;
-    private WireMockServer apiMock;
-    private final ObjectMapper mapper = new ObjectMapper();
-
     @BeforeEach
     public void init() {
-        phoenixMock = new WireMockServer(WireMockConfiguration.options().dynamicPort());
-        apiMock = new WireMockServer(WireMockConfiguration.options().dynamicPort());
-        phoenixMock.start();
-        apiMock.start();
-        System.setProperty("phoenixd.base_url", "http://localhost:" + phoenixMock.port());
-        System.setProperty("gateway.api.base_url", "http://localhost:" + apiMock.port());
         gateway = new PhoenixdGateway();
     }
 
     @AfterEach
     public void shutdown() {
-        phoenixMock.stop();
-        apiMock.stop();
-        System.clearProperty("gateway.api.base_url");
+        System.clearProperty("wid");
     }
 
     @Test
     public void testCreateMintQuote() throws Exception {
-        phoenixMock.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v1/invoice"))
-                .willReturn(WireMock.okJson("{\"serialized\":\"lninvoice\",\"amountSat\":10}")));
-        phoenixMock.stubFor(WireMock.get(WireMock.urlPathEqualTo("/v1/lightning-address"))
-                .willReturn(WireMock.okJson("{\"lightningAddress\":\"bob@ln\"}")));
-
-        apiMock.stubFor(WireMock.post(WireMock.urlEqualTo("/quote"))
-                .willReturn(WireMock.aResponse().withStatus(201).withHeader("Content-Type", "application/json").withBody("{\"id\":1}")));
+        CreateInvoiceResponse createResp = new CreateInvoiceResponse();
+        createResp.setSerialized("lninvoice");
+        createResp.setAmountSat(10);
+        GetLightningAddressResponse addressResp = new GetLightningAddressResponse();
+        addressResp.setLightningAddress("bob@ln");
 
         System.setProperty("wid", "testCreateMintQuote");
-        String quoteId = gateway.createMintQuote(10, "testCreateMintQuote");
+        GatewayQuote[] savedQuote = new GatewayQuote[1];
+        try (
+            MockedConstruction<CreateBolt11InvoiceRequest> invoice = mockConstruction(CreateBolt11InvoiceRequest.class,
+                    (mock, context) -> when(mock.getResponse()).thenReturn(createResp));
+            MockedConstruction<GetLightningAddressRequest> address = mockConstruction(GetLightningAddressRequest.class,
+                    (mock, context) -> when(mock.getResponse()).thenReturn(addressResp));
+            MockedConstruction<QuoteClient> mocked = mockConstruction(QuoteClient.class,
+                    (mock, context) -> {
+                        when(mock.create(any(GatewayQuote.class))).thenAnswer(inv -> {
+                            GatewayQuote q = inv.getArgument(0);
+                            savedQuote[0] = q;
+                            return q;
+                        });
+                        when(mock.getByEntityId(anyString())).thenAnswer(inv -> savedQuote[0]);
+                    })
+        ) {
 
-        JsonNode body = mapper.readTree(apiMock.getServeEvents().getRequests().get(0).getRequest().getBodyAsString());
-        apiMock.stubFor(WireMock.get(WireMock.urlEqualTo("/quote/search/findByQuoteId?quoteId=" + quoteId))
-                .willReturn(WireMock.aResponse().withHeader("Content-Type", "application/json").withBody(body.toString())));
+            String quoteId = gateway.createMintQuote(10, "testCreateMintQuote");
 
-        GatewayQuote quote = new QuoteClient().getByEntityId(quoteId);
+            GatewayQuote quote = new QuoteClient().getByEntityId(quoteId);
 
-        Assertions.assertNotNull(quote);
-        Assertions.assertEquals(quoteId, quote.getQuoteId());
-        Assertions.assertEquals(State.PENDING, quote.getState());
+            Assertions.assertNotNull(quote);
+            Assertions.assertEquals(quoteId, quote.getQuoteId());
+            Assertions.assertEquals(State.PENDING, quote.getState());
+        }
     }
 
     @Test
     public void testPayInvoice() throws Exception {
-        phoenixMock.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v1/pay"))
-                .willReturn(WireMock.okJson("{\"paymentId\":\"pid\",\"paymentPreimage\":\"pre\",\"paymentHash\":\"hash\",\"recipientAmountSat\":10,\"routingFeeSat\":1}")));
+        PayInvoiceResponse payResp = new PayInvoiceResponse();
+        payResp.setPaymentId("pid");
+        payResp.setPaymentPreimage("pre");
+        payResp.setPaymentHash("hash");
+        payResp.setRecipientAmountSat(10);
+        payResp.setRoutingFeeSat(1);
 
-        apiMock.stubFor(WireMock.post(WireMock.urlEqualTo("/payment"))
-                .willReturn(WireMock.aResponse().withHeader("Content-Type","application/json").withBody("{\"id\":1}")));
+        GatewayQuote[] savedQuote = new GatewayQuote[1];
+        GatewayPayment[] savedPayment = new GatewayPayment[1];
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> {
+                        when(mock.create(any(GatewayQuote.class))).thenAnswer(inv -> {
+                            GatewayQuote q = inv.getArgument(0);
+                            savedQuote[0] = q;
+                            return q;
+                        });
+                        when(mock.getByEntityId(anyString())).thenAnswer(inv -> savedQuote[0]);
+                    });
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> {
+                        when(mock.create(any(GatewayPayment.class))).thenAnswer(inv -> {
+                            GatewayPayment p = inv.getArgument(0);
+                            savedPayment[0] = p;
+                            return p;
+                        });
+                        when(mock.getByEntityId(anyString())).thenAnswer(inv -> savedPayment[0]);
+                    });
+            MockedConstruction<PayBolt11InvoiceRequest> bolt11 = mockConstruction(PayBolt11InvoiceRequest.class,
+                    (mock, context) -> when(mock.getResponse()).thenReturn(payResp));
+            MockedConstruction<PayLightningAddressRequest> lnAddr = mockConstruction(PayLightningAddressRequest.class,
+                    (mock, context) -> when(mock.getResponse()).thenReturn(payResp))
+        ) {
 
-        String quoteId = gateway.createMeltQuote(10, "bob@ln", "testPayInvoice");
-        String paymentId = gateway.pay(quoteId);
+            String quoteId = gateway.createMeltQuote(10, "bob@ln", "testPayInvoice");
+            String paymentId = gateway.pay(quoteId);
 
-        JsonNode paymentBody = mapper.readTree(
-                apiMock.getServeEvents().getServeEvents().stream()
-                        .filter(e -> "/payment".equals(e.getRequest().getUrl()))
-                        .findFirst().get().getRequest().getBodyAsString());
-        apiMock.stubFor(WireMock.get(WireMock.urlEqualTo("/payment/search/findByPaymentId?paymentId=" + paymentId))
-                .willReturn(WireMock.aResponse().withHeader("Content-Type","application/json").withBody(paymentBody.toString())));
+            GatewayPayment payment = new PaymentClient().getByEntityId(paymentId);
 
-        GatewayPayment payment = new PaymentClient().getByEntityId(paymentId);
-
-        Assertions.assertNotNull(payment);
-        Assertions.assertEquals(paymentId, payment.getPaymentId());
-        Assertions.assertEquals(State.PAID, payment.getState());
+            Assertions.assertNotNull(payment);
+            Assertions.assertEquals(paymentId, payment.getPaymentId());
+            Assertions.assertEquals(State.PAID, payment.getState());
+        }
     }
 
     @Test
     public void testPayInvoiceFailure() {
-        phoenixMock.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v1/pay"))
-                .willReturn(WireMock.okJson("{\"reason\":\"FAILURE\"}")));
+        PayInvoiceResponse payResp = new PayInvoiceResponse();
+        payResp.setReason("FAILURE");
 
-        apiMock.stubFor(WireMock.post(WireMock.urlEqualTo("/payment"))
-                .willReturn(WireMock.aResponse().withHeader("Content-Type","application/json").withBody("{\"id\":1}")));
+        GatewayQuote[] savedQuote = new GatewayQuote[1];
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> {
+                        when(mock.create(any(GatewayQuote.class))).thenAnswer(inv -> {
+                            GatewayQuote q = inv.getArgument(0);
+                            savedQuote[0] = q;
+                            return q;
+                        });
+                        when(mock.getByEntityId(anyString())).thenAnswer(inv -> savedQuote[0]);
+                    });
+            MockedConstruction<PaymentClient> ignored = mockConstruction(PaymentClient.class);
+            MockedConstruction<PayBolt11InvoiceRequest> bolt11 = mockConstruction(PayBolt11InvoiceRequest.class,
+                    (mock, context) -> when(mock.getResponse()).thenReturn(payResp));
+            MockedConstruction<PayLightningAddressRequest> lnAddr = mockConstruction(PayLightningAddressRequest.class,
+                    (mock, context) -> when(mock.getResponse()).thenReturn(payResp))
+        ) {
 
-        String quoteId = gateway.createMeltQuote(10, "bob@ln", "errorPay");
+            String quoteId = gateway.createMeltQuote(10, "bob@ln", "errorPay");
 
-        Assertions.assertThrows(IllegalStateException.class, () -> gateway.pay(quoteId));
+            Assertions.assertThrows(IllegalStateException.class, () -> gateway.pay(quoteId));
+        }
     }
 
     @Test
