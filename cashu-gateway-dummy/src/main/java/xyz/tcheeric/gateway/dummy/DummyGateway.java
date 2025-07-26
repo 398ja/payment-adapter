@@ -3,8 +3,8 @@ package xyz.tcheeric.gateway.dummy;
 import lombok.NonNull;
 import xyz.tcheeric.cashu.common.PaymentMethod;
 import xyz.tcheeric.cashu.entities.annotation.Supports;
-import xyz.tcheeric.cashu.gateway.Gateway;
 import xyz.tcheeric.common.util.Configuration;
+import xyz.tcheeric.gateway.common.Gateway;
 
 import java.util.UUID;
 

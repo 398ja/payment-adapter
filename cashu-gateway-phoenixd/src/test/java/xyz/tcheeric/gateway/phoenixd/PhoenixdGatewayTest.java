@@ -1,23 +1,15 @@
 package xyz.tcheeric.gateway.phoenixd;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
-import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import lombok.NoArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import xyz.tcheeric.cashu.common.PaymentMethod;
-import xyz.tcheeric.cashu.gateway.Gateway;
-import xyz.tcheeric.gateway.client.PaymentClient;
-import xyz.tcheeric.gateway.client.QuoteClient;
-import xyz.tcheeric.gateway.model.entity.GatewayPayment;
-import xyz.tcheeric.gateway.model.entity.GatewayQuote;
-import xyz.tcheeric.gateway.model.entity.enums.State;
+import xyz.tcheeric.gateway.common.Gateway;
 
 @NoArgsConstructor
 public class PhoenixdGatewayTest {
