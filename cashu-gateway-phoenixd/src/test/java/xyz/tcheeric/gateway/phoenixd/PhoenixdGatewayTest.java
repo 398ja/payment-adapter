@@ -30,10 +30,11 @@ public class PhoenixdGatewayTest {
     @BeforeEach
     public void init() {
         phoenixMock = new WireMockServer(WireMockConfiguration.options().port(9740));
-        apiMock = new WireMockServer(WireMockConfiguration.options().port(8080));
+        apiMock = new WireMockServer(WireMockConfiguration.options().dynamicPort());
         phoenixMock.start();
         apiMock.start();
         System.setProperty("phoenixd.base_url", "http://localhost:" + phoenixMock.port());
+        System.setProperty("gateway.api.base_url", "http://localhost:" + apiMock.port());
         gateway = new PhoenixdGateway();
     }
 
@@ -41,6 +42,7 @@ public class PhoenixdGatewayTest {
     public void shutdown() {
         phoenixMock.stop();
         apiMock.stop();
+        System.clearProperty("gateway.api.base_url");
     }
 
     @Test
