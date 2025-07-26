@@ -3,6 +3,13 @@ package xyz.tcheeric.gateway.phoenixd;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.fasterxml.jackson.databind.JsonNode;
+import xyz.tcheeric.gateway.client.PaymentClient;
+import xyz.tcheeric.gateway.client.QuoteClient;
+import xyz.tcheeric.gateway.model.entity.GatewayPayment;
+import xyz.tcheeric.gateway.model.entity.GatewayQuote;
+import xyz.tcheeric.gateway.model.entity.enums.State;
 import lombok.NoArgsConstructor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -22,10 +29,11 @@ public class PhoenixdGatewayTest {
 
     @BeforeEach
     public void init() {
-        phoenixMock = new WireMockServer(WireMockConfiguration.options().port(19740));
-        apiMock = new WireMockServer(WireMockConfiguration.options().port(18080));
+        phoenixMock = new WireMockServer(WireMockConfiguration.options().port(9740));
+        apiMock = new WireMockServer(WireMockConfiguration.options().port(8080));
         phoenixMock.start();
         apiMock.start();
+        System.setProperty("phoenixd.base_url", "http://localhost:" + phoenixMock.port());
         gateway = new PhoenixdGateway();
     }
 
@@ -35,7 +43,6 @@ public class PhoenixdGatewayTest {
         apiMock.stop();
     }
 
-/*
     @Test
     public void testCreateMintQuote() throws Exception {
         phoenixMock.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v1/invoice"))
@@ -58,7 +65,6 @@ public class PhoenixdGatewayTest {
         Assertions.assertNotNull(quote);
         Assertions.assertEquals(quoteId, quote.getQuoteId());
         Assertions.assertEquals(State.PENDING, quote.getState());
-        log.debug("LN Invoice: {}", quote.getRequest());
     }
 
     @Test
@@ -98,7 +104,6 @@ public class PhoenixdGatewayTest {
 
         Assertions.assertThrows(IllegalStateException.class, () -> gateway.pay(quoteId));
     }
-*/
 
     @Test
     public void testSupports()  {
