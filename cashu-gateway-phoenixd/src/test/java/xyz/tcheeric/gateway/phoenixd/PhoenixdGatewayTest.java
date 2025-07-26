@@ -29,7 +29,7 @@ public class PhoenixdGatewayTest {
 
     @BeforeEach
     public void init() {
-        phoenixMock = new WireMockServer(WireMockConfiguration.options().port(9740));
+        phoenixMock = new WireMockServer(WireMockConfiguration.options().dynamicPort());
         apiMock = new WireMockServer(WireMockConfiguration.options().dynamicPort());
         phoenixMock.start();
         apiMock.start();

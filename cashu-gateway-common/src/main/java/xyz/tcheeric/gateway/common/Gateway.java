@@ -39,14 +39,6 @@ public interface Gateway {
     String getRequest(String quoteId);
 
     /**
-     *
-     * @param quoteId
-     * @return
-     *
-    String getRequestWithQuoteId(String quoteId);
-    */
-
-    /**
      * Check the payment status
      * @param request
      * @return
