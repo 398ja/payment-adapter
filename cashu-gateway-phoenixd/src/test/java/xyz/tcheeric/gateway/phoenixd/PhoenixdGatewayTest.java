@@ -2,7 +2,8 @@ package xyz.tcheeric.gateway.phoenixd;
 
 import xyz.tcheeric.phoenixd.model.response.CreateInvoiceResponse;
 import xyz.tcheeric.phoenixd.model.response.GetLightningAddressResponse;
-import xyz.tcheeric.phoenixd.model.response.PayInvoiceResponse;
+import xyz.tcheeric.phoenixd.model.response.PayBolt11InvoiceResponse;
+import xyz.tcheeric.phoenixd.model.response.PayLightningAddressResponse;
 import xyz.tcheeric.phoenixd.request.impl.rest.CreateBolt11InvoiceRequest;
 import xyz.tcheeric.phoenixd.request.impl.rest.GetLightningAddressRequest;
 import xyz.tcheeric.phoenixd.request.impl.rest.PayBolt11InvoiceRequest;
@@ -76,8 +77,8 @@ public class PhoenixdGatewayTest {
     }
 
     @Test
-    public void testPayInvoice() throws Exception {
-        PayInvoiceResponse payResp = new PayInvoiceResponse();
+    public void testPayBoltInvoice() throws Exception {
+        PayBolt11InvoiceResponse payResp = new PayBolt11InvoiceResponse();
         payResp.setPaymentId("pid");
         payResp.setPaymentPreimage("pre");
         payResp.setPaymentHash("hash");
@@ -106,12 +107,10 @@ public class PhoenixdGatewayTest {
                         when(mock.getByEntityId(anyString())).thenAnswer(inv -> savedPayment[0]);
                     });
             MockedConstruction<PayBolt11InvoiceRequest> bolt11 = mockConstruction(PayBolt11InvoiceRequest.class,
-                    (mock, context) -> when(mock.getResponse()).thenReturn(payResp));
-            MockedConstruction<PayLightningAddressRequest> lnAddr = mockConstruction(PayLightningAddressRequest.class,
                     (mock, context) -> when(mock.getResponse()).thenReturn(payResp))
         ) {
 
-            String quoteId = gateway.createMeltQuote(10, "bob@ln", "testPayInvoice");
+            String quoteId = gateway.createMeltQuote(10, "lninvoice", "testPayBoltInvoice");
             String paymentId = gateway.pay(quoteId);
 
             GatewayPayment payment = new PaymentClient().getByEntityId(paymentId);
@@ -123,8 +122,80 @@ public class PhoenixdGatewayTest {
     }
 
     @Test
-    public void testPayInvoiceFailure() {
-        PayInvoiceResponse payResp = new PayInvoiceResponse();
+    public void testPayLnInvoice() throws Exception {
+        PayLightningAddressResponse payResp = new PayLightningAddressResponse();
+        payResp.setPaymentId("pid");
+        payResp.setPaymentPreimage("pre");
+        payResp.setPaymentHash("hash");
+        payResp.setRecipientAmountSat(10);
+        payResp.setRoutingFeeSat(1);
+
+        GatewayQuote[] savedQuote = new GatewayQuote[1];
+        GatewayPayment[] savedPayment = new GatewayPayment[1];
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> {
+                        when(mock.create(any(GatewayQuote.class))).thenAnswer(inv -> {
+                            GatewayQuote q = inv.getArgument(0);
+                            savedQuote[0] = q;
+                            return q;
+                        });
+                        when(mock.getByEntityId(anyString())).thenAnswer(inv -> savedQuote[0]);
+                    });
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> {
+                        when(mock.create(any(GatewayPayment.class))).thenAnswer(inv -> {
+                            GatewayPayment p = inv.getArgument(0);
+                            savedPayment[0] = p;
+                            return p;
+                        });
+                        when(mock.getByEntityId(anyString())).thenAnswer(inv -> savedPayment[0]);
+                    });
+            MockedConstruction<PayLightningAddressRequest> lnAddr = mockConstruction(PayLightningAddressRequest.class,
+                    (mock, context) -> when(mock.getResponse()).thenReturn(payResp))
+        ) {
+
+            String quoteId = gateway.createMeltQuote(10, "bob@ln", "testPayLnInvoice");
+            String paymentId = gateway.pay(quoteId);
+
+            GatewayPayment payment = new PaymentClient().getByEntityId(paymentId);
+
+            Assertions.assertNotNull(payment);
+            Assertions.assertEquals(paymentId, payment.getPaymentId());
+            Assertions.assertEquals(State.PAID, payment.getState());
+        }
+    }
+
+    @Test
+    public void testPayLnInvoiceFailure() {
+        PayLightningAddressResponse payResp = new PayLightningAddressResponse();
+        payResp.setReason("FAILURE");
+
+        GatewayQuote[] savedQuote = new GatewayQuote[1];
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> {
+                        when(mock.create(any(GatewayQuote.class))).thenAnswer(inv -> {
+                            GatewayQuote q = inv.getArgument(0);
+                            savedQuote[0] = q;
+                            return q;
+                        });
+                        when(mock.getByEntityId(anyString())).thenAnswer(inv -> savedQuote[0]);
+                    });
+            MockedConstruction<PaymentClient> ignored = mockConstruction(PaymentClient.class);
+            MockedConstruction<PayLightningAddressRequest> lnAddr = mockConstruction(PayLightningAddressRequest.class,
+                    (mock, context) -> when(mock.getResponse()).thenReturn(payResp))
+        ) {
+
+            String quoteId = gateway.createMeltQuote(10, "bob@ln", "errorPayLn");
+
+        Assertions.assertThrows(IllegalStateException.class, () -> gateway.pay(quoteId));
+        }
+    }
+
+    @Test
+    public void testPayBoltInvoiceFailure() {
+        PayBolt11InvoiceResponse payResp = new PayBolt11InvoiceResponse();
         payResp.setReason("FAILURE");
 
         GatewayQuote[] savedQuote = new GatewayQuote[1];
@@ -140,12 +211,10 @@ public class PhoenixdGatewayTest {
                     });
             MockedConstruction<PaymentClient> ignored = mockConstruction(PaymentClient.class);
             MockedConstruction<PayBolt11InvoiceRequest> bolt11 = mockConstruction(PayBolt11InvoiceRequest.class,
-                    (mock, context) -> when(mock.getResponse()).thenReturn(payResp));
-            MockedConstruction<PayLightningAddressRequest> lnAddr = mockConstruction(PayLightningAddressRequest.class,
                     (mock, context) -> when(mock.getResponse()).thenReturn(payResp))
         ) {
 
-            String quoteId = gateway.createMeltQuote(10, "bob@ln", "errorPay");
+            String quoteId = gateway.createMeltQuote(10, "lninvoice", "errorPayBolt");
 
             Assertions.assertThrows(IllegalStateException.class, () -> gateway.pay(quoteId));
         }
