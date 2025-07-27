@@ -151,7 +151,7 @@ public class PhoenixdGatewayTest {
 
         ) {
 
-            String quoteId = gateway.createMeltQuote(10, "eyJsbkFkZHJlc3MiOiAiYm9iQGxuIiwgImFtb3VudCI6IDEwLCAiZGVzY3JpcHRpb24iOiAidGVzdCJ9", "testPayLnInvoice");
+            String quoteId = gateway.createMeltQuote("eyJsbkFkZHJlc3MiOiAiYm9iQGxuIiwgImFtb3VudCI6IDEwLCAiZGVzY3JpcHRpb24iOiAidGVzdCJ9");
             String paymentId = gateway.pay(quoteId);
 
             GatewayPayment payment = new PaymentClient().getByEntityId(paymentId);
@@ -183,7 +183,7 @@ public class PhoenixdGatewayTest {
 
         ) {
 
-            String quoteId = gateway.createMeltQuote(10, "eyJsbkFkZHJlc3MiOiAiYm9iQGxuIiwgImFtb3VudCI6IDEwLCAiZGVzY3JpcHRpb24iOiAidGVzdCJ9", "errorPayLn");
+            String quoteId = gateway.createMeltQuote("eyJsbkFkZHJlc3MiOiAiYm9iQGxuIiwgImFtb3VudCI6IDEwLCAiZGVzY3JpcHRpb24iOiAidGVzdCJ9");
 
         Assertions.assertThrows(IllegalStateException.class, () -> gateway.pay(quoteId));
         }
