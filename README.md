@@ -106,6 +106,9 @@ Integration tests reside in the `cashu-gateway-test` module and require a runnin
 mvn -pl cashu-gateway-test test
 ```
 
+Running `mvn test` at the project root will also produce an aggregated JaCoCo
+coverage report under `target/site/jacoco-aggregate/index.html`.
+
 ## Dockerfile
 
 A Dockerfile for the REST service is available under `cashu-gateway-rest/Dockerfile`. It performs a two-stage build using the Maven base image and produces a runnable JAR:
