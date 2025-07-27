@@ -2,8 +2,6 @@ package xyz.tcheeric.gateway.phoenixd;
 
 import xyz.tcheeric.phoenixd.model.response.CreateInvoiceResponse;
 import xyz.tcheeric.phoenixd.model.response.GetLightningAddressResponse;
-import xyz.tcheeric.phoenixd.model.response.PayBolt11InvoiceResponse;
-import xyz.tcheeric.phoenixd.model.response.PayLightningAddressResponse;
 import xyz.tcheeric.gateway.phoenixd.service.PhoenixdService;
 import org.mockito.Mock;
 import org.mockito.MockedConstruction;
@@ -20,6 +18,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import xyz.tcheeric.cashu.common.PaymentMethod;
 import xyz.tcheeric.gateway.common.Gateway;
+import xyz.tcheeric.phoenixd.model.response.PayBolt11InvoiceInvoiceResponse;
+import xyz.tcheeric.phoenixd.model.response.PayLightningAddressInvoiceResponse;
 
 @org.junit.jupiter.api.extension.ExtendWith(MockitoExtension.class)
 public class PhoenixdGatewayTest {
@@ -74,7 +74,7 @@ public class PhoenixdGatewayTest {
 
     @Test
     public void testPayBoltInvoice() throws Exception {
-        PayBolt11InvoiceResponse payResp = new PayBolt11InvoiceResponse();
+        PayBolt11InvoiceInvoiceResponse payResp = new PayBolt11InvoiceInvoiceResponse();
         payResp.setPaymentId("pid");
         payResp.setPaymentPreimage("pre");
         payResp.setPaymentHash("hash");
@@ -119,7 +119,7 @@ public class PhoenixdGatewayTest {
 
     @Test
     public void testPayLnInvoice() throws Exception {
-        PayLightningAddressResponse payResp = new PayLightningAddressResponse();
+        PayLightningAddressInvoiceResponse payResp = new PayLightningAddressInvoiceResponse();
         payResp.setPaymentId("pid");
         payResp.setPaymentPreimage("pre");
         payResp.setPaymentHash("hash");
@@ -164,7 +164,7 @@ public class PhoenixdGatewayTest {
 
     @Test
     public void testPayLnInvoiceFailure() {
-        PayLightningAddressResponse payResp = new PayLightningAddressResponse();
+        PayLightningAddressInvoiceResponse payResp = new PayLightningAddressInvoiceResponse();
         payResp.setReason("FAILURE");
 
         GatewayQuote[] savedQuote = new GatewayQuote[1];
@@ -191,7 +191,7 @@ public class PhoenixdGatewayTest {
 
     @Test
     public void testPayBoltInvoiceFailure() {
-        PayBolt11InvoiceResponse payResp = new PayBolt11InvoiceResponse();
+        PayBolt11InvoiceInvoiceResponse payResp = new PayBolt11InvoiceInvoiceResponse();
         payResp.setReason("FAILURE");
 
         GatewayQuote[] savedQuote = new GatewayQuote[1];
