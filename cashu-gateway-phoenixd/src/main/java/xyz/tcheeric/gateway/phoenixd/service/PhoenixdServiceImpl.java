@@ -7,8 +7,8 @@ import xyz.tcheeric.phoenixd.model.param.PayLightningAddressParam;
 import xyz.tcheeric.phoenixd.model.response.CreateInvoiceResponse;
 import xyz.tcheeric.phoenixd.model.response.DecodeInvoiceResponse;
 import xyz.tcheeric.phoenixd.model.response.GetLightningAddressResponse;
-import xyz.tcheeric.phoenixd.model.response.PayBolt11InvoiceResponse;
-import xyz.tcheeric.phoenixd.model.response.PayLightningAddressResponse;
+import xyz.tcheeric.phoenixd.model.response.PayBolt11InvoiceInvoiceResponse;
+import xyz.tcheeric.phoenixd.model.response.PayLightningAddressInvoiceResponse;
 import xyz.tcheeric.phoenixd.request.impl.rest.CreateBolt11InvoiceRequest;
 import xyz.tcheeric.phoenixd.request.impl.rest.DecodeInvoiceRequest;
 import xyz.tcheeric.phoenixd.request.impl.rest.GetLightningAddressRequest;
@@ -32,12 +32,12 @@ public class PhoenixdServiceImpl implements PhoenixdService {
     }
 
     @Override
-    public PayBolt11InvoiceResponse payBolt11Invoice(PayBolt11InvoiceParam param) {
+    public PayBolt11InvoiceInvoiceResponse payBolt11Invoice(PayBolt11InvoiceParam param) {
         return new PayBolt11InvoiceRequest(param).getResponse();
     }
 
     @Override
-    public PayLightningAddressResponse payLightningAddress(PayLightningAddressParam param) {
+    public PayLightningAddressInvoiceResponse payLightningAddress(PayLightningAddressParam param) {
         return new PayLightningAddressRequest(param).getResponse();
     }
 }
