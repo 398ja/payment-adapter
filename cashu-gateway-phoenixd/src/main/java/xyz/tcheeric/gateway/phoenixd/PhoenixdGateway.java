@@ -168,25 +168,22 @@ public class PhoenixdGateway implements Gateway {
         GatewayQuote quote = quoteClient.getByEntityId(quoteId);
         String request = quote.getRequest();
 
-        assert request != null;
+        if (request == null) {
+            throw new IllegalStateException("Missing payment request");
+        }
 
-        BasePayRequest payRequest = PayRequestFactory.createPayRequest(request);
+        BasePayRequest basePayRequest;
 
-        assert payRequest != null;
-
-        BasePayRequest basePayRequest = null;
-
-        if (payRequest instanceof PayBolt11InvoiceRequest) {
+        if (request.contains("@")) {
+            PayLightningAddressParam param = new PayLightningAddressParam();
+            param.setAmountSat(quote.getAmount());
+            param.setAddress(request);
+            basePayRequest = new PayLightningAddressRequest(param);
+        } else {
             PayBolt11InvoiceParam param = new PayBolt11InvoiceParam();
             param.setAmountSat(quote.getAmount());
             param.setInvoice(request);
             basePayRequest = new PayBolt11InvoiceRequest(param);
-        } else if (payRequest instanceof PayLightningAddressRequest) {
-            PayLightningAddressParam param = new PayLightningAddressParam();
-            param.setAmountSat(quote.getAmount());
-            // TODO - Pass the message
-            param.setAddress(request);
-            basePayRequest = new PayLightningAddressRequest(param);
         }
 
         assert basePayRequest != null;
