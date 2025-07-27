@@ -110,7 +110,7 @@ public class PhoenixdGatewayTest {
                     (mock, context) -> when(mock.getResponse()).thenReturn(payResp))
         ) {
 
-            String quoteId = gateway.createMeltQuote(10, "lninvoice", "testPayBoltInvoice");
+            String quoteId = gateway.createMeltQuote(10, "lnbc1testinvoice", "testPayBoltInvoice");
             String paymentId = gateway.pay(quoteId);
 
             GatewayPayment payment = new PaymentClient().getByEntityId(paymentId);
@@ -155,7 +155,7 @@ public class PhoenixdGatewayTest {
                     (mock, context) -> when(mock.getResponse()).thenReturn(payResp))
         ) {
 
-            String quoteId = gateway.createMeltQuote(10, "bob@ln", "testPayLnInvoice");
+            String quoteId = gateway.createMeltQuote(10, "eyJsbkFkZHJlc3MiOiAiYm9iQGxuIiwgImFtb3VudCI6IDEwLCAiZGVzY3JpcHRpb24iOiAidGVzdCJ9", "testPayLnInvoice");
             String paymentId = gateway.pay(quoteId);
 
             GatewayPayment payment = new PaymentClient().getByEntityId(paymentId);
@@ -187,7 +187,7 @@ public class PhoenixdGatewayTest {
                     (mock, context) -> when(mock.getResponse()).thenReturn(payResp))
         ) {
 
-            String quoteId = gateway.createMeltQuote(10, "bob@ln", "errorPayLn");
+            String quoteId = gateway.createMeltQuote(10, "eyJsbkFkZHJlc3MiOiAiYm9iQGxuIiwgImFtb3VudCI6IDEwLCAiZGVzY3JpcHRpb24iOiAidGVzdCJ9", "errorPayLn");
 
         Assertions.assertThrows(IllegalStateException.class, () -> gateway.pay(quoteId));
         }
@@ -214,7 +214,7 @@ public class PhoenixdGatewayTest {
                     (mock, context) -> when(mock.getResponse()).thenReturn(payResp))
         ) {
 
-            String quoteId = gateway.createMeltQuote(10, "lninvoice", "errorPayBolt");
+            String quoteId = gateway.createMeltQuote(10, "lnbc1failinvoice", "errorPayBolt");
 
             Assertions.assertThrows(IllegalStateException.class, () -> gateway.pay(quoteId));
         }
