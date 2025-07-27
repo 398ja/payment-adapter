@@ -25,13 +25,8 @@ import xyz.tcheeric.phoenixd.model.response.CreateInvoiceResponse;
 import xyz.tcheeric.phoenixd.model.response.DecodeInvoiceResponse;
 import xyz.tcheeric.phoenixd.model.response.GetLightningAddressResponse;
 import xyz.tcheeric.phoenixd.model.response.PayInvoiceResponse;
-import xyz.tcheeric.phoenixd.request.impl.rest.BasePayRequest;
-import xyz.tcheeric.phoenixd.request.impl.rest.CreateBolt11InvoiceRequest;
-import xyz.tcheeric.phoenixd.request.impl.rest.DecodeInvoiceRequest;
-import xyz.tcheeric.phoenixd.request.impl.rest.GetLightningAddressRequest;
-import xyz.tcheeric.phoenixd.request.impl.rest.PayBolt11InvoiceRequest;
-import xyz.tcheeric.phoenixd.request.impl.rest.PayLightningAddressRequest;
-import xyz.tcheeric.phoenixd.request.impl.rest.PayRequestFactory;
+import xyz.tcheeric.gateway.phoenixd.service.PhoenixdService;
+import xyz.tcheeric.gateway.phoenixd.service.PhoenixdServiceImpl;
 
 import java.net.URI;
 import java.net.URL;
@@ -40,13 +35,21 @@ import java.util.Base64;
 import java.util.UUID;
 
 @Slf4j
-@NoArgsConstructor
 @Supports({PaymentMethod.BOLT11, PaymentMethod.BOLT12, PaymentMethod.ON_CHAIN})
 public class PhoenixdGateway implements Gateway {
 
     private static final String GATEWAY_NAME = "phoenixd";
 
     private final static Configuration config = new Configuration("phoenixd");
+
+    private PhoenixdService service = new PhoenixdServiceImpl();
+
+    public PhoenixdGateway() {
+    }
+
+    public PhoenixdGateway(PhoenixdService service) {
+        this.service = service;
+    }
 
     @SneakyThrows
     @Override
@@ -63,8 +66,7 @@ public class PhoenixdGateway implements Gateway {
         param.setWebhookUrl(getWebhookUrl());
 
         // Create the invoice
-        CreateBolt11InvoiceRequest createBolt11InvoiceRequest = new CreateBolt11InvoiceRequest(param);
-        CreateInvoiceResponse response = createBolt11InvoiceRequest.getResponse();
+        CreateInvoiceResponse response = service.createInvoice(param);
 
         // Create the GatewayQuote
         GatewayQuote quote = new GatewayQuote();
@@ -172,22 +174,19 @@ public class PhoenixdGateway implements Gateway {
             throw new IllegalStateException("Missing payment request");
         }
 
-        BasePayRequest basePayRequest;
+        Response response;
 
         if (request.contains("@")) {
             PayLightningAddressParam param = new PayLightningAddressParam();
             param.setAmountSat(quote.getAmount());
             param.setAddress(request);
-            basePayRequest = new PayLightningAddressRequest(param);
+            response = service.payLightningAddress(param);
         } else {
             PayBolt11InvoiceParam param = new PayBolt11InvoiceParam();
             param.setAmountSat(quote.getAmount());
             param.setInvoice(request);
-            basePayRequest = new PayBolt11InvoiceRequest(param);
+            response = service.payBolt11Invoice(param);
         }
-
-        assert basePayRequest != null;
-        Response response = basePayRequest.getResponse();
 
         if (response instanceof PayInvoiceResponse payInvoiceResponse) {
 
@@ -256,7 +255,7 @@ public class PhoenixdGateway implements Gateway {
     private String createMeltQuoteLnInvoice(@NonNull String lnInvoice) {
         DecodeInvoiceParam param = new DecodeInvoiceParam();
         param.setInvoice(lnInvoice);
-        DecodeInvoiceResponse decodeInvoiceResponse = new DecodeInvoiceRequest(param).getResponse();
+        DecodeInvoiceResponse decodeInvoiceResponse = service.decodeInvoice(param);
         return createMeltQuote(decodeInvoiceResponse.getAmount(), lnInvoice, decodeInvoiceResponse.getDescription());
     }
 
@@ -299,8 +298,7 @@ public class PhoenixdGateway implements Gateway {
     }
 
     private String getLightningAddress() {
-        GetLightningAddressRequest getLightningAddressRequest = new GetLightningAddressRequest();
-        GetLightningAddressResponse getLightningAddressResponse = getLightningAddressRequest.getResponse();
-        return getLightningAddressResponse.getLightningAddress();
+        GetLightningAddressResponse resp = service.getLightningAddress();
+        return resp.getLightningAddress();
     }
 }
