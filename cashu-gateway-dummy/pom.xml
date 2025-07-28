@@ -20,10 +20,6 @@
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>tcheeric-common-util</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
             <artifactId>cashu-gateway-common</artifactId>
             <version>${project.version}</version>
         </dependency>

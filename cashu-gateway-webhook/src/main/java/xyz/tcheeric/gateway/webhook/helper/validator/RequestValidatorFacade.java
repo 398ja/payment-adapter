@@ -2,7 +2,6 @@ package xyz.tcheeric.gateway.webhook.helper.validator;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.NonNull;
-import xyz.tcheeric.common.util.Configuration;
 import xyz.tcheeric.gateway.client.PaymentClient;
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 import xyz.tcheeric.gateway.model.entity.enums.State;
@@ -14,10 +13,8 @@ public class RequestValidatorFacade {
 
     public static GatewayPayment validate(@NonNull HttpServletRequest request) {
 
-        String prefix = request.getParameter("wid");
-        Configuration configUtil = new Configuration(prefix);
-
-        String webhookId = configUtil.get("wid");
+        // TODO - Find a more elegant way to set the webhookId
+        String webhookId = "phoenixd";
         if(webhookId == null) {
             throw new IllegalArgumentException("Invalid webhook id");
         }

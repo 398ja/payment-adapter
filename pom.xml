@@ -54,17 +54,6 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- Annotation Dependencies -->
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>tcheeric-common-util</artifactId>
-                <version>${tcheeric-common.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>tcheeric-common-rest</artifactId>
-                <version>${tcheeric-common.version}</version>
-            </dependency>
             <!-- Test Dependencies -->
             <dependency>
                 <groupId>org.junit.jupiter</groupId>
@@ -77,6 +66,11 @@
                 <artifactId>assertj-core</artifactId>
                 <version>${assertj.version}</version>
                 <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>${lombok.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

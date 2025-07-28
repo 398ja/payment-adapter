@@ -1,18 +1,28 @@
 package xyz.tcheeric.gateway.dummy;
 
 import lombok.NonNull;
-import xyz.tcheeric.cashu.common.PaymentMethod;
-import xyz.tcheeric.cashu.entities.annotation.Supports;
-import xyz.tcheeric.common.util.Configuration;
 import xyz.tcheeric.gateway.common.Gateway;
 
+import java.io.IOException;
+import java.util.Properties;
 import java.util.UUID;
 
-@Supports({PaymentMethod.MOCK})
 public class DummyGateway implements Gateway {
 
     private static final String GATEWAY_NAME = "dummy";
-    private static Configuration configUtil = new Configuration("dummy");
+    private static final Properties properties = new Properties();
+
+    static {
+        try (var inputStream = DummyGateway.class.getClassLoader().getResourceAsStream("app.properties")) {
+            if (inputStream != null) {
+                properties.load(inputStream);
+            } else {
+                throw new IllegalStateException("Could not find app.properties file in the classpath.");
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to load app.properties file.", e);
+        }
+    }
 
     @Override
     public String createMintQuote(@NonNull Integer amount, String description) {
@@ -70,19 +80,19 @@ public class DummyGateway implements Gateway {
     }
 
     private boolean getPaymentStatus() {
-        int status = configUtil.getInt("payment_status");
+        int status = Integer.parseInt(properties.getProperty("dummy.payment_status", "0"));
         return Math.random() < status / 100.0;
     }
 
     private Integer getAmount() {
-        return configUtil.getInt("amount");
+        return Integer.parseInt(properties.getProperty("dummy.amount", "0"));
     }
 
     private Integer getExpiry() {
-        return configUtil.getInt("expiry");
+        return Integer.parseInt(properties.getProperty("dummy.expiry", "0"));
     }
 
     private Integer getFeeReserve() {
-        return configUtil.getInt("fee_reserve");
+        return Integer.parseInt(properties.getProperty("dummy.fee_reserve", "0"));
     }
 }
