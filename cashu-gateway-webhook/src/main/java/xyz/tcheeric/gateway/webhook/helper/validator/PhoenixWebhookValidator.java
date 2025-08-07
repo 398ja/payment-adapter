@@ -17,6 +17,23 @@ public class PhoenixWebhookValidator extends BaseWebhookValidator {
         super(webhookRequest);
     }
 
+    /**
+     * Validates the incoming phoenixd webhook request.
+     * <p>
+     * The validation performs the following steps:
+     * <ul>
+     *     <li>Fetch the quote identified by the webhook's external id and ensure it exists and is
+     *     meant for receiving funds.</li>
+     *     <li>Look up the payment linked to the quote and verify it exists.</li>
+     *     <li>Confirm the provided payment hash and amount match the stored payment values.</li>
+     *     <li>Verify the payment is marked as {@link State#PAID} and the webhook type is
+     *     {@code payment_received}.</li>
+     * </ul>
+     *
+     * @return the validated {@link GatewayPayment}
+     * @throws IllegalArgumentException if any validation step fails
+     */
+    @Override
     public GatewayPayment validate() {
 
         PhoenixdWebhookRequest webhookRequest = (PhoenixdWebhookRequest) getWebhookRequest();
