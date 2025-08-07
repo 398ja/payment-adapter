@@ -14,17 +14,16 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Data;
-import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 import xyz.tcheeric.gateway.model.entity.enums.Direction;
 import xyz.tcheeric.gateway.model.entity.enums.State;
 
 import java.io.Serial;
-
 /**
- *
- * @author eric
+ * JPA entity representing a quote handled by the gateway for minting or melting
+ * operations. The {@link #create(String, String, Integer, String, String, Integer, String)}
+ * factory method initializes a quote with default {@link State#PENDING} state and
+ * {@link Direction#RECEIVE} direction.
  */
 @Data
 @Entity(name = "quote")
@@ -32,9 +31,6 @@ import java.io.Serial;
         @Index(name = "idx_gatewayquote_quote_id", columnList = "quote_id")
 })
 @NoArgsConstructor
-@Getter
-@Setter
-// TODO - Create a static factory method to create a GatewayQuote with default values.
 public class GatewayQuote implements GatewayEntity {
 
     @Serial
@@ -60,4 +56,33 @@ public class GatewayQuote implements GatewayEntity {
 
     @Enumerated(EnumType.STRING)
     private Direction direction;
+
+    /**
+     * Factory method to create a {@link GatewayQuote} with default state and direction.
+     *
+     * @param quoteId     identifier assigned by the gateway
+     * @param invoiceId   identifier of the underlying invoice
+     * @param expiry      invoice expiry in seconds
+     * @param description description of the quote
+     * @param request     payment request string
+     * @param amount      amount of the quote
+     * @param unit        currency unit for the amount
+     * @return a new {@link GatewayQuote} instance with state {@link State#PENDING} and
+     * direction {@link Direction#RECEIVE}
+     */
+    public static GatewayQuote create(String quoteId, String invoiceId, Integer expiry,
+                                      String description, String request, Integer amount,
+                                      String unit) {
+        GatewayQuote quote = new GatewayQuote();
+        quote.setQuoteId(quoteId);
+        quote.setInvoiceId(invoiceId);
+        quote.setExpiry(expiry);
+        quote.setDescription(description);
+        quote.setRequest(request);
+        quote.setAmount(amount);
+        quote.setUnit(unit);
+        quote.setState(State.PENDING);
+        quote.setDirection(Direction.RECEIVE);
+        return quote;
+    }
 }
