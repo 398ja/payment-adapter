@@ -14,17 +14,15 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Data;
-import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 
 import java.io.Serial;
 import java.time.Instant;
 import xyz.tcheeric.gateway.model.entity.enums.State;
-
 /**
- *
- * @author eric
+ * JPA entity representing a payment processed by the gateway. Use
+ * {@link #create(String, String, String, String, Integer, Integer, Integer, String, String)}
+ * to instantiate a payment with default {@link State#PENDING} state.
  */
 @Data
 @Entity(name = "payment")
@@ -34,9 +32,6 @@ import xyz.tcheeric.gateway.model.entity.enums.State;
         @Index(name = "idx_gatewaypayment_quote_id", columnList = "quote_id")
 })
 @NoArgsConstructor
-@Getter
-@Setter
-// TODO - Create a static factory method to create a GatewayPayment with default values
 public class GatewayPayment implements GatewayEntity {
 
     @Serial
@@ -66,4 +61,37 @@ public class GatewayPayment implements GatewayEntity {
 
     @Column(length = 1024)
     private String paymentPreimage;
+
+    /**
+     * Factory method to create a {@link GatewayPayment} with a default state of
+     * {@link State#PENDING}.
+     *
+     * @param request             payment request string
+     * @param paymentId           identifier for the payment
+     * @param quoteId             associated quote identifier
+     * @param sourceCurrency      currency of the original request
+     * @param amount              amount of the payment
+     * @param lightningNetworkFee fee paid on the lightning network
+     * @param totalAmount         total amount including fees
+     * @param paymentHash         hash of the payment
+     * @param paymentPreimage     preimage of the payment
+     * @return a new {@link GatewayPayment} instance with state {@link State#PENDING}
+     */
+    public static GatewayPayment create(String request, String paymentId, String quoteId,
+                                        String sourceCurrency, Integer amount,
+                                        Integer lightningNetworkFee, Integer totalAmount,
+                                        String paymentHash, String paymentPreimage) {
+        GatewayPayment payment = new GatewayPayment();
+        payment.setRequest(request);
+        payment.setPaymentId(paymentId);
+        payment.setQuoteId(quoteId);
+        payment.setSourceCurrency(sourceCurrency);
+        payment.setAmount(amount);
+        payment.setLightningNetworkFee(lightningNetworkFee);
+        payment.setTotalAmount(totalAmount);
+        payment.setPaymentHash(paymentHash);
+        payment.setPaymentPreimage(paymentPreimage);
+        payment.setState(State.PENDING);
+        return payment;
+    }
 }
