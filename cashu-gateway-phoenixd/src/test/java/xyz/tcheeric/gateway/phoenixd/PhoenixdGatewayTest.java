@@ -20,6 +20,9 @@ import xyz.tcheeric.cashu.common.PaymentMethod;
 import xyz.tcheeric.gateway.common.Gateway;
 import xyz.tcheeric.phoenixd.model.response.PayBolt11InvoiceInvoiceResponse;
 import xyz.tcheeric.phoenixd.model.response.PayLightningAddressInvoiceResponse;
+import java.io.InputStream;
+import java.lang.reflect.Field;
+import java.util.Properties;
 
 @org.junit.jupiter.api.extension.ExtendWith(MockitoExtension.class)
 public class PhoenixdGatewayTest {
@@ -29,8 +32,25 @@ public class PhoenixdGatewayTest {
     private PhoenixdService service;
 
     @BeforeEach
-    public void init() {
+    public void init() throws Exception {
         gateway = new PhoenixdGateway(service);
+
+        Properties props = new Properties();
+        try (InputStream in = getClass().getClassLoader().getResourceAsStream("app.properties")) {
+            props.load(in);
+        }
+        setField("currency", props.getProperty("phoenixd.currency"));
+        setField("expiry", Integer.parseInt(props.getProperty("phoenixd.expiry")));
+        setField("lnAddressFlag", props.getProperty("phoenixd.lnaddress"));
+        setField("feePercent", Double.parseDouble(props.getProperty("phoenixd.fee.percent")));
+        setField("fixedFee", Integer.parseInt(props.getProperty("phoenixd.fee.fixed")));
+        setField("webhookBaseUrl", props.getProperty("webhook.base_url"));
+    }
+
+    private void setField(String name, Object value) throws Exception {
+        Field field = PhoenixdGateway.class.getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(gateway, value);
     }
 
     @AfterEach
