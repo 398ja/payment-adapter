@@ -1,9 +1,11 @@
 package xyz.tcheeric.gateway.rest.repository;
 
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 import xyz.tcheeric.gateway.model.entity.GatewayQuote;
@@ -22,6 +24,9 @@ class RepositoryIntegrationTests {
     @Autowired
     private QuoteRepository quoteRepository;
 
+    @Autowired
+    private TestEntityManager entityManager;
+
     @Test
     void paymentCrudLifecycle() {
         GatewayPayment payment = new GatewayPayment();
@@ -30,11 +35,12 @@ class RepositoryIntegrationTests {
         payment.setRequest("req");
         payment.setState(State.PENDING);
 
-        paymentRepository.save(payment);
+        entityManager.persist(payment);
+        entityManager.flush();
 
-        GatewayPayment loaded = paymentRepository.findByPaymentId("p123");
-        assertThat(loaded).isNotNull();
-        assertThat(loaded.getQuoteId()).isEqualTo("q123");
+        Optional<GatewayPayment> loaded = paymentRepository.findByPaymentId("p123");
+        assertThat(loaded).isPresent();
+        assertThat(loaded.get().getQuoteId()).isEqualTo("q123");
     }
 
     @Test
@@ -46,10 +52,11 @@ class RepositoryIntegrationTests {
         quote.setState(State.PENDING);
         quote.setDirection(Direction.RECEIVE);
 
-        quoteRepository.save(quote);
+        entityManager.persist(quote);
+        entityManager.flush();
 
-        GatewayQuote loaded = quoteRepository.findByQuoteId("q123");
-        assertThat(loaded).isNotNull();
-        assertThat(loaded.getInvoiceId()).isEqualTo("inv123");
+        Optional<GatewayQuote> loaded = quoteRepository.findByQuoteId("q123");
+        assertThat(loaded).isPresent();
+        assertThat(loaded.get().getInvoiceId()).isEqualTo("inv123");
     }
 }
