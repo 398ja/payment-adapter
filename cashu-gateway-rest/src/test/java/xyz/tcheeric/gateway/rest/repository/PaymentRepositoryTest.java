@@ -1,9 +1,11 @@
 package xyz.tcheeric.gateway.rest.repository;
 
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 import xyz.tcheeric.gateway.model.entity.enums.State;
@@ -17,6 +19,9 @@ class PaymentRepositoryTest {
     @Autowired
     private PaymentRepository paymentRepository;
 
+    @Autowired
+    private TestEntityManager entityManager;
+
     @Test
     void shouldPersistAndFindPayment() {
         GatewayPayment payment = new GatewayPayment();
@@ -25,15 +30,16 @@ class PaymentRepositoryTest {
         payment.setRequest("request");
         payment.setState(State.PENDING);
 
-        paymentRepository.save(payment);
+        entityManager.persist(payment);
+        entityManager.flush();
 
-        GatewayPayment byPaymentId = paymentRepository.findByPaymentId("payment123");
-        GatewayPayment byQuoteId = paymentRepository.findByQuoteId("quote456");
+        Optional<GatewayPayment> byPaymentId = paymentRepository.findByPaymentId("payment123");
+        Optional<GatewayPayment> byQuoteId = paymentRepository.findByQuoteId("quote456");
 
-        assertThat(byPaymentId).isNotNull();
-        assertThat(byPaymentId.getQuoteId()).isEqualTo("quote456");
+        assertThat(byPaymentId).isPresent();
+        assertThat(byPaymentId.get().getQuoteId()).isEqualTo("quote456");
 
-        assertThat(byQuoteId).isNotNull();
-        assertThat(byQuoteId.getPaymentId()).isEqualTo("payment123");
+        assertThat(byQuoteId).isPresent();
+        assertThat(byQuoteId.get().getPaymentId()).isEqualTo("payment123");
     }
 }
