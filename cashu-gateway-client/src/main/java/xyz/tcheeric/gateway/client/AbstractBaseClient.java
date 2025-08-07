@@ -1,7 +1,3 @@
-/*
- * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
- * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
- */
 package xyz.tcheeric.gateway.client;
 
 import lombok.Getter;
@@ -16,11 +12,10 @@ import xyz.tcheeric.gateway.model.entity.GatewayEntity;
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 import xyz.tcheeric.gateway.model.entity.GatewayQuote;
 
-
 /**
+ * Base REST client providing common CRUD operations for gateway entities.
  *
- * @author eric
- * @param <T>
+ * @param <T> type of gateway entity handled by the client
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -29,7 +24,7 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
     @Getter
     protected final RestTemplate restTemplate = new RestTemplate();
     private final String entity;
-    private final Class entityClass;
+    private final Class<T> entityClass;
 
     public T get(@NonNull Long id) {
         String url = getBaseUrl() + "/" + id;
