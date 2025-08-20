@@ -76,7 +76,7 @@ SPRING_DATASOURCE_PASSWORD=password
 
 ## API Overview
 
-The REST layer is implemented using Spring Data REST. Once the service is running the following resources are available:
+The REST layer is implemented using Spring Data REST. A full description of each endpoint is available in the [API reference](docs/reference/api.md). Once the service is running the following resources are available:
 
 * `GET /quote` – list quotes
 * `POST /quote` – create a quote
@@ -92,11 +92,11 @@ Likewise for payments:
 * `GET /payment/search/findByPaymentId?paymentId=...`
 * `GET /payment/search/findByQuoteId?quoteId=...`
 
-The `cashu-gateway-client` module demonstrates basic interaction with these endpoints.
+The `cashu-gateway-client` module demonstrates basic interaction with these endpoints; see the [API reference](docs/reference/api.md) for payload details.
 
 ## Webhook Handler
 
-The `cashu-gateway-webhook` module provides a simple servlet mapped at `/webhook`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. Requests must include a `wid` parameter which identifies the type of webhook request to validate.
+The `cashu-gateway-webhook` module provides a simple servlet mapped at `/webhook`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. Requests must include a `wid` parameter which identifies the type of webhook request to validate. See the [API reference](docs/reference/api.md) for the underlying REST endpoints.
 
 ## Running Tests
 
