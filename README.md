@@ -1,10 +1,8 @@
 # Cashu Gateway
 
-Cashu Gateway is a collection of Java modules that provide a simple gateway service for creating and settling Lightning Network invoices. It exposes a Spring Boot REST API backed by PostgreSQL and includes optional integrations such as a Phoenixd implementation and a servlet based webhook.
+Cashu Gateway provides a RESTful service for creating and settling Lightning Network invoices. The project is organised as modular Maven components.
 
-## Project Structure
-
-This project is organised as a multi-module Maven build. The root `pom.xml` aggregates the following modules:
+## Modules
 
 | Module | Description |
 | ------ | ----------- |
@@ -76,7 +74,7 @@ SPRING_DATASOURCE_PASSWORD=password
 
 ## API Overview
 
-The REST layer is implemented using Spring Data REST. Once the service is running the following resources are available:
+The REST layer is implemented using Spring Data REST. A full description of each endpoint is available in the [API reference](docs/reference/api.md). Once the service is running the following resources are available:
 
 * `GET /quote` – list quotes
 * `POST /quote` – create a quote
@@ -92,11 +90,11 @@ Likewise for payments:
 * `GET /payment/search/findByPaymentId?paymentId=...`
 * `GET /payment/search/findByQuoteId?quoteId=...`
 
-The `cashu-gateway-client` module demonstrates basic interaction with these endpoints.
+The `cashu-gateway-client` module demonstrates basic interaction with these endpoints; see the [API reference](docs/reference/api.md) for payload details.
 
 ## Webhook Handler
 
-The `cashu-gateway-webhook` module provides a simple servlet mapped at `/webhook`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. Requests must include a `wid` parameter which identifies the type of webhook request to validate.
+The `cashu-gateway-webhook` module provides a simple servlet mapped at `/webhook`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. Requests must include a `wid` parameter which identifies the type of webhook request to validate. See the [API reference](docs/reference/api.md) for the underlying REST endpoints.
 
 ## Running Tests
 
@@ -128,9 +126,27 @@ ENTRYPOINT ["java","-jar","/app/app.jar"]
 
 ## Configuration
 
-Each module that implements the `Gateway` interface provides its own `app.properties` file containing configuration options. For example `cashu-gateway-phoenixd` defines settings for invoice expiry and webhook URLs, while `cashu-gateway-dummy` exposes simple dummy values. Adjust these files to suit your environment.
+| Module | Option / Variable | Description |
+| ------ | ----------------- | ----------- |
+| **cashu-gateway-rest** | `SPRING_DATASOURCE_URL` | JDBC connection string. |
+| | `SPRING_DATASOURCE_USERNAME` | Database user. |
+| | `SPRING_DATASOURCE_PASSWORD` | Database password. |
+| **cashu-gateway-phoenixd** | `phoenixd.currency` | Invoice currency unit. |
+| | `phoenixd.expiration` | Quote lifetime in seconds. |
+| | `phoenixd.fee.percent` | Percentage fee. |
+| | `phoenixd.fee.fixed` | Fixed fee. |
+| | `phoenixd.expiry` | Invoice expiry in seconds. |
+| | `phoenixd.lnaddress` | Enable LN address support. |
+| | `<wid>.wid` | Webhook identifier mapping. |
+| | `webhook.base_url` | Base URL for webhook callbacks. |
+| **cashu-gateway-dummy** | `dummy.payment_status` | Mock payment status. |
+| | `dummy.amount` | Dummy payment amount. |
+| | `dummy.expiry` | Quote expiry in seconds. |
+| | `dummy.fee_reserve` | Fee reserve amount. |
+| | `webhook.base_url` | Base URL for webhook callbacks. |
+
+Each module reads configuration from its `app.properties` file or environment variables. See the guides in [docs](docs) for deployment details.
 
 ## License
 
-This project currently does not include an explicit license file. If you plan to use it in production or as the basis of other work, please consult the repository owner.
-
+This project currently does not include an explicit license. Contact the repository owner for usage terms.
