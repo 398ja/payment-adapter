@@ -29,3 +29,7 @@ Modules include:
 ## Commits
 - Use concise, descriptive commit messages (e.g. “Add payment update endpoint”).
 - Keep commit history clean and focused on a single change.
+
+## Pull requests
+- Always follow the repository's [PR submission guidelines](docs/pr-guidelines.md).
+- Use the provided PR template for all pull requests.
