@@ -4,4 +4,5 @@ feature:
   - '(?i)\bfeature\b'
 question:
   - '(?i)\bquestion\b'
-
+documentation:
+    - '(?i)doc'
