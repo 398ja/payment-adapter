@@ -1,0 +1,5 @@
+# Map labels to regex patterns for issue labeling
+bug:
+    - '(?i)bug'
+documentation:
+    - '(?i)doc'
