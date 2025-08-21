@@ -22,6 +22,7 @@ Modules include:
     - To run tests for a single module: `mvn -pl <module> test`.
 - New or modified code should include unit tests in `src/test/java`.
 - Ensure `mvn package` completes without errors.
+- Add a comment on top of every test method to describe the test in plain English.
 
 ## Docker
 - If Dockerfiles or `docker-compose.yml` are changed, verify the images build by running `docker-compose build`.
