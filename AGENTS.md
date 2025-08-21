@@ -31,5 +31,6 @@ Modules include:
 - Keep commit history clean and focused on a single change.
 
 ## Pull requests
-- Always follow the repository's [PR submission guidelines](docs/pr-guidelines.md).
-- Use the provided PR template for all pull requests.
+- Use the provided PR template for all pull requests. 
+- Always follow the repository's PR submission guidelines and use the PR template located at `.github/pull_request_template.md`.
+
