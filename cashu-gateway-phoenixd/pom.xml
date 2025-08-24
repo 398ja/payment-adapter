@@ -47,6 +47,11 @@
             <version>${phoenixd.version}</version>
         </dependency>
         <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>phoenixd-mock</artifactId>
+            <version>${phoenixd.version}</version>
+        </dependency>
+        <dependency>
             <groupId>xyz.tcheeric</groupId>
             <artifactId>cashu-gateway-rest</artifactId>
             <version>${project.version}</version>
