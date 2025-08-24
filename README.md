@@ -124,6 +124,16 @@ EXPOSE 8080
 ENTRYPOINT ["java","-jar","/app/app.jar"]
 ```
 
+## Publishing the Docker image
+
+The REST service image can be built and pushed to the `docker.398ja.xyz` registry using the Jib Maven plugin. From the project root run:
+
+```bash
+./mvnw deploy
+```
+
+This command builds the project and publishes `docker.398ja.xyz/cashu-gateway-rest:${project.version}`.
+
 ## Configuration
 
 | Module | Option / Variable | Description |
