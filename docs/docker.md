@@ -12,3 +12,13 @@ docker build -t cashu-gateway-rest cashu-gateway-rest
 docker-compose build
 docker-compose up
 ```
+
+## Publishing with Maven
+
+The project is configured with the [Jib](https://github.com/GoogleContainerTools/jib) Maven plugin. Executing:
+
+```bash
+./mvnw deploy
+```
+
+builds the REST module and pushes the resulting image to `docker.398ja.xyz/cashu-gateway-rest`.

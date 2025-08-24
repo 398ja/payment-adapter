@@ -124,6 +124,17 @@ EXPOSE 8080
 ENTRYPOINT ["java","-jar","/app/app.jar"]
 ```
 
+## Container Publishing
+
+The `cashu-gateway-rest` module uses the [Jib](https://github.com/GoogleContainerTools/jib) Maven plugin to build and publish a
+Docker image. Running:
+
+```bash
+./mvnw deploy
+```
+
+builds all modules and pushes `docker.398ja.xyz/cashu-gateway-rest:${project.version}`.
+
 ## Configuration
 
 | Module | Option / Variable | Description |
