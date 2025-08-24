@@ -67,7 +67,7 @@ The REST application can also be launched directly using Maven:
 Database connection properties can be overridden via environment variables. In `docker-compose.yml` these are set as:
 
 ```
-SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/cashu-gateway
+SPRING_DATASOURCE_URL=jdbc:postgresql://cashu-gatewaw-db:5432/cashu-gateway
 SPRING_DATASOURCE_USERNAME=postgres
 SPRING_DATASOURCE_PASSWORD=password
 ```
