@@ -9,7 +9,7 @@ services:
       context: .
       dockerfile: cashu-gateway-rest/Dockerfile
     depends_on:
-      - db
+      - cashu-gatewaw-db
       - phoenixd
     ports:
       - "8080:8080"
