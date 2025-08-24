@@ -44,7 +44,7 @@
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>phoenixd-rest</artifactId>
-            <version>${project.version}</version>
+            <version>${phoenixd.version}</version>
         </dependency>
         <dependency>
             <groupId>xyz.tcheeric</groupId>
