@@ -1,10 +1,10 @@
 version: '3.8'
 services:
-  db:
+  cashu-gatewaw-db:
     build: ./docker/postgres
     ports:
       - "5432:5432"
-  rest:
+  cashu-gatewaw-rest:
     build:
       context: .
       dockerfile: cashu-gateway-rest/Dockerfile
@@ -14,7 +14,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/cashu-gateway
+      SPRING_DATASOURCE_URL: jdbc:postgresql://cashu-gatewaw-db:5432/cashu-gateway
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: password
 
