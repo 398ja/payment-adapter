@@ -6,5 +6,6 @@ RUN mvn -B -pl cashu-gateway-rest -am package -DskipTests
 FROM openjdk:21-slim
 WORKDIR /app
 COPY --from=build /build/cashu-gateway-rest/target/cashu-gateway-rest-*.jar cashu-gateway-rest.jar
-EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "cashu-gateway-rest.jar"]
+ENV CASHU_GATEWAY_PORT=8080
+EXPOSE ${CASHU_GATEWAY_PORT}
+ENTRYPOINT ["sh", "-c", "java -Dcashu_gateway_port=${CASHU_GATEWAY_PORT} -jar cashu-gateway-rest.jar"]
