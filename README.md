@@ -27,21 +27,21 @@ Cashu Gateway provides a RESTful service for creating and settling Lightning Net
 ## Requirements
 
 * Java 21 or newer
-* Maven 3.8+
+* Maven 3.8+ (or use the included Maven Wrapper `./mvnw`)
 * Docker (for running the provided containers)
 
 ## Building
 
-To build all modules run the standard Maven build:
+To build all modules run the standard Maven build using the wrapper:
 
 ```bash
-mvn package
+./mvnw package
 ```
 
 Individual modules can be built with the `-pl` flag, for example:
 
 ```bash
-mvn -pl cashu-gateway-rest package
+./mvnw -pl cashu-gateway-rest package
 ```
 
 ## Running the REST Service
@@ -61,7 +61,7 @@ This will start the following containers:
 The REST application can also be launched directly using Maven:
 
 ```bash
-mvn -pl cashu-gateway-rest spring-boot:run
+./mvnw -pl cashu-gateway-rest spring-boot:run
 ```
 
 Database connection properties can be overridden via environment variables. In `docker-compose.yml` these are set as:
@@ -101,10 +101,10 @@ The `cashu-gateway-webhook` module provides a simple servlet mapped at `/webhook
 Integration tests reside in the `cashu-gateway-test` module and require a running phoenixd instance as well as the REST service. Execute them with:
 
 ```bash
-mvn -pl cashu-gateway-test test
+./mvnw -pl cashu-gateway-test test
 ```
 
-Running `mvn test` at the project root will also produce an aggregated JaCoCo
+Running `./mvnw test` at the project root will also produce an aggregated JaCoCo
 coverage report under `target/site/jacoco-aggregate/index.html`.
 
 ## Dockerfile
@@ -115,7 +115,7 @@ A Dockerfile for the REST service is available under `cashu-gateway-rest/Dockerf
 FROM maven:3.9.6-eclipse-temurin-21 AS build
 WORKDIR /app
 COPY . .
-RUN mvn -pl cashu-gateway-rest -am package -DskipTests
+RUN ./mvnw -pl cashu-gateway-rest -am package -DskipTests
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
