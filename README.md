@@ -133,7 +133,7 @@ Docker image. Running:
 ./mvnw deploy
 ```
 
-builds all modules and pushes `docker.398ja.xyz/cashu-gateway-rest:${project.version}`.
+builds all modules and pushes `docker.398ja.xyz/cashu-gateway-rest` tagged with both the project version and `latest`, so consumers can pull the most recent build without specifying a version.
 
 ## Configuration
 
