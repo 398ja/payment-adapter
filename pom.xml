@@ -4,7 +4,7 @@
 
     <groupId>xyz.tcheeric</groupId>
     <artifactId>cashu-gateway</artifactId>
-    <version>0.1.1</version>
+    <version>0.1.2-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>cashu-gateway</name>
@@ -36,6 +36,16 @@
             <id>reposilite-releases</id>
             <url>https://maven.398ja.xyz/releases</url>
         </repository>
+        <repository>
+            <id>reposilite-snapshots</id>
+            <url>https://maven.398ja.xyz/snapshots</url>
+            <releases>
+                <enabled>false</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
     </repositories>
 
     <properties>
@@ -46,7 +56,7 @@
 
         <lombok.version>1.18.36</lombok.version>
 
-        <cashu-lib-version>0.1.1</cashu-lib-version>
+        <cashu-lib-version>0.1.2-SNAPSHOT</cashu-lib-version>
 
         <phoenixd.version>0.1.0</phoenixd.version>
 
