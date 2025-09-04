@@ -13,6 +13,5 @@ RUN apt-get update \
 ENV CASHU_GATEWAY_PORT=8080
 ENV VAULT_BASE_URL=http://localhost:${CASHU_GATEWAY_PORT}
 COPY --from=build /build/target/cashu-gateway-rest-*.jar /app/app.jar
-RUN chown -R /app
 EXPOSE ${CASHU_GATEWAY_PORT}
 ENTRYPOINT ["java","-jar","/app/app.jar"]
