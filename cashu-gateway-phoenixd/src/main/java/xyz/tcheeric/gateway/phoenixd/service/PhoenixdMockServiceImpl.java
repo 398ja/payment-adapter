@@ -13,7 +13,7 @@ public class PhoenixdMockServiceImpl extends PhoenixdServiceImpl {
     private final MockLnServer server;
 
     public PhoenixdMockServiceImpl() {
-        this(9740);
+        this(19740);
     }
 
     public PhoenixdMockServiceImpl(int port) {
