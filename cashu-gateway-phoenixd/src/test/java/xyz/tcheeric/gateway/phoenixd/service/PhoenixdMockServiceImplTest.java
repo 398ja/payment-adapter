@@ -2,6 +2,7 @@ package xyz.tcheeric.gateway.phoenixd.service;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import xyz.tcheeric.phoenixd.model.param.CreateInvoiceParam;
 import xyz.tcheeric.phoenixd.model.response.CreateInvoiceResponse;
@@ -13,12 +14,16 @@ public class PhoenixdMockServiceImplTest {
 
     private PhoenixdMockServiceImpl service;
 
+    @BeforeEach
+    public void setUp() {
+        service = new PhoenixdMockServiceImpl();
+    }
+
     /**
      * Starts the mock server and ensures a non-null response when creating an invoice.
      */
     @Test
     public void testCreateInvoice() {
-        service = new PhoenixdMockServiceImpl();
         CreateInvoiceParam param = new CreateInvoiceParam();
         param.setAmountSat(1);
         param.setDescription("test");
