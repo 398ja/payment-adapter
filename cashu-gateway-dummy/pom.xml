@@ -4,7 +4,7 @@
     <parent>
         <groupId>xyz.tcheeric</groupId>
         <artifactId>cashu-gateway</artifactId>
-        <version>1.0-SNAPSHOT</version>
+        <version>0.1.2</version>
     </parent>
 
     <artifactId>cashu-gateway-dummy</artifactId>
@@ -12,6 +12,28 @@
 
     <name>cashu-gateway-dummy</name>
     <url>http://maven.apache.org</url>
+
+    <distributionManagement>
+        <repository>
+            <id>reposilite-releases</id>
+            <url>https://maven.398ja.xyz/releases</url>
+        </repository>
+        <snapshotRepository>
+            <id>reposilite-snapshots</id>
+            <url>https://maven.398ja.xyz/snapshots</url>
+        </snapshotRepository>
+    </distributionManagement>
+
+    <repositories>
+        <repository>
+            <id>reposilite-releases</id>
+            <url>https://maven.398ja.xyz/releases</url>
+        </repository>
+        <repository>
+            <id>reposilite-snapshots</id>
+            <url>https://maven.398ja.xyz/snapshots</url>
+        </repository>
+    </repositories>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

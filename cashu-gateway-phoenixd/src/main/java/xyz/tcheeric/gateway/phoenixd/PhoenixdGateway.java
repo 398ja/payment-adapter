@@ -217,35 +217,32 @@ public class PhoenixdGateway implements Gateway {
             throw new IllegalStateException("Null response from phoenixd service");
         }
 
-        if (response instanceof PayInvoiceResponse payInvoiceResponse) {
-
-            if (payInvoiceResponse.getReason() != null) {
-                throw new IllegalStateException("Payment failed: " + payInvoiceResponse.getReason());
-            }
-
-            GatewayPayment payment = new GatewayPayment();
-            payment.setPaymentId(payInvoiceResponse.getPaymentId());
-            payment.setRequest(request);
-            payment.setQuoteId(quoteId);
-            payment.setSourceCurrency(currency);
-            payment.setPaymentHash(payInvoiceResponse.getPaymentHash());
-            payment.setPaymentPreimage(payInvoiceResponse.getPaymentPreimage());
-            payment.setLightningNetworkFee(payInvoiceResponse.getRoutingFeeSat());
-            payment.setAmount(payInvoiceResponse.getRecipientAmountSat());
-            payment.setState(State.PAID);
-            payment.setPaidDate(Instant.now());
-            payment.setConfirmedDate(null);
-
-            PaymentClient client = new PaymentClient();
-            client.create(payment);
-
-            log.info("Payment sent: paymentId={}", payInvoiceResponse.getPaymentId());
-
-            return payInvoiceResponse.getPaymentId();
+        PayInvoiceResponse payInvoiceResponse = (PayInvoiceResponse) response;
+        if (payInvoiceResponse.getReason() != null) {
+            throw new IllegalStateException("Payment failed: " + payInvoiceResponse.getReason());
         }
 
+        GatewayPayment payment = new GatewayPayment();
+        payment.setPaymentId(payInvoiceResponse.getPaymentId());
+        payment.setRequest(request);
+        payment.setQuoteId(quoteId);
+        payment.setSourceCurrency(currency);
+        payment.setPaymentHash(payInvoiceResponse.getPaymentHash());
+        payment.setPaymentPreimage(payInvoiceResponse.getPaymentPreimage());
+        payment.setLightningNetworkFee(payInvoiceResponse.getRoutingFeeSat());
+        payment.setAmount(payInvoiceResponse.getRecipientAmountSat());
+        payment.setState(State.PAID);
+        payment.setPaidDate(Instant.now());
+        payment.setConfirmedDate(null);
+
+        PaymentClient client = new PaymentClient();
+        client.create(payment);
+
+        log.info("Payment sent: paymentId={}", payInvoiceResponse.getPaymentId());
+
+        return payInvoiceResponse.getPaymentId();
+
         // Should never happen
-        throw new IllegalStateException("Invalid response type: " + response.getClass().getName());
     }
 
     @Override

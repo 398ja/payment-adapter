@@ -1,10 +1,17 @@
-FROM maven:3.9.7-eclipse-temurin-21 AS build
+# Build stage
+FROM maven:3.9.6-eclipse-temurin-21 AS build
 WORKDIR /build
 COPY . .
-RUN mvn -B -pl cashu-gateway-rest -am package -DskipTests
+RUN mvn -q package -DskipTests
 
-FROM openjdk:21-slim
+# Runtime stage
+FROM eclipse-temurin:21-jre
 WORKDIR /app
-COPY --from=build /build/cashu-gateway-rest/target/cashu-gateway-rest-*.jar cashu-gateway-rest.jar
-EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "cashu-gateway-rest.jar"]
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+ENV CASHU_GATEWAY_PORT=8080
+ENV VAULT_BASE_URL=http://localhost:${CASHU_GATEWAY_PORT}
+COPY --from=build /build/target/cashu-gateway-rest-*.jar /app/app.jar
+EXPOSE ${CASHU_GATEWAY_PORT}
+ENTRYPOINT ["java","-jar","/app/app.jar"]

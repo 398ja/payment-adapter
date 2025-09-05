@@ -1,10 +1,8 @@
 # Cashu Gateway
 
-Cashu Gateway is a collection of Java modules that provide a simple gateway service for creating and settling Lightning Network invoices. It exposes a Spring Boot REST API backed by PostgreSQL and includes optional integrations such as a Phoenixd implementation and a servlet based webhook.
+Cashu Gateway provides a RESTful service for creating and settling Lightning Network invoices. The project is organised as modular Maven components.
 
-## Project Structure
-
-This project is organised as a multi-module Maven build. The root `pom.xml` aggregates the following modules:
+## Modules
 
 | Module | Description |
 | ------ | ----------- |
@@ -29,21 +27,21 @@ This project is organised as a multi-module Maven build. The root `pom.xml` aggr
 ## Requirements
 
 * Java 21 or newer
-* Maven 3.8+
+* Maven 3.8+ (or use the included Maven Wrapper `./mvnw`)
 * Docker (for running the provided containers)
 
 ## Building
 
-To build all modules run the standard Maven build:
+To build all modules run the standard Maven build using the wrapper:
 
 ```bash
-mvn package
+./mvnw package
 ```
 
 Individual modules can be built with the `-pl` flag, for example:
 
 ```bash
-mvn -pl cashu-gateway-rest package
+./mvnw -pl cashu-gateway-rest package
 ```
 
 ## Running the REST Service
@@ -63,20 +61,20 @@ This will start the following containers:
 The REST application can also be launched directly using Maven:
 
 ```bash
-mvn -pl cashu-gateway-rest spring-boot:run
+./mvnw -pl cashu-gateway-rest spring-boot:run
 ```
 
 Database connection properties can be overridden via environment variables. In `docker-compose.yml` these are set as:
 
 ```
-SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/cashu-gateway
+SPRING_DATASOURCE_URL=jdbc:postgresql://cashu-gatewaw-db:5432/cashu-gateway
 SPRING_DATASOURCE_USERNAME=postgres
 SPRING_DATASOURCE_PASSWORD=password
 ```
 
 ## API Overview
 
-The REST layer is implemented using Spring Data REST. Once the service is running the following resources are available:
+The REST layer is implemented using Spring Data REST. A full description of each endpoint is available in the [API reference](docs/reference/api.md). Once the service is running the following resources are available:
 
 * `GET /quote` – list quotes
 * `POST /quote` – create a quote
@@ -92,21 +90,21 @@ Likewise for payments:
 * `GET /payment/search/findByPaymentId?paymentId=...`
 * `GET /payment/search/findByQuoteId?quoteId=...`
 
-The `cashu-gateway-client` module demonstrates basic interaction with these endpoints.
+The `cashu-gateway-client` module demonstrates basic interaction with these endpoints; see the [API reference](docs/reference/api.md) for payload details.
 
 ## Webhook Handler
 
-The `cashu-gateway-webhook` module provides a simple servlet mapped at `/webhook`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. Requests must include a `wid` parameter which identifies the type of webhook request to validate.
+The `cashu-gateway-webhook` module provides a simple servlet mapped at `/webhook`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. Requests must include a `wid` parameter which identifies the type of webhook request to validate. See the [API reference](docs/reference/api.md) for the underlying REST endpoints.
 
 ## Running Tests
 
 Integration tests reside in the `cashu-gateway-test` module and require a running phoenixd instance as well as the REST service. Execute them with:
 
 ```bash
-mvn -pl cashu-gateway-test test
+./mvnw -pl cashu-gateway-test test
 ```
 
-Running `mvn test` at the project root will also produce an aggregated JaCoCo
+Running `./mvnw test` at the project root will also produce an aggregated JaCoCo
 coverage report under `target/site/jacoco-aggregate/index.html`.
 
 ## Dockerfile
@@ -117,7 +115,7 @@ A Dockerfile for the REST service is available under `cashu-gateway-rest/Dockerf
 FROM maven:3.9.6-eclipse-temurin-21 AS build
 WORKDIR /app
 COPY . .
-RUN mvn -pl cashu-gateway-rest -am package -DskipTests
+RUN ./mvnw -pl cashu-gateway-rest -am package -DskipTests
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
@@ -126,11 +124,40 @@ EXPOSE 8080
 ENTRYPOINT ["java","-jar","/app/app.jar"]
 ```
 
+## Container Publishing
+
+The `cashu-gateway-rest` module uses the [Jib](https://github.com/GoogleContainerTools/jib) Maven plugin to build and publish a
+Docker image. Running:
+
+```bash
+./mvnw deploy
+```
+
+builds all modules and pushes `docker.398ja.xyz/cashu-gateway-rest` tagged with both the project version and `latest`, so consumers can pull the most recent build without specifying a version.
+
 ## Configuration
 
-Each module that implements the `Gateway` interface provides its own `app.properties` file containing configuration options. For example `cashu-gateway-phoenixd` defines settings for invoice expiry and webhook URLs, while `cashu-gateway-dummy` exposes simple dummy values. Adjust these files to suit your environment.
+| Module | Option / Variable | Description |
+| ------ | ----------------- | ----------- |
+| **cashu-gateway-rest** | `SPRING_DATASOURCE_URL` | JDBC connection string. |
+| | `SPRING_DATASOURCE_USERNAME` | Database user. |
+| | `SPRING_DATASOURCE_PASSWORD` | Database password. |
+| **cashu-gateway-phoenixd** | `phoenixd.currency` | Invoice currency unit. |
+| | `phoenixd.expiration` | Quote lifetime in seconds. |
+| | `phoenixd.fee.percent` | Percentage fee. |
+| | `phoenixd.fee.fixed` | Fixed fee. |
+| | `phoenixd.expiry` | Invoice expiry in seconds. |
+| | `phoenixd.lnaddress` | Enable LN address support. |
+| | `<wid>.wid` | Webhook identifier mapping. |
+| | `webhook.base_url` | Base URL for webhook callbacks. |
+| **cashu-gateway-dummy** | `dummy.payment_status` | Mock payment status. |
+| | `dummy.amount` | Dummy payment amount. |
+| | `dummy.expiry` | Quote expiry in seconds. |
+| | `dummy.fee_reserve` | Fee reserve amount. |
+| | `webhook.base_url` | Base URL for webhook callbacks. |
+
+Each module reads configuration from its `app.properties` file or environment variables. See the guides in [docs](docs) for deployment details.
 
 ## License
 
-This project currently does not include an explicit license file. If you plan to use it in production or as the basis of other work, please consult the repository owner.
-
+This project currently does not include an explicit license. Contact the repository owner for usage terms.

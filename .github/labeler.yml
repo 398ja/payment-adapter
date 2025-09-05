@@ -1,0 +1,8 @@
+bug:
+  - '(?i)\bbug\b'
+feature:
+  - '(?i)\bfeature\b'
+question:
+  - '(?i)\bquestion\b'
+documentation:
+    - '(?i)doc'

@@ -11,7 +11,12 @@ import lombok.extern.slf4j.Slf4j;
 public class CashuGatewaySpringApplication {
 
         public static void main(String[] args) {
-                log.info("Starting CashuGatewaySpringApplication");
+                String port = System.getProperty("cashu_gateway_port");
+                if (port != null && !port.isBlank()) {
+                        System.setProperty("server.port", port);
+                }
+                log.info("Starting CashuGatewaySpringApplication on port {}",
+                                System.getProperty("server.port", "8080"));
                 SpringApplication.run(CashuGatewaySpringApplication.class, args);
         }
 

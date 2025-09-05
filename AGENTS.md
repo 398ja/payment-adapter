@@ -22,6 +22,7 @@ Modules include:
     - To run tests for a single module: `mvn -pl <module> test`.
 - New or modified code should include unit tests in `src/test/java`.
 - Ensure `mvn package` completes without errors.
+- Add a comment on top of every test method to describe the test in plain English.
 
 ## Docker
 - If Dockerfiles or `docker-compose.yml` are changed, verify the images build by running `docker-compose build`.
@@ -29,3 +30,8 @@ Modules include:
 ## Commits
 - Use concise, descriptive commit messages (e.g. “Add payment update endpoint”).
 - Keep commit history clean and focused on a single change.
+
+## Pull requests
+- Use the provided PR template for all pull requests. 
+- Always follow the repository's PR submission guidelines and use the PR template located at `.github/pull_request_template.md`.
+

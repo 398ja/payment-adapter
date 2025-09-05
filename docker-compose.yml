@@ -1,24 +1,24 @@
 version: '3.8'
 services:
-  db:
-    build: ./docker/postgres
-    ports:
-      - "5432:5432"
-  rest:
-    build:
-      context: .
-      dockerfile: cashu-gateway-rest/Dockerfile
-    depends_on:
-      - db
-      - phoenixd
-    ports:
-      - "8080:8080"
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/cashu-gateway
-      SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: password
-
-  phoenixd:
-    image: acinq/phoenixd:latest
-    ports:
-      - "9740:9740"
+    cashu-gatewaw-db:
+        build: ./docker/postgres
+        ports:
+            - "5432:5432"
+    cashu-gatewaw-rest:
+        build:
+            context: .
+            dockerfile: cashu-gateway-rest/Dockerfile
+        depends_on:
+            - cashu-gatewaw-db
+            - phoenixd
+        ports:
+            - "${CASHU_GATEWAY_PORT:-8080}:${CASHU_GATEWAY_PORT:-8080}"
+        environment:
+            CASHU_GATEWAY_PORT: ${CASHU_GATEWAY_PORT:-8080}
+            SPRING_DATASOURCE_URL: jdbc:postgresql://cashu-gatewaw-db:5432/cashu-gateway
+            SPRING_DATASOURCE_USERNAME: postgres
+            SPRING_DATASOURCE_PASSWORD: password
+    phoenixd:
+        image: acinq/phoenixd:latest
+        ports:
+            - "9740:9740"

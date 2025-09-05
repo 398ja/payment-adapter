@@ -4,7 +4,7 @@
 
     <groupId>xyz.tcheeric</groupId>
     <artifactId>cashu-gateway</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>0.1.2</version>
     <packaging>pom</packaging>
 
     <name>cashu-gateway</name>
@@ -20,17 +20,45 @@
         <module>cashu-gateway-common</module>
     </modules>
 
+    <distributionManagement>
+        <repository>
+            <id>reposilite-releases</id>
+            <url>https://maven.398ja.xyz/releases</url>
+        </repository>
+        <snapshotRepository>
+            <id>reposilite-snapshots</id>
+            <url>https://maven.398ja.xyz/snapshots</url>
+        </snapshotRepository>
+    </distributionManagement>
+
+    <repositories>
+        <repository>
+            <id>reposilite-releases</id>
+            <url>https://maven.398ja.xyz/releases</url>
+        </repository>
+        <repository>
+            <id>reposilite-snapshots</id>
+            <url>https://maven.398ja.xyz/snapshots</url>
+            <releases>
+                <enabled>false</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
 
-        <tcheeric-common.version>1.0-SNAPSHOT</tcheeric-common.version>
-
         <lombok.version>1.18.36</lombok.version>
 
-        <cashu-lib-version>0.1-SNAPSHOT</cashu-lib-version>
+        <cashu-lib-version>0.1.2</cashu-lib-version>
+
+        <phoenixd.version>0.1.0</phoenixd.version>
 
         <!-- jackson -->
         <fasterxml.jackson.version>2.18.1</fasterxml.jackson.version>
