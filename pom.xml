@@ -4,7 +4,7 @@
 
     <groupId>xyz.tcheeric</groupId>
     <artifactId>cashu-gateway</artifactId>
-    <version>0.1.2</version>
+    <version>0.1.3</version>
     <packaging>pom</packaging>
 
     <name>cashu-gateway</name>
@@ -56,7 +56,7 @@
 
         <lombok.version>1.18.36</lombok.version>
 
-        <cashu-lib-version>0.1.2</cashu-lib-version>
+        <cashu-lib-version>0.2.0</cashu-lib-version>
 
         <phoenixd.version>0.1.0</phoenixd.version>
 
