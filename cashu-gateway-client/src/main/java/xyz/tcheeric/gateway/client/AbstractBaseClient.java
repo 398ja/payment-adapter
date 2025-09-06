@@ -28,9 +28,9 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
 
     public T get(@NonNull Long id) {
         String url = getBaseUrl() + "/" + id;
-        log.info("Sending request: {}", url);
+        log.info("[{}] GET byId start: id={}, url={}", entity, id, url);
         ResponseEntity<T> response = restTemplate.getForEntity(url, entityClass);
-        log.info("Received response: {}", response.getBody());
+        log.info("[{}] GET byId success: id={}, body={}", entity, id, response.getBody());
         return response.getBody();
     }
 
@@ -43,9 +43,9 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
         } else {
             throw new IllegalArgumentException("Unsupported entity type: " + entityClass.getName());
         }
-        log.info("Sending request: {}", url);
+        log.info("[{}] GET byEntityId start: entityId={}, url={}", entity, entityId, url);
         ResponseEntity<T> response = restTemplate.getForEntity(url, entityClass);
-        log.info("Received response: {}", response.getBody());
+        log.info("[{}] GET byEntityId success: entityId={}, body={}", entity, entityId, response.getBody());
         return response.getBody();
     }
 
@@ -58,9 +58,9 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
 
     public void delete(@NonNull Long id) {
         String url = getBaseUrl() + "/" + id;
-        log.info("Sending request to delete entity with id: {}", id);
+        log.info("[{}] DELETE start: id={}, url={}", entity, id, url);
         restTemplate.delete(url);
-        log.info("Deleted entity with id: {}", id);
+        log.info("[{}] DELETE success: id={}", entity, id);
     }
 
     protected String getBaseUrl() {
