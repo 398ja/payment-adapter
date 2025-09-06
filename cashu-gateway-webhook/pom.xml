@@ -5,7 +5,7 @@
 
     <groupId>xyz.tcheeric</groupId>
     <artifactId>cashu-gateway-webhook</artifactId>
-    <version>0.1.2</version>
+    <version>0.1.3</version>
     <name>cashu-gateway-webhook</name>
     <packaging>war</packaging>
 
