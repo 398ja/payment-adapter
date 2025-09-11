@@ -57,6 +57,7 @@ This will start the following containers:
 * **cashu-gateway-db** – PostgreSQL database on port `5432`.
 * **phoenixd** – phoenixd Lightning node on port `9740`.
 * **cashu-gateway-rest** – Spring Boot application exposing HTTP on port `8080`.
+* **cashu-gateway-webhook** – Servlet container handling webhooks on host port `9090` (Tomcat in-container port `8080`).
 
 The REST application can also be launched directly using Maven:
 
@@ -64,10 +65,18 @@ The REST application can also be launched directly using Maven:
 ./mvnw -pl cashu-gateway-rest spring-boot:run
 ```
 
+### Webhook service (Docker)
+
+The webhook handler runs as a separate servlet container (Tomcat). In Docker Compose:
+
+- The REST service is reachable as `http://cashu-gateway-rest:8080`.
+- The webhook service is reachable as `http://cashu-gateway-webhook:8080/webhook/phoenixd` within the network and on the host as `http://localhost:9090/webhook/phoenixd`.
+- The REST app is configured to provide this webhook URL to phoenixd via `WEBHOOK_BASE_URL` environment variable.
+
 Webhook identification (wid) removed
 
 Earlier versions mentioned a `wid` (webhook id) used to route webhook requests. This has been removed to simplify configuration.
-The webhook handler now expects phoenixd-formatted parameters (e.g., `type`, `amountSat`, `paymentHash`, `externalId`) at `/webhook/phoenixd` without any id parameter.
+The webhook handler expects phoenixd-formatted parameters (e.g., `type`, `amountSat`, `paymentHash`, `externalId`) at `/webhook/phoenixd` without any id parameter.
 
 Database connection properties can be overridden via environment variables. In `docker-compose.yml` these are set as:
 
