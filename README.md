@@ -64,37 +64,10 @@ The REST application can also be launched directly using Maven:
 ./mvnw -pl cashu-gateway-rest spring-boot:run
 ```
 
-### Passing a wid system property
+Webhook identification (wid) removed
 
-You can provide a JVM system property `wid` from an external program or environment:
-
-- Docker Compose: export the environment variable and bring up the stack
-
-  ```bash
-  export WID=my-external-id
-  docker-compose up --build
-  ```
-
-  The container entrypoint passes `-Dwid=${WID}` to the JVM.
-
-- Docker run directly:
-
-  ```bash
-  docker run -e WID=my-external-id -p 8080:8080 cashu-gateway-rest:latest
-  ```
-
-- Running the built JAR locally:
-
-  ```bash
-  java -Dwid=my-external-id -jar cashu-gateway-rest/target/cashu-gateway-rest-*.jar
-  ```
-
-- Running via Spring Boot plugin:
-
-  ```bash
-  ./mvnw -pl cashu-gateway-rest spring-boot:run \
-    -Dspring-boot.run.jvmArguments="-Dwid=my-external-id"
-  ```
+Earlier versions mentioned a `wid` (webhook id) used to route webhook requests. This has been removed to simplify configuration.
+The webhook handler now expects phoenixd-formatted parameters (e.g., `type`, `amountSat`, `paymentHash`, `externalId`) at `/webhook` without any id parameter.
 
 Database connection properties can be overridden via environment variables. In `docker-compose.yml` these are set as:
 
@@ -126,7 +99,7 @@ The `cashu-gateway-client` module demonstrates basic interaction with these endp
 
 ## Webhook Handler
 
-The `cashu-gateway-webhook` module provides a simple servlet mapped at `/webhook`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. Requests must include a `wid` parameter which identifies the type of webhook request to validate. See the [API reference](docs/reference/api.md) for the underlying REST endpoints.
+The `cashu-gateway-webhook` module provides a simple servlet mapped at `/webhook`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. No `wid` parameter is required.
 
 ## Running Tests
 
@@ -180,7 +153,6 @@ builds all modules and pushes `docker.398ja.xyz/cashu-gateway-rest` tagged with 
 | | `phoenixd.fee.fixed` | Fixed fee. |
 | | `phoenixd.expiry` | Invoice expiry in seconds. |
 | | `phoenixd.lnaddress` | Enable LN address support. |
-| | `<wid>.wid` | Webhook identifier mapping. |
 | | `webhook.base_url` | Base URL for webhook callbacks. |
 | **cashu-gateway-dummy** | `dummy.payment_status` | Mock payment status. |
 | | `dummy.amount` | Dummy payment amount. |

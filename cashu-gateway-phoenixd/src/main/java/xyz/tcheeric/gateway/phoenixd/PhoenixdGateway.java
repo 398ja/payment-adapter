@@ -308,11 +308,7 @@ public class PhoenixdGateway implements Gateway {
 
     @SneakyThrows
     private URL getWebhookUrl() {
-        String wid = System.getProperty("wid");
-        if (wid == null) {
-            throw new IllegalArgumentException("Missing webhook id");
-        }
-        return URI.create(webhookBaseUrl + "?wid=" + wid).toURL();
+        return URI.create(webhookBaseUrl).toURL();
     }
 
     private String getRequest(@NonNull CreateInvoiceResponse response) {

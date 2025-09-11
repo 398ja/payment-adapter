@@ -52,11 +52,9 @@ This document lists configuration properties and environment variables available
 | `phoenixd.base_url` | `http://localhost:9740` | Base URL of phoenixd node. |
 | `phoenixd.timeout` | `5000` | HTTP timeout in milliseconds. |
 | `phoenixd.webhook_secret` | *(empty)* | Secret for verifying webhooks. |
-| `A1b2C3d4.wid` | `phoenixd` | Webhook identifier. |
 | `webhook.base_url` | `http://localhost:9090/webhook` | Base URL for webhook callbacks. |
 
 ## Webhook module ([cashu-gateway-webhook](../../cashu-gateway-webhook))
 
 | Property | Default | Description |
 | --- | --- | --- |
-| `A1b2C3d4.wid` | `phoenixd` | Webhook identifier expected by validator. |

@@ -18,8 +18,6 @@ services:
             SPRING_DATASOURCE_URL: jdbc:postgresql://cashu-gateway-db:5432/cashu-gateway
             SPRING_DATASOURCE_USERNAME: postgres
             SPRING_DATASOURCE_PASSWORD: password
-            # Optional: forward wid to JVM as -Dwid
-            WID: ${WID:-}
     phoenixd:
         image: acinq/phoenixd:latest
         ports:
