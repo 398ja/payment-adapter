@@ -1,6 +1,6 @@
 # Webhook Handler
 
-`cashu-gateway-webhook` exposes a servlet at `/webhook` for processing payment notifications.
+`cashu-gateway-webhook` exposes a servlet at `/webhook/phoenixd` for processing payment notifications.
 
 ## Request Parameters (phoenixd)
 
@@ -16,7 +16,7 @@ The webhook expects parameters in an `application/x-www-form-urlencoded` payload
 ### Example
 
 ```
-POST /webhook
+POST /webhook/phoenixd
 type=payment_received&amountSat=1000&paymentHash=<hash>&externalId=<invoice>
 ```
 

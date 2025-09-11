@@ -67,7 +67,7 @@ The REST application can also be launched directly using Maven:
 Webhook identification (wid) removed
 
 Earlier versions mentioned a `wid` (webhook id) used to route webhook requests. This has been removed to simplify configuration.
-The webhook handler now expects phoenixd-formatted parameters (e.g., `type`, `amountSat`, `paymentHash`, `externalId`) at `/webhook` without any id parameter.
+The webhook handler now expects phoenixd-formatted parameters (e.g., `type`, `amountSat`, `paymentHash`, `externalId`) at `/webhook/phoenixd` without any id parameter.
 
 Database connection properties can be overridden via environment variables. In `docker-compose.yml` these are set as:
 
@@ -99,7 +99,7 @@ The `cashu-gateway-client` module demonstrates basic interaction with these endp
 
 ## Webhook Handler
 
-The `cashu-gateway-webhook` module provides a simple servlet mapped at `/webhook`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. No `wid` parameter is required.
+The `cashu-gateway-webhook` module provides a simple servlet mapped at `/webhook/phoenixd`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. No `wid` parameter is required.
 
 ## Running Tests
 
