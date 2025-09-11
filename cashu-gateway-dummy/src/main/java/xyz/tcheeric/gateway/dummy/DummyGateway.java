@@ -1,5 +1,6 @@
 package xyz.tcheeric.gateway.dummy;
 
+import lombok.NoArgsConstructor;
 import lombok.NonNull;
 import xyz.tcheeric.gateway.common.Gateway;
 
@@ -7,6 +8,7 @@ import java.io.IOException;
 import java.util.Properties;
 import java.util.UUID;
 
+@NoArgsConstructor
 public class DummyGateway implements Gateway {
 
     private static final String GATEWAY_NAME = "dummy";

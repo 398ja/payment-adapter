@@ -64,10 +64,42 @@ The REST application can also be launched directly using Maven:
 ./mvnw -pl cashu-gateway-rest spring-boot:run
 ```
 
+### Passing a wid system property
+
+You can provide a JVM system property `wid` from an external program or environment:
+
+- Docker Compose: export the environment variable and bring up the stack
+
+  ```bash
+  export WID=my-external-id
+  docker-compose up --build
+  ```
+
+  The container entrypoint passes `-Dwid=${WID}` to the JVM.
+
+- Docker run directly:
+
+  ```bash
+  docker run -e WID=my-external-id -p 8080:8080 cashu-gateway-rest:latest
+  ```
+
+- Running the built JAR locally:
+
+  ```bash
+  java -Dwid=my-external-id -jar cashu-gateway-rest/target/cashu-gateway-rest-*.jar
+  ```
+
+- Running via Spring Boot plugin:
+
+  ```bash
+  ./mvnw -pl cashu-gateway-rest spring-boot:run \
+    -Dspring-boot.run.jvmArguments="-Dwid=my-external-id"
+  ```
+
 Database connection properties can be overridden via environment variables. In `docker-compose.yml` these are set as:
 
 ```
-SPRING_DATASOURCE_URL=jdbc:postgresql://cashu-gatewaw-db:5432/cashu-gateway
+SPRING_DATASOURCE_URL=jdbc:postgresql://cashu-gateway-db:5432/cashu-gateway
 SPRING_DATASOURCE_USERNAME=postgres
 SPRING_DATASOURCE_PASSWORD=password
 ```
