@@ -30,6 +30,11 @@ public class RequestValidatorFacade {
         phoenixdWebhookRequest.setType(request.getParameter("type"));
         phoenixdWebhookRequest.setPaymentHash(request.getParameter("paymentHash"));
         phoenixdWebhookRequest.setExternalId(request.getParameter("externalId"));
+
+        // Short-circuit if required identifiers are missing to avoid remote calls
+        if (phoenixdWebhookRequest.getExternalId() == null || phoenixdWebhookRequest.getExternalId().isBlank()) {
+            throw new IllegalArgumentException("Quote not found");
+        }
         PhoenixWebhookValidator phoenixWebhookValidator = new PhoenixWebhookValidator(phoenixdWebhookRequest);
         return phoenixWebhookValidator.validate();
 
