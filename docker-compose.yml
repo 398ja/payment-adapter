@@ -30,7 +30,7 @@ services:
             # Let the servlet contact the REST API inside the Compose network
             CATALINA_OPTS: -Dgateway.api.base_url=http://cashu-gateway-rest:8080
         ports:
-            - "9090:8080"
+            - "${WEBHOOK_PORT:-9090}:8080"
     phoenixd:
         image: acinq/phoenixd:latest
         ports:
