@@ -15,14 +15,14 @@ public class DummyGateway implements Gateway {
     private static final Properties properties = new Properties();
 
     static {
-        try (var inputStream = DummyGateway.class.getClassLoader().getResourceAsStream("app.properties")) {
+        try (var inputStream = DummyGateway.class.getClassLoader().getResourceAsStream("dummy.properties")) {
             if (inputStream != null) {
                 properties.load(inputStream);
             } else {
-                throw new IllegalStateException("Could not find app.properties file in the classpath.");
+                throw new IllegalStateException("Could not find dummy.properties file in the classpath.");
             }
         } catch (IOException e) {
-            throw new RuntimeException("Failed to load app.properties file.", e);
+            throw new RuntimeException("Failed to load dummy.properties file.", e);
         }
     }
 
