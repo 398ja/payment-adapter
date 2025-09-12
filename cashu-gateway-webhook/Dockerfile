@@ -16,5 +16,9 @@ COPY --from=build /build/cashu-gateway-webhook/target/cashu-gateway-webhook-*.wa
 # Expose Tomcat HTTP port
 EXPOSE 8080
 
-CMD ["catalina.sh","run"]
+# Lightweight tooling for healthcheck
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 
+CMD ["catalina.sh","run"]

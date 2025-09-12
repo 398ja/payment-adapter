@@ -72,7 +72,8 @@ The webhook handler runs as a separate servlet container. In Docker Compose:
 - The REST service is reachable as `http://cashu-gateway-rest:8080`.
 - The webhook service is reachable as `http://cashu-gateway-webhook:8080/webhook/phoenixd` within the network and on the host as `http://localhost:${WEBHOOK_PORT:-9090}/webhook/phoenixd`.
 - The REST app is configured to provide this webhook URL to phoenixd via `WEBHOOK_BASE_URL` environment variable.
--- Compose builds the webhook image from `cashu-gateway-webhook/Dockerfile`.
+- Compose builds the webhook image from `cashu-gateway-webhook/Dockerfile`.
+  The container also exposes `GET /health` which Docker Compose uses for health checks.
 
 Webhook identification (wid) removed
 

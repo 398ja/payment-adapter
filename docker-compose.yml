@@ -31,6 +31,12 @@ services:
             CATALINA_OPTS: -Dgateway.api.base_url=http://cashu-gateway-rest:8080
         ports:
             - "${WEBHOOK_PORT:-9090}:8080"
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+            interval: 10s
+            timeout: 3s
+            retries: 5
+            start_period: 20s
     phoenixd:
         image: acinq/phoenixd:latest
         ports:

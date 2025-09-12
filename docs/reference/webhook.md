@@ -2,6 +2,14 @@
 
 `cashu-gateway-webhook` exposes a servlet at `/webhook/phoenixd` for processing payment notifications.
 
+## Health
+
+The webhook service exposes a simple health endpoint for container orchestration:
+
+- `GET /health` → returns `200 OK` with body `OK`.
+
+Docker Compose uses this endpoint for health checks.
+
 ## Request Parameters (phoenixd)
 
 | Name | Required | Description |
