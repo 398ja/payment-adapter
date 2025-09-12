@@ -4,17 +4,17 @@ WORKDIR /build
 COPY . .
 RUN mvn -q -pl cashu-gateway-webhook -am package -DskipTests
 
-# Runtime stage
+# Runtime stage (Servlet container)
 FROM tomcat:10.1-jdk21-temurin
 
-# Configure Tomcat
-ENV CATALINA_OPTS="${CATALINA_OPTS}"
 WORKDIR /usr/local/tomcat
 
-# Deploy the WAR as ROOT
+# Clean default apps and deploy our WAR as ROOT
 RUN rm -rf webapps/*
 COPY --from=build /build/cashu-gateway-webhook/target/cashu-gateway-webhook-*.war webapps/ROOT.war
 
+# Expose Tomcat HTTP port
 EXPOSE 8080
+
 CMD ["catalina.sh","run"]
 

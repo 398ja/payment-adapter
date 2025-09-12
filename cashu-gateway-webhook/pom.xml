@@ -114,38 +114,6 @@
                 <artifactId>maven-war-plugin</artifactId>
                 <version>3.4.0</version>
             </plugin>
-            <plugin>
-                <groupId>com.google.cloud.tools</groupId>
-                <artifactId>jib-maven-plugin</artifactId>
-                <version>3.4.1</version>
-                <configuration>
-                    <from>
-                        <!-- Jetty 11 for Jakarta Servlet 5/6, JDK 21 -->
-                        <image>jetty:11-jre21</image>
-                    </from>
-                    <to>
-                        <image>docker.398ja.xyz/cashu-gateway-webhook:latest</image>
-                        <tags>
-                            <tag>${project.version}</tag>
-                        </tags>
-                    </to>
-                    <container>
-                        <!-- Deploy as ROOT.war under Jetty webapps -->
-                        <appRoot>/var/lib/jetty/webapps/ROOT.war</appRoot>
-                        <ports>
-                            <port>8080</port>
-                        </ports>
-                    </container>
-                </configuration>
-                <executions>
-                    <execution>
-                        <phase>deploy</phase>
-                        <goals>
-                            <goal>build</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
         </plugins>
     </build>
 </project>

@@ -57,7 +57,7 @@ This will start the following containers:
 * **cashu-gateway-db** – PostgreSQL database on port `5432`.
 * **phoenixd** – phoenixd Lightning node on port `9740`.
 * **cashu-gateway-rest** – Spring Boot application exposing HTTP on port `8080`.
-* **cashu-gateway-webhook** – Servlet container handling webhooks on host port `9090` (container port `8080`).
+* **cashu-gateway-webhook** – Servlet container handling webhooks on host port `9090` (container port `8080`). Built via module Dockerfile.
 
 The REST application can also be launched directly using Maven:
 
@@ -67,11 +67,12 @@ The REST application can also be launched directly using Maven:
 
 ### Webhook service (Docker)
 
-The webhook handler runs as a separate servlet container (Tomcat). In Docker Compose:
+The webhook handler runs as a separate servlet container. In Docker Compose:
 
 - The REST service is reachable as `http://cashu-gateway-rest:8080`.
 - The webhook service is reachable as `http://cashu-gateway-webhook:8080/webhook/phoenixd` within the network and on the host as `http://localhost:${WEBHOOK_PORT:-9090}/webhook/phoenixd`.
 - The REST app is configured to provide this webhook URL to phoenixd via `WEBHOOK_BASE_URL` environment variable.
+-- Compose builds the webhook image from `cashu-gateway-webhook/Dockerfile`.
 
 Webhook identification (wid) removed
 
@@ -140,16 +141,13 @@ ENTRYPOINT ["java","-jar","/app/app.jar"]
 
 ## Container Publishing
 
-The `cashu-gateway-rest` and `cashu-gateway-webhook` modules use the [Jib](https://github.com/GoogleContainerTools/jib) Maven plugin to build and publish Docker images. Running:
+The `cashu-gateway-rest` module uses the [Jib](https://github.com/GoogleContainerTools/jib) Maven plugin to build and publish a Docker image. Running:
 
 ```bash
 ./mvnw deploy
 ```
 
-builds all modules and pushes:
-
-- `docker.398ja.xyz/cashu-gateway-rest` (tags: project version, latest)
-- `docker.398ja.xyz/cashu-gateway-webhook` (tags: project version, latest)
+builds all modules and pushes `docker.398ja.xyz/cashu-gateway-rest` tagged with both the project version and `latest`.
 
 ## Configuration
 
