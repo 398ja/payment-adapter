@@ -57,6 +57,7 @@ This will start the following containers:
 * **cashu-gateway-db** – PostgreSQL database on port `5432`.
 * **phoenixd** – phoenixd Lightning node on port `9740`.
 * **cashu-gateway-rest** – Spring Boot application exposing HTTP on port `8080`.
+* **cashu-gateway-webhook** – Servlet container handling webhooks on host port `9090` (container port `8080`). Built via module Dockerfile.
 
 The REST application can also be launched directly using Maven:
 
@@ -64,37 +65,20 @@ The REST application can also be launched directly using Maven:
 ./mvnw -pl cashu-gateway-rest spring-boot:run
 ```
 
-### Passing a wid system property
+### Webhook service (Docker)
 
-You can provide a JVM system property `wid` from an external program or environment:
+The webhook handler runs as a separate servlet container. In Docker Compose:
 
-- Docker Compose: export the environment variable and bring up the stack
+- The REST service is reachable as `http://cashu-gateway-rest:8080`.
+- The webhook service is reachable as `http://cashu-gateway-webhook:8080/webhook/phoenixd` within the network and on the host as `http://localhost:${WEBHOOK_PORT:-9090}/webhook/phoenixd`.
+- The REST app is configured to provide this webhook URL to phoenixd via `WEBHOOK_BASE_URL` environment variable.
+- Compose builds the webhook image from `cashu-gateway-webhook/Dockerfile`.
+  The container also exposes `GET /health` which Docker Compose uses for health checks.
 
-  ```bash
-  export WID=my-external-id
-  docker-compose up --build
-  ```
+Webhook identification (wid) removed
 
-  The container entrypoint passes `-Dwid=${WID}` to the JVM.
-
-- Docker run directly:
-
-  ```bash
-  docker run -e WID=my-external-id -p 8080:8080 cashu-gateway-rest:latest
-  ```
-
-- Running the built JAR locally:
-
-  ```bash
-  java -Dwid=my-external-id -jar cashu-gateway-rest/target/cashu-gateway-rest-*.jar
-  ```
-
-- Running via Spring Boot plugin:
-
-  ```bash
-  ./mvnw -pl cashu-gateway-rest spring-boot:run \
-    -Dspring-boot.run.jvmArguments="-Dwid=my-external-id"
-  ```
+Earlier versions mentioned a `wid` (webhook id) used to route webhook requests. This has been removed to simplify configuration.
+The webhook handler expects phoenixd-formatted parameters (e.g., `type`, `amountSat`, `paymentHash`, `externalId`) at `/webhook/phoenixd` without any id parameter.
 
 Database connection properties can be overridden via environment variables. In `docker-compose.yml` these are set as:
 
@@ -126,7 +110,7 @@ The `cashu-gateway-client` module demonstrates basic interaction with these endp
 
 ## Webhook Handler
 
-The `cashu-gateway-webhook` module provides a simple servlet mapped at `/webhook`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. Requests must include a `wid` parameter which identifies the type of webhook request to validate. See the [API reference](docs/reference/api.md) for the underlying REST endpoints.
+The `cashu-gateway-webhook` module provides a simple servlet mapped at `/webhook/phoenixd`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. No `wid` parameter is required.
 
 ## Running Tests
 
@@ -158,14 +142,18 @@ ENTRYPOINT ["java","-jar","/app/app.jar"]
 
 ## Container Publishing
 
-The `cashu-gateway-rest` module uses the [Jib](https://github.com/GoogleContainerTools/jib) Maven plugin to build and publish a
-Docker image. Running:
+The `cashu-gateway-rest` and `cashu-gateway-webhook` modules include the [Jib](https://github.com/GoogleContainerTools/jib) Maven plugin to build and publish images to a Docker registry. Running:
 
 ```bash
 ./mvnw deploy
 ```
 
-builds all modules and pushes `docker.398ja.xyz/cashu-gateway-rest` tagged with both the project version and `latest`, so consumers can pull the most recent build without specifying a version.
+builds all modules and pushes:
+
+- `docker.398ja.xyz/cashu-gateway-rest` (tags: project version, latest)
+- `docker.398ja.xyz/cashu-gateway-webhook` (tags: project version, latest)
+
+Authentication can be configured via `~/.m2/settings.xml` (server id `docker-hub` or your private registry), environment variables, or Jib's system properties. See Jib docs for details.
 
 ## Configuration
 
@@ -180,7 +168,6 @@ builds all modules and pushes `docker.398ja.xyz/cashu-gateway-rest` tagged with 
 | | `phoenixd.fee.fixed` | Fixed fee. |
 | | `phoenixd.expiry` | Invoice expiry in seconds. |
 | | `phoenixd.lnaddress` | Enable LN address support. |
-| | `<wid>.wid` | Webhook identifier mapping. |
 | | `webhook.base_url` | Base URL for webhook callbacks. |
 | **cashu-gateway-dummy** | `dummy.payment_status` | Mock payment status. |
 | | `dummy.amount` | Dummy payment amount. |

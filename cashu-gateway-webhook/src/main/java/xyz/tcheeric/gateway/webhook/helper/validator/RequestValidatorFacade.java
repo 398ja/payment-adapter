@@ -14,44 +14,29 @@ public class RequestValidatorFacade {
     /**
      * Validate a webhook request and return the associated payment.
      *
-     * <p>The request must include a {@code wid} parameter identifying the webhook source
-     * (e.g. {@code phoenixd}). If absent, the system property {@code wid} will be used.</p>
+     * <p>Currently supports phoenixd-formatted webhooks identified by presence of parameters
+     * like {@code type}, {@code amountSat}, {@code paymentHash}, and {@code externalId}.</p>
      *
      * @param request incoming HTTP servlet request
      * @return the validated payment
-     * @throws IllegalArgumentException if the webhook id cannot be determined or is unknown
+     * @throws IllegalArgumentException if validation fails
      */
     public static GatewayPayment validate(@NonNull HttpServletRequest request) {
-        String webhookId = request.getParameter("wid");
-        if (webhookId == null) {
-            webhookId = System.getProperty("wid");
+        PhoenixdWebhookRequest phoenixdWebhookRequest = new PhoenixdWebhookRequest();
+        String amount = request.getParameter("amountSat");
+        if (amount != null && !amount.isBlank()) {
+            phoenixdWebhookRequest.setAmountSat(Integer.parseInt(amount));
         }
-        if (webhookId == null) {
-            throw new IllegalArgumentException("Invalid webhook id");
-        }
+        phoenixdWebhookRequest.setType(request.getParameter("type"));
+        phoenixdWebhookRequest.setPaymentHash(request.getParameter("paymentHash"));
+        phoenixdWebhookRequest.setExternalId(request.getParameter("externalId"));
 
-        switch (webhookId) {
-            case "phoenixd":
-                PhoenixdWebhookRequest phoenixdWebhookRequest = new PhoenixdWebhookRequest();
-                phoenixdWebhookRequest.setType(request.getParameter("type"));
-                phoenixdWebhookRequest.setAmountSat(Integer.parseInt(request.getParameter("amountSat")));
-                phoenixdWebhookRequest.setPaymentHash(request.getParameter("paymentHash"));
-                phoenixdWebhookRequest.setExternalId(request.getParameter("externalId"));
-                PhoenixWebhookValidator phoenixWebhookValidator = new PhoenixWebhookValidator(phoenixdWebhookRequest);
-                return phoenixWebhookValidator.validate();
-            case "dummy":
-                GatewayPayment payment = new GatewayPayment();
-                payment.setState(State.PAID);
-                payment.setPaymentHash(UUID.randomUUID().toString());
-                payment.setPaymentId(UUID.randomUUID().toString());
-                payment.setAmount(10);
-                payment.setPaymentPreimage(UUID.randomUUID().toString());
-                PaymentClient paymentClient = new PaymentClient();
-                paymentClient.create(payment);
-                return payment;
-            default:
-                throw new IllegalArgumentException("Unknown webhook request id: " + webhookId);
+        // Short-circuit if required identifiers are missing to avoid remote calls
+        if (phoenixdWebhookRequest.getExternalId() == null || phoenixdWebhookRequest.getExternalId().isBlank()) {
+            throw new IllegalArgumentException("Quote not found");
         }
+        PhoenixWebhookValidator phoenixWebhookValidator = new PhoenixWebhookValidator(phoenixdWebhookRequest);
+        return phoenixWebhookValidator.validate();
 
     }
 

@@ -53,10 +53,6 @@ public class PhoenixdGatewayTest {
         field.set(gateway, value);
     }
 
-    @AfterEach
-    public void shutdown() {
-        System.clearProperty("wid");
-    }
 
     @Test
     public void testCreateMintQuote() throws Exception {
@@ -66,7 +62,6 @@ public class PhoenixdGatewayTest {
         GetLightningAddressResponse addressResp = new GetLightningAddressResponse();
         addressResp.setLightningAddress("bob@ln");
 
-        System.setProperty("wid", "testCreateMintQuote");
         GatewayQuote[] savedQuote = new GatewayQuote[1];
         when(service.createInvoice(any())).thenReturn(createResp);
         when(service.getLightningAddress()).thenReturn(addressResp);

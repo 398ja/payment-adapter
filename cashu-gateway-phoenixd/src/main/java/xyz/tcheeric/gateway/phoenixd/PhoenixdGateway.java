@@ -29,6 +29,7 @@ import xyz.tcheeric.phoenixd.model.response.PayInvoiceResponse;
 import xyz.tcheeric.gateway.phoenixd.service.PhoenixdService;
 import xyz.tcheeric.gateway.phoenixd.service.PhoenixdServiceImpl;
 
+import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
 import java.time.Instant;
@@ -43,7 +44,7 @@ import java.util.UUID;
  */
 @Slf4j
 @Component
-@PropertySource("classpath:app.properties")
+@PropertySource("classpath:phoenixd.properties")
 @Supports({PaymentMethod.BOLT11, PaymentMethod.BOLT12, PaymentMethod.ON_CHAIN})
 public class PhoenixdGateway implements Gateway {
 
@@ -306,13 +307,13 @@ public class PhoenixdGateway implements Gateway {
         }
     }
 
-    @SneakyThrows
     private URL getWebhookUrl() {
-        String wid = System.getProperty("wid");
-        if (wid == null) {
-            throw new IllegalArgumentException("Missing webhook id");
+        try {
+            return URI.create(webhookBaseUrl).toURL();
+        } catch (MalformedURLException e) {
+            log.error("Invalid webhook base URL: {}", webhookBaseUrl, e);
+            throw new RuntimeException(e);
         }
-        return URI.create(webhookBaseUrl + "?wid=" + wid).toURL();
     }
 
     private String getRequest(@NonNull CreateInvoiceResponse response) {

@@ -17,12 +17,6 @@ public class CashuGatewaySpringApplication {
                 }
                 log.info("Starting CashuGatewaySpringApplication on port {}",
                                 System.getProperty("server.port", "8080"));
-                String wid = System.getProperty("wid");
-                if (wid != null && !wid.isBlank()) {
-                        log.info("wid system property detected: {}", wid);
-                } else {
-                        log.info("wid system property not set");
-                }
                 SpringApplication.run(CashuGatewaySpringApplication.class, args);
         }
 

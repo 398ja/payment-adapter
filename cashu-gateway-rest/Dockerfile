@@ -15,6 +15,5 @@ ENV VAULT_BASE_URL=http://localhost:${CASHU_GATEWAY_PORT}
 COPY --from=build /build/target/cashu-gateway-rest-*.jar /app/app.jar
 EXPOSE ${CASHU_GATEWAY_PORT}
 # Pass configurable JVM system properties from environment
-# - wid: external workflow/request identifier
 # - cashu_gateway_port: align Spring Boot server.port with env-provided port
-ENTRYPOINT ["sh","-c","exec java -Dwid=${WID} -Dcashu_gateway_port=${CASHU_GATEWAY_PORT} -jar /app/app.jar"]
+ENTRYPOINT ["sh","-c","exec java -Dcashu_gateway_port=${CASHU_GATEWAY_PORT} -jar /app/app.jar"]

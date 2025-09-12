@@ -11,6 +11,7 @@ services:
         depends_on:
             - cashu-gateway-db
             - phoenixd
+            - cashu-gateway-webhook
         ports:
             - "${CASHU_GATEWAY_PORT:-8080}:${CASHU_GATEWAY_PORT:-8080}"
         environment:
@@ -18,8 +19,24 @@ services:
             SPRING_DATASOURCE_URL: jdbc:postgresql://cashu-gateway-db:5432/cashu-gateway
             SPRING_DATASOURCE_USERNAME: postgres
             SPRING_DATASOURCE_PASSWORD: password
-            # Optional: forward wid to JVM as -Dwid
-            WID: ${WID:-}
+            WEBHOOK_BASE_URL: http://cashu-gateway-webhook:8080/webhook/phoenixd
+    cashu-gateway-webhook:
+        build:
+            context: .
+            dockerfile: cashu-gateway-webhook/Dockerfile
+        depends_on:
+            - cashu-gateway-rest
+        environment:
+            # Let the servlet contact the REST API inside the Compose network
+            CATALINA_OPTS: -Dgateway.api.base_url=http://cashu-gateway-rest:8080
+        ports:
+            - "${WEBHOOK_PORT:-9090}:8080"
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+            interval: 10s
+            timeout: 3s
+            retries: 5
+            start_period: 20s
     phoenixd:
         image: acinq/phoenixd:latest
         ports:
