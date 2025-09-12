@@ -19,7 +19,7 @@ services:
             SPRING_DATASOURCE_URL: jdbc:postgresql://cashu-gateway-db:5432/cashu-gateway
             SPRING_DATASOURCE_USERNAME: postgres
             SPRING_DATASOURCE_PASSWORD: password
-            WEBHOOK_BASE_URL: http://cashu-gateway-webhook:8080/webhook/phoenixd
+            WEBHOOK_BASE_URL: http://cashu-gateway-webhook:8080/webhook
     cashu-gateway-webhook:
         build:
             context: .

@@ -309,7 +309,8 @@ public class PhoenixdGateway implements Gateway {
 
     private URL getWebhookUrl() {
         try {
-            return URI.create(webhookBaseUrl).toURL();
+            String normalized = webhookBaseUrl.replaceAll("/+$", "");
+            return URI.create(normalized + "/" + GATEWAY_NAME).toURL();
         } catch (MalformedURLException e) {
             log.error("Invalid webhook base URL: {}", webhookBaseUrl, e);
             throw new RuntimeException(e);
