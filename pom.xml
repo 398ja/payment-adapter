@@ -66,18 +66,28 @@
         <!-- Test Dependency Versions -->
         <junit.version>5.9.1</junit.version>
         <assertj.version>3.23.1</assertj.version>
+        <spring.test.version>6.1.6</spring.test.version>
+        <mockito.core.version>5.11.0</mockito.core.version>
+        <mockito.junit.version>5.11.0</mockito.junit.version>
+        <mockito.inline.version>5.2.0</mockito.inline.version>
+        <wiremock.version>3.9.1</wiremock.version>
+        <jakarta.servlet.api.version>6.0.0</jakarta.servlet.api.version>
 
         <!-- Maven Plugin Versions -->
         <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>2.22.2</maven-surefire-plugin.version>
         <maven-failsafe-plugin.version>2.22.2</maven-failsafe-plugin.version>
         <flatten-maven-plugin.version>1.5.0</flatten-maven-plugin.version>
+        <maven-war-plugin.version>3.4.0</maven-war-plugin.version>
 
         <spring.boot.version>3.4.0</spring.boot.version>
 
         <logback.version>1.5.12</logback.version>
 
         <postgresql.version>42.7.3</postgresql.version>
+
+        <!-- Container build plugins -->
+        <jib-maven-plugin.version>3.4.1</jib-maven-plugin.version>
     </properties>
 
     <dependencyManagement>
@@ -172,6 +182,11 @@
             </plugins>
         </pluginManagement>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-war-plugin</artifactId>
+                <version>${maven-war-plugin.version}</version>
+            </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
