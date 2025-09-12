@@ -168,12 +168,12 @@ Authentication can be configured via `~/.m2/settings.xml` (server id `docker-hub
 | | `phoenixd.fee.fixed` | Fixed fee. |
 | | `phoenixd.expiry` | Invoice expiry in seconds. |
 | | `phoenixd.lnaddress` | Enable LN address support. |
-| | `webhook.base_url` | Base URL for webhook callbacks. |
+| | `webhook.base_url` | Base URL for webhook callbacks; gateway name appended automatically. |
 | **cashu-gateway-dummy** | `dummy.payment_status` | Mock payment status. |
 | | `dummy.amount` | Dummy payment amount. |
 | | `dummy.expiry` | Quote expiry in seconds. |
 | | `dummy.fee_reserve` | Fee reserve amount. |
-| | `webhook.base_url` | Base URL for webhook callbacks. |
+| | `webhook.base_url` | Base URL for webhook callbacks; gateway name appended automatically. |
 
 Each module reads configuration from its `app.properties` file or environment variables. See the guides in [docs](docs) for deployment details.
 

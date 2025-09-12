@@ -54,6 +54,7 @@ public class PhoenixdGatewayTest {
     }
 
 
+    // verifies creating a mint quote persists a pending quote
     @Test
     public void testCreateMintQuote() throws Exception {
         CreateInvoiceResponse createResp = new CreateInvoiceResponse();
@@ -87,6 +88,7 @@ public class PhoenixdGatewayTest {
         }
     }
 
+    // verifies paying a BOLT11 invoice results in a paid payment record
     @Test
     public void testPayBoltInvoice() throws Exception {
         PayBolt11InvoiceInvoiceResponse payResp = new PayBolt11InvoiceInvoiceResponse();
@@ -132,6 +134,7 @@ public class PhoenixdGatewayTest {
         }
     }
 
+    // verifies paying a lightning address invoice results in a paid payment record
     @Test
     public void testPayLnInvoice() throws Exception {
         PayLightningAddressInvoiceResponse payResp = new PayLightningAddressInvoiceResponse();
@@ -177,6 +180,7 @@ public class PhoenixdGatewayTest {
         }
     }
 
+    // verifies payment throws when lightning address payment fails
     @Test
     public void testPayLnInvoiceFailure() {
         PayLightningAddressInvoiceResponse payResp = new PayLightningAddressInvoiceResponse();
@@ -204,6 +208,7 @@ public class PhoenixdGatewayTest {
         }
     }
 
+    // verifies payment throws when BOLT11 invoice payment fails
     @Test
     public void testPayBoltInvoiceFailure() {
         PayBolt11InvoiceInvoiceResponse payResp = new PayBolt11InvoiceInvoiceResponse();
@@ -231,6 +236,7 @@ public class PhoenixdGatewayTest {
         }
     }
 
+    // verifies payment throws when service returns null response
     @Test
     public void testNullServiceResponse() {
         GatewayQuote[] savedQuote = new GatewayQuote[1];
@@ -255,6 +261,7 @@ public class PhoenixdGatewayTest {
         }
     }
 
+    // verifies supported payment methods
     @Test
     public void testSupports()  {
         // Arrange & Act
@@ -270,4 +277,13 @@ public class PhoenixdGatewayTest {
         Assertions.assertFalse(gateway.supports(PaymentMethod.MOBILE_MONEY));
         Assertions.assertFalse(gateway.supports(PaymentMethod.MOCK));
     }
+    // verifies that webhook URL appends the gateway name
+    @Test
+    public void testWebhookUrlAppendsGatewayName() throws Exception {
+        java.lang.reflect.Method method = PhoenixdGateway.class.getDeclaredMethod("getWebhookUrl");
+        method.setAccessible(true);
+        java.net.URL url = (java.net.URL) method.invoke(gateway);
+        Assertions.assertEquals("http://localhost:9090/webhook/phoenixd", url.toString());
+    }
+
 }
