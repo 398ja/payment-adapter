@@ -142,13 +142,18 @@ ENTRYPOINT ["java","-jar","/app/app.jar"]
 
 ## Container Publishing
 
-The `cashu-gateway-rest` module uses the [Jib](https://github.com/GoogleContainerTools/jib) Maven plugin to build and publish a Docker image. Running:
+The `cashu-gateway-rest` and `cashu-gateway-webhook` modules include the [Jib](https://github.com/GoogleContainerTools/jib) Maven plugin to build and publish images to a Docker registry. Running:
 
 ```bash
 ./mvnw deploy
 ```
 
-builds all modules and pushes `docker.398ja.xyz/cashu-gateway-rest` tagged with both the project version and `latest`.
+builds all modules and pushes:
+
+- `docker.398ja.xyz/cashu-gateway-rest` (tags: project version, latest)
+- `docker.398ja.xyz/cashu-gateway-webhook` (tags: project version, latest)
+
+Authentication can be configured via `~/.m2/settings.xml` (server id `docker-hub` or your private registry), environment variables, or Jib's system properties. See Jib docs for details.
 
 ## Configuration
 
