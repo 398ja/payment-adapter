@@ -35,6 +35,8 @@ import java.net.URL;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.UUID;
+import java.io.InputStream;
+import java.util.Properties;
 
 /**
  * Gateway implementation that integrates with a running <code>phoenixd</code>
@@ -71,10 +73,12 @@ public class PhoenixdGateway implements Gateway {
     private PhoenixdService service = new PhoenixdServiceImpl();
 
     public PhoenixdGateway() {
+        loadPropertiesIfNeeded();
     }
 
     public PhoenixdGateway(PhoenixdService service) {
         this.service = service;
+        loadPropertiesIfNeeded();
     }
 
     @SneakyThrows
@@ -309,11 +313,66 @@ public class PhoenixdGateway implements Gateway {
 
     private URL getWebhookUrl() {
         try {
+            if (webhookBaseUrl == null || webhookBaseUrl.isBlank()) {
+                throw new IllegalStateException("Missing configuration: 'webhook.base_url' is not set. Ensure phoenixd.properties is on the classpath or Spring @Value injection is configured.");
+            }
             String normalized = webhookBaseUrl.replaceAll("/+$", "");
             return URI.create(normalized + "/" + GATEWAY_NAME).toURL();
         } catch (MalformedURLException e) {
             log.error("Invalid webhook base URL: {}", webhookBaseUrl, e);
             throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Loads properties from classpath file 'phoenixd.properties' when this class is
+     * instantiated outside of a Spring context (i.e., @Value fields are not injected).
+     * Existing non-null fields are not overridden.
+     */
+    private void loadPropertiesIfNeeded() {
+        boolean needsLoad = currency == null || lnAddressFlag == null || webhookBaseUrl == null;
+        if (!needsLoad) {
+            return;
+        }
+
+        try (InputStream in = Thread.currentThread()
+                .getContextClassLoader()
+                .getResourceAsStream("phoenixd.properties")) {
+            if (in == null) {
+                log.warn("phoenixd.properties not found on classpath; relying on defaults/@Value");
+                // Provide safe defaults where applicable; critical ones remain null to fail fast
+                if (currency == null) currency = "sat";
+                if (lnAddressFlag == null) lnAddressFlag = "off";
+                // expiry/fees may remain at Java defaults if injected elsewhere
+                return;
+            }
+            Properties p = new Properties();
+            p.load(in);
+
+            if (currency == null) {
+                currency = p.getProperty("phoenixd.currency", "sat");
+            }
+            if (expiry == 0) {
+                // Prefer 'phoenixd.expiry'; retain backward compat if only 'phoenixd.expiration' is present
+                String exp = p.getProperty("phoenixd.expiry", p.getProperty("phoenixd.expiration", "60"));
+                try { expiry = Integer.parseInt(exp); } catch (NumberFormatException ignored) { expiry = 60; }
+            }
+            if (lnAddressFlag == null) {
+                lnAddressFlag = p.getProperty("phoenixd.lnaddress", "off");
+            }
+            if (feePercent == 0.0d) {
+                String fp = p.getProperty("phoenixd.fee.percent", "0.0");
+                try { feePercent = Double.parseDouble(fp); } catch (NumberFormatException ignored) { /* keep default */ }
+            }
+            if (fixedFee == 0) {
+                String ff = p.getProperty("phoenixd.fee.fixed", "0");
+                try { fixedFee = Integer.parseInt(ff); } catch (NumberFormatException ignored) { /* keep default */ }
+            }
+            if (webhookBaseUrl == null) {
+                webhookBaseUrl = p.getProperty("webhook.base_url");
+            }
+        } catch (Exception e) {
+            log.error("Failed to load phoenixd.properties from classpath", e);
         }
     }
 
