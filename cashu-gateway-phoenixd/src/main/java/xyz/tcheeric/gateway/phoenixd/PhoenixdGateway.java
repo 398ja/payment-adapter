@@ -371,6 +371,24 @@ public class PhoenixdGateway implements Gateway {
             if (webhookBaseUrl == null) {
                 webhookBaseUrl = p.getProperty("webhook.base_url");
             }
+
+            // Propagate phoenixd client properties to System properties if not already set
+            String baseUrl = p.getProperty("phoenixd.base_url", "http://localhost:9740");
+            if (System.getProperty("phoenixd.base_url") == null || System.getProperty("phoenixd.base_url").isBlank()) {
+                System.setProperty("phoenixd.base_url", baseUrl);
+            }
+            String user = p.getProperty("phoenixd.username", "");
+            if (!user.isBlank() && (System.getProperty("phoenixd.username") == null)) {
+                System.setProperty("phoenixd.username", user);
+            }
+            String pass = p.getProperty("phoenixd.password", "");
+            if (!pass.isBlank() && (System.getProperty("phoenixd.password") == null)) {
+                System.setProperty("phoenixd.password", pass);
+            }
+            String timeout = p.getProperty("phoenixd.timeout", "");
+            if (!timeout.isBlank() && (System.getProperty("phoenixd.timeout") == null)) {
+                System.setProperty("phoenixd.timeout", timeout);
+            }
         } catch (Exception e) {
             log.error("Failed to load phoenixd.properties from classpath", e);
         }
