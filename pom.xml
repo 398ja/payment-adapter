@@ -58,7 +58,7 @@
 
         <cashu-lib-version>0.2.0</cashu-lib-version>
 
-        <phoenixd.version>0.1.0</phoenixd.version>
+        <phoenixd.version>0.1.1</phoenixd.version>
 
         <!-- jackson -->
         <fasterxml.jackson.version>2.18.1</fasterxml.jackson.version>
