@@ -1,6 +1,7 @@
 package xyz.tcheeric.gateway.client;
 
 import java.io.InputStream;
+import java.net.URI;
 import java.util.Optional;
 import java.util.Properties;
 
@@ -73,17 +74,17 @@ final class GatewayClientConfig {
                 return "http://" + url + ":" + port;
             }
 
-            java.net.URI u = java.net.URI.create(url);
-            if (u.getPort() != -1) {
+            URI uri = URI.create(url);
+            if (uri.getPort() != -1) {
                 return url; // Port already specified
             }
             // Rebuild URI with port
-            String scheme = u.getScheme();
-            String host = u.getHost();
-            String authority = (u.getUserInfo() != null ? u.getUserInfo() + "@" : "") + host + ":" + port;
-            String path = u.getRawPath() == null ? "" : u.getRawPath();
-            String query = u.getRawQuery();
-            String fragment = u.getRawFragment();
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            String authority = (uri.getUserInfo() != null ? uri.getUserInfo() + "@" : "") + host + ":" + port;
+            String path = uri.getRawPath() == null ? "" : uri.getRawPath();
+            String query = uri.getRawQuery();
+            String fragment = uri.getRawFragment();
             StringBuilder sb = new StringBuilder();
             sb.append(scheme).append("://").append(authority).append(path);
             if (query != null) sb.append('?').append(query);
