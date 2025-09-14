@@ -13,6 +13,20 @@ Available on all client classes.
 | `create(T entity)` | Entity instance | Persists the entity and returns the created object. |
 | `delete(Long id)` | Numeric identifier | Deletes the entity, response is empty. |
 
+## Configuration
+
+- Base URL precedence (first match wins):
+  - Constructor argument
+  - System property `gateway.api.base_url`
+  - Environment variable `GATEWAY_API_BASE_URL`
+  - Classpath file `gateway.properties` (key `gateway.api.base_url`)
+  - Default `http://localhost:8080`
+
+- Example overrides:
+  - Java: `new QuoteClient(/* uses defaults */)` or `new QuoteClient("http://api:8080")`
+  - JVM arg: `-Dgateway.api.base_url=http://api:8080`
+  - Env var: `GATEWAY_API_BASE_URL=http://api:8080`
+
 ## PaymentClient
 
 | Method | Inputs | Response | Description |
