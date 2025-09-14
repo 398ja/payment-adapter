@@ -32,6 +32,7 @@ Available on all client classes.
   - Java: `new QuoteClient(/* uses defaults */)` or `new QuoteClient("http://api")` or `new QuoteClient("http://api:9090")`
   - JVM args: `-Dgateway.api.base_url=http://api -Dgateway.api.port=9090`
   - Env vars: `GATEWAY_API_BASE_URL=http://api` and `GATEWAY_API_PORT=9090`
+  - Classpath file: provide `docs/examples/gateway.properties` on your runtime classpath. Example: [`gateway.properties`](../examples/gateway.properties)
 
 ## PaymentClient
 
