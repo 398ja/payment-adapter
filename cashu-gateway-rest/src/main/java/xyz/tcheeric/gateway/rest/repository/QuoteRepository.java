@@ -19,7 +19,6 @@ import xyz.tcheeric.gateway.model.entity.GatewayQuote;
 public interface QuoteRepository extends PagingAndSortingRepository<GatewayQuote, Long> {
 
     // Explicitly declare save to satisfy RepositoryInvoker detection in some setups
-    @Override
     <S extends GatewayQuote> S save(S entity);
 
     /**
