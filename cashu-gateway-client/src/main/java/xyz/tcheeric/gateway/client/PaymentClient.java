@@ -15,7 +15,7 @@ public class PaymentClient extends AbstractBaseClient<GatewayPayment> {
     }
 
     public GatewayPayment getByQuoteId(String quoteId) {
-        String url = getBaseUrl() + "/search/findByQuoteId?quoteId=" + quoteId;
+        String url = getUrl() + "/search/findByQuoteId?quoteId=" + quoteId;
         log.info("Sending request: {}", url);
         ResponseEntity<GatewayPayment> response = restTemplate.getForEntity(url, GatewayPayment.class);
         log.info("Received response: {}", response.getBody());
@@ -23,7 +23,7 @@ public class PaymentClient extends AbstractBaseClient<GatewayPayment> {
     }
 
     public GatewayPayment updatePayment(GatewayPayment payment) {
-        String url = getBaseUrl() + "/" + payment.getId();
+        String url = getUrl() + "/" + payment.getId();
         log.info("Sending update request: {}", url);
         HttpEntity<GatewayPayment> request = new HttpEntity<>(payment);
         ResponseEntity<GatewayPayment> response = restTemplate.exchange(url, HttpMethod.PUT, request, GatewayPayment.class);

@@ -23,20 +23,15 @@ SLF4J is used as the logging API, with Logback as the default implementation in 
 
 - Place a `logback.xml` on the classpath root (e.g. `src/main/resources/logback.xml`).
 - Use the sample provided at `docs/examples/logback.xml` as a starting point.
-- The gateway client module ships a default `logback.xml` that logs to console and to a rolling file under `logs/cashu-gateway-client.log`. To override it, place your own `logback.xml` earlier on the classpath in your application.
 
 ## Environment variables and JVM args
 
 - Spring Boot: `--logging.level.xyz.tcheeric=DEBUG` or `-Dlogging.level.xyz.tcheeric=DEBUG`.
 - Logback (non‑Spring) is configured via `logback.xml`; JVM args are not typically used for per‑logger levels without additional tooling.
 
-## Log file location
-
-- Default file for the gateway client module: `logs/cashu-gateway-client.log` (rolling by size and day, 10MB/file, 14 days, 1GB cap).
-- Customize by copying the shipped `logback.xml` to your app and changing `<property name="LOG_DIR" .../>` and `<property name="LOG_FILE" .../>`.
-
 ## Module‑specific loggers
 
 - `xyz.tcheeric.gateway` – gateway clients and common code
 - `xyz.tcheeric.gateway.phoenixd` – phoenixd gateway integration
 - `xyz.tcheeric.gateway.webhook` – webhook handler
+
