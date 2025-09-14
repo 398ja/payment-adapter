@@ -35,8 +35,13 @@ SLF4J is used as the logging API, with Logback as the default implementation in 
 - Default file for the gateway client module: `logs/cashu-gateway-client.log` (rolling by size and day, 10MB/file, 14 days, 1GB cap).
 - Customize by copying the shipped `logback.xml` to your app and changing `<property name="LOG_DIR" .../>` and `<property name="LOG_FILE" .../>`.
 
-## Module‑specific loggers
+## Module‑specific loggers and files
 
 - `xyz.tcheeric.gateway` – gateway clients and common code
 - `xyz.tcheeric.gateway.phoenixd` – phoenixd gateway integration
 - `xyz.tcheeric.gateway.webhook` – webhook handler
+
+Default log files provided by modules:
+- Client: `logs/cashu-gateway-client.log`
+- REST: `logs/cashu-gateway-rest.log`
+- Webhook: `logs/cashu-gateway-webhook.log`
