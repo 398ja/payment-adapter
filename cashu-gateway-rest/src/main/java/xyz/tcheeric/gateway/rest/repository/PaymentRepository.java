@@ -18,6 +18,8 @@ import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 @RepositoryRestResource(collectionResourceRel = "payments", path = "payment")
 public interface PaymentRepository extends PagingAndSortingRepository<GatewayPayment, Long> {
 
+    // Inherit save(...) from CrudRepository; do not redeclare to avoid compiler issues in some toolchains
+
     /**
      * Retrieves a payment by its external payment identifier.
      * The query selects a payment matching the provided {@code paymentId}.
@@ -40,4 +42,3 @@ public interface PaymentRepository extends PagingAndSortingRepository<GatewayPay
     @Query("select p from payment p where p.quoteId = :quoteId")
     Optional<GatewayPayment> findByQuoteId(@Param("quoteId") String quoteId);
 }
-
