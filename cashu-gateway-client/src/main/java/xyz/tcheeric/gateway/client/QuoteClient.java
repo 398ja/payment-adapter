@@ -14,7 +14,7 @@ public class QuoteClient extends AbstractBaseClient<GatewayQuote> {
     }
 
     public GatewayQuote getByInvoiceId(String invoiceId) {
-        String url = getBaseUrl() + "/search/findByInvoiceId?invoiceId=" + invoiceId;
+        String url = getUrl() + "/search/findByInvoiceId?invoiceId=" + invoiceId;
         log.info("Sending request: {}", url);
         ResponseEntity<GatewayQuote> response = restTemplate.getForEntity(url, GatewayQuote.class);
         log.info("Received response: {}", response.getBody());
