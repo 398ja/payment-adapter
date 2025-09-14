@@ -1,5 +1,6 @@
 package xyz.tcheeric.gateway.client;
 
+import lombok.extern.slf4j.Slf4j;
 import java.io.InputStream;
 import java.net.URI;
 import java.util.Optional;
@@ -8,6 +9,7 @@ import java.util.Properties;
 /**
  * Resolves configuration for gateway REST clients with a clear precedence order.
  */
+@Slf4j
 final class GatewayClientConfig {
 
     private static final String KEY = "gateway.api.base_url";
@@ -34,17 +36,24 @@ final class GatewayClientConfig {
                 loadFromClasspath(KEY_PORT).orElse(DEFAULT_PORT),
                 DEFAULT_PORT);
 
-        return ensurePort(normalize(resolved), port);
+        String normalized = normalize(resolved);
+        String finalUrl = ensurePort(normalized, port);
+        log.debug("Resolved gateway client base URL: {} (port={})", finalUrl, port);
+        return finalUrl;
     }
 
     private static Optional<String> loadFromClasspath(String key) {
         try (InputStream in = Thread.currentThread().getContextClassLoader().getResourceAsStream(CLASSPATH_FILE)) {
             if (in == null) {
+                log.trace("ClassPath properties not found: {}", CLASSPATH_FILE);
                 return Optional.empty();
             }
             Properties p = new Properties();
             p.load(in);
             String value = p.getProperty(key);
+            if (value != null && !value.isBlank()) {
+                log.trace("Loaded '{}' from {}", key, CLASSPATH_FILE);
+            }
             return value == null || value.isBlank() ? Optional.empty() : Optional.of(value);
         } catch (Exception ignore) {
             return Optional.empty();
