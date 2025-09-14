@@ -18,7 +18,8 @@ import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 @RepositoryRestResource(collectionResourceRel = "payments", path = "payment")
 public interface PaymentRepository extends PagingAndSortingRepository<GatewayPayment, Long> {
 
-    // Inherit save(...) from CrudRepository; do not redeclare to avoid compiler issues in some toolchains
+    // Explicitly declare save to satisfy RepositoryInvoker detection in some setups
+    <S extends GatewayPayment> S save(S entity);
 
     /**
      * Retrieves a payment by its external payment identifier.
