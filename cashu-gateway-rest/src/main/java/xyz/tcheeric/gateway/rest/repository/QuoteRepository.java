@@ -18,9 +18,7 @@ import xyz.tcheeric.gateway.model.entity.GatewayQuote;
 @RepositoryRestResource(collectionResourceRel = "quotes", path = "quote")
 public interface QuoteRepository extends PagingAndSortingRepository<GatewayQuote, Long> {
 
-    // Explicitly declare save to satisfy RepositoryInvoker detection in some setups
-    @Override
-    <S extends GatewayQuote> S save(S entity);
+    // Inherit save(...) from CrudRepository; do not redeclare to avoid compiler issues in some toolchains
 
     /**
      * Retrieves a quote by its external quote identifier.
