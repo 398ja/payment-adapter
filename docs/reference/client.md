@@ -22,17 +22,10 @@ Available on all client classes.
   - Classpath file `gateway.properties` (key `gateway.api.base_url`)
   - Default `http://localhost:8080`
 
-- Port configuration (applied when the resolved base URL has no explicit port or when a host-only value is used):
-  - System property `gateway.api.port`
-  - Environment variable `GATEWAY_API_PORT`
-  - Classpath file `gateway.properties` (key `gateway.api.port`)
-  - Default `8080`
-
 - Example overrides:
-  - Java: `new QuoteClient(/* uses defaults */)` or `new QuoteClient("http://api")` or `new QuoteClient("http://api:9090")`
-  - JVM args: `-Dgateway.api.base_url=http://api -Dgateway.api.port=9090`
-  - Env vars: `GATEWAY_API_BASE_URL=http://api` and `GATEWAY_API_PORT=9090`
-  - Classpath file: provide `docs/examples/gateway.properties` on your runtime classpath. Example: [`gateway.properties`](../examples/gateway.properties)
+  - Java: `new QuoteClient(/* uses defaults */)` or `new QuoteClient("http://api:8080")`
+  - JVM arg: `-Dgateway.api.base_url=http://api:8080`
+  - Env var: `GATEWAY_API_BASE_URL=http://api:8080`
 
 ## PaymentClient
 
