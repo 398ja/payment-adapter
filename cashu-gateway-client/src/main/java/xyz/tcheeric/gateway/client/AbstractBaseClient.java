@@ -33,6 +33,7 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
         this.entity = entity;
         this.entityClass = entityClass;
         this.baseUrl = GatewayClientConfig.resolveBaseUrl(explicitBaseUrl);
+        log.debug("Resolved gateway API base URL: {}", this.baseUrl);
     }
 
     public T get(@NonNull Long id) {
