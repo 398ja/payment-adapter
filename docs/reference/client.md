@@ -27,6 +27,21 @@ Available on all client classes.
   - JVM arg: `-Dgateway.api.base_url=http://api:8080`
   - Env var: `GATEWAY_API_BASE_URL=http://api:8080`
 
+### Docker Compose (cashu-mint)
+
+- Set the client environment variables on the container that uses the client (e.g., `cashu-mint-rest`), not only on the server (`cashu-gateway-rest`).
+- Example service configuration in cashu-mint's `docker-compose.yml`:
+
+  cashu-mint-rest:
+    environment:
+      GATEWAY_API_BASE_URL: http://cashu-gateway-rest
+      GATEWAY_API_PORT: 8080
+    depends_on:
+      cashu-gateway-rest:
+        condition: service_healthy
+
+- Ensure both services are on the same Docker network so the hostname `cashu-gateway-rest` resolves.
+
 ## PaymentClient
 
 | Method | Inputs | Response | Description |

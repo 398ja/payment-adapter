@@ -11,7 +11,13 @@ Upgrade notes:
 - If you previously instantiated `PhoenixdGateway` manually, no changes are required; it now self-initializes from the classpath.
 - When running under Spring, `@Value` injection behavior is unchanged.
 
+## 0.2.2
+
+- Client: constructor-first base URL resolution with layered fallbacks (system property, env var, gateway.properties, default), plus configurable port with default 8080.
+- Client: default Logback config to log to console and rolling file; DEBUG logs for `xyz.tcheeric` by default. Tests include `logback-test.xml`.
+- REST/Webhook: default Logback configs added to log to console and rolling files.
+- Docs: logging reference, client configuration (incl. Docker Compose usage), and sample properties files.
+
 ## 0.2.0
 
 - Baseline release for gateway modules and clients.
-

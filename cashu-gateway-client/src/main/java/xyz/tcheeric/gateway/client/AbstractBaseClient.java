@@ -37,7 +37,7 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
     }
 
     public T get(@NonNull Long id) {
-        String url = getBaseUrl() + "/" + id;
+        String url = getUrl() + "/" + id;
         log.info("[{}] GET byId start: id={}, url={}", entity, id, url);
         ResponseEntity<T> response = restTemplate.getForEntity(url, entityClass);
         log.info("[{}] GET byId success: id={}, body={}", entity, id, response.getBody());
@@ -47,9 +47,9 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
     public T getByEntityId(@NonNull String entityId) {
         String url;
         if (entityClass.equals(GatewayPayment.class)) {
-            url = getBaseUrl() + "/search/findByPaymentId?paymentId=" + entityId;
+            url = getUrl() + "/search/findByPaymentId?paymentId=" + entityId;
         } else if (entityClass.equals(GatewayQuote.class)) {
-            url = getBaseUrl() + "/search/findByQuoteId?quoteId=" + entityId;
+            url = getUrl() + "/search/findByQuoteId?quoteId=" + entityId;
         } else {
             throw new IllegalArgumentException("Unsupported entity type: " + entityClass.getName());
         }
@@ -60,7 +60,7 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
     }
 
     public T create(@NonNull T entity) {
-        String url = getBaseUrl();
+        String url = getUrl();
         log.info("[{}] POST create start: url={}", entity, url);
         HttpEntity<T> request = new HttpEntity<>(entity);
         ResponseEntity<T> response = restTemplate.exchange(url, HttpMethod.POST, request, entityClass);
@@ -69,13 +69,13 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
     }
 
     public void delete(@NonNull Long id) {
-        String url = getBaseUrl() + "/" + id;
+        String url = getUrl() + "/" + id;
         log.info("[{}] DELETE start: id={}, url={}", entity, id, url);
         restTemplate.delete(url);
         log.info("[{}] DELETE success: id={}", entity, id);
     }
 
-    protected String getBaseUrl() {
+    protected String getUrl() {
         return baseUrl + "/" + entity;
     }
 }
