@@ -21,6 +21,10 @@ public class RestExposureConfig implements RepositoryRestConfigurer {
         // Expose identifiers (useful for clients)
         config.exposeIdsFor(GatewayQuote.class, GatewayPayment.class);
 
+        // Return entity body on create/update so clients can rely on response payloads
+        config.setReturnBodyOnCreate(true);
+        config.setReturnBodyOnUpdate(true);
+
         var exposure = config.getExposureConfiguration();
 
         exposure.forDomainType(GatewayQuote.class)
@@ -44,4 +48,3 @@ public class RestExposureConfig implements RepositoryRestConfigurer {
                         .enable(HttpMethod.DELETE));
     }
 }
-
