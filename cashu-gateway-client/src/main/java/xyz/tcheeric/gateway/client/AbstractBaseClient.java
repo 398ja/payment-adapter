@@ -2,7 +2,6 @@ package xyz.tcheeric.gateway.client;
 
 import lombok.Getter;
 import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
@@ -18,13 +17,23 @@ import xyz.tcheeric.gateway.model.entity.GatewayQuote;
  * @param <T> type of gateway entity handled by the client
  */
 @Slf4j
-@RequiredArgsConstructor
 public abstract class AbstractBaseClient<T extends GatewayEntity> {
 
     @Getter
     protected final RestTemplate restTemplate = new RestTemplate();
     private final String entity;
     private final Class<T> entityClass;
+    private final String baseUrl;
+
+    protected AbstractBaseClient(@NonNull String entity, @NonNull Class<T> entityClass) {
+        this(null, entity, entityClass);
+    }
+
+    protected AbstractBaseClient(String explicitBaseUrl, @NonNull String entity, @NonNull Class<T> entityClass) {
+        this.entity = entity;
+        this.entityClass = entityClass;
+        this.baseUrl = GatewayClientConfig.resolveBaseUrl(explicitBaseUrl);
+    }
 
     public T get(@NonNull Long id) {
         String url = getBaseUrl() + "/" + id;
@@ -64,10 +73,6 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
     }
 
     protected String getBaseUrl() {
-        String baseUrl = System.getProperty("gateway.api.base_url", "http://localhost:8080");
-        if (!baseUrl.endsWith("/")) {
-            baseUrl += "/";
-        }
-        return baseUrl + entity;
+        return baseUrl + "/" + entity;
     }
 }
