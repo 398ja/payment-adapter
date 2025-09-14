@@ -33,6 +33,7 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
         this.entity = entity;
         this.entityClass = entityClass;
         this.baseUrl = GatewayClientConfig.resolveBaseUrl(explicitBaseUrl);
+        log.debug("Resolved gateway API base URL: {}", this.baseUrl);
     }
 
     public T get(@NonNull Long id) {
@@ -59,10 +60,12 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
     }
 
     public T create(@NonNull T entity) {
+        String url = getBaseUrl();
+        log.info("[{}] POST create start: url={}", entity, url);
         HttpEntity<T> request = new HttpEntity<>(entity);
-        ResponseEntity<T> response = restTemplate
-                .exchange(getBaseUrl(), HttpMethod.POST, request, entityClass);
-        return response.getBody(); // This should now include the id if the server returns the created object
+        ResponseEntity<T> response = restTemplate.exchange(url, HttpMethod.POST, request, entityClass);
+        log.info("[{}] POST create success: body={}", entity, response.getBody());
+        return response.getBody();
     }
 
     public void delete(@NonNull Long id) {
