@@ -2,6 +2,11 @@
 
 This document summarizes notable changes to the cashu-gateway project. Versions follow semantic versioning when possible.
 
+## 0.3.1
+
+- Phoenixd: reject unknown or mismatched quoteId during pay(), ensuring the wallet’s POST /mint/bolt11 quoteId matches the mint’s generated quote from POST /mint/quote/bolt11.
+- Tests: add unit tests for quoteId consistency and unknown/stale IDs in both Phoenixd and Dummy gateways.
+
 ## 0.3.0
 
 - REST: enable POST create for Quote and Payment via Spring Data REST and expose IDs.
