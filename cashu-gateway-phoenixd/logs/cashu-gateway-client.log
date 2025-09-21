@@ -1,0 +1,21 @@
+2025-09-21T09:22:37.290+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Creating melt quote: amount=10, description=errorPayBolt request=lnbc1failinvoice
+2025-09-21T09:22:37.456+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Created melt quote: quoteId=6f3829d7-7e39-4bf0-bb17-453d78132379
+2025-09-21T09:22:37.484+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Paying quote: quoteId=6f3829d7-7e39-4bf0-bb17-453d78132379
+2025-09-21T09:22:37.578+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Creating mint quote: amount=10, description=testCreateMintQuote
+2025-09-21T09:22:37.587+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Created mint quote: quoteId=d6aa4d5e-b5f8-40d3-a544-5b04f6847a89
+2025-09-21T09:22:37.613+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Creating melt quote: amount=10, description=nullServiceResp request=lnbc1nullinvoice
+2025-09-21T09:22:37.616+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Created melt quote: quoteId=be7df888-b08c-4cb9-b242-9781a6015e48
+2025-09-21T09:22:37.617+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Paying quote: quoteId=be7df888-b08c-4cb9-b242-9781a6015e48
+2025-09-21T09:22:37.632+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Creating melt quote for request eyJsbkFkZHJlc3MiOiAiYm9iQGxuIiwgImFtb3VudCI6IDEwLCAiZGVzY3JpcHRpb24iOiAidGVzdCJ9
+2025-09-21T09:22:39.065+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Creating melt quote: amount=10, description=test request=bob@ln
+2025-09-21T09:22:39.068+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Created melt quote: quoteId=f4e85f96-2070-4585-b0b7-0136e845e388
+2025-09-21T09:22:39.068+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Paying quote: quoteId=f4e85f96-2070-4585-b0b7-0136e845e388
+2025-09-21T09:22:39.080+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Payment sent: paymentId=pid
+2025-09-21T09:22:39.096+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Creating melt quote: amount=10, description=testPayBoltInvoice request=lnbc1testinvoice
+2025-09-21T09:22:39.101+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Created melt quote: quoteId=55699c9b-da0a-4738-b33b-ebde889cc636
+2025-09-21T09:22:39.102+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Paying quote: quoteId=55699c9b-da0a-4738-b33b-ebde889cc636
+2025-09-21T09:22:39.109+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Payment sent: paymentId=pid
+2025-09-21T09:22:39.116+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Creating melt quote for request eyJsbkFkZHJlc3MiOiAiYm9iQGxuIiwgImFtb3VudCI6IDEwLCAiZGVzY3JpcHRpb24iOiAidGVzdCJ9
+2025-09-21T09:22:39.117+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Creating melt quote: amount=10, description=test request=bob@ln
+2025-09-21T09:22:39.120+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Created melt quote: quoteId=218cc0bf-9cdb-479a-a198-d9969203cfc2
+2025-09-21T09:22:39.121+01 INFO  x.t.gateway.phoenixd.PhoenixdGateway - Paying quote: quoteId=218cc0bf-9cdb-479a-a198-d9969203cfc2

@@ -2,6 +2,8 @@ package xyz.tcheeric.gateway.dummy;
 
 import lombok.NoArgsConstructor;
 import lombok.NonNull;
+import xyz.tcheeric.cashu.common.PaymentMethod;
+import xyz.tcheeric.cashu.entities.annotation.Supports;
 import xyz.tcheeric.gateway.common.Gateway;
 
 import java.io.IOException;
@@ -9,6 +11,7 @@ import java.util.Properties;
 import java.util.UUID;
 
 @NoArgsConstructor
+@Supports({PaymentMethod.BOLT11, PaymentMethod.BOLT12, PaymentMethod.ON_CHAIN})
 public class DummyGateway implements Gateway {
 
     private static final String GATEWAY_NAME = "dummy";
