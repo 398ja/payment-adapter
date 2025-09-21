@@ -181,7 +181,7 @@ public class PhoenixdGatewayTest {
         payResp.setPaymentId("pid");
         payResp.setRecipientAmountSat(1);
         payResp.setRoutingFeeSat(0);
-        when(service.payBolt11Invoice(any())).thenReturn(payResp);
+        //                                                                                                                                                          when(service.payBolt11Invoice(any())).thenReturn(payResp);
 
         try (
             MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
