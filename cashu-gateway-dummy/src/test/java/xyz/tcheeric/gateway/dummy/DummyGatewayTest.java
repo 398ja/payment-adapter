@@ -19,8 +19,10 @@ public class DummyGatewayTest {
 
         String mintQuote = gateway.createMintQuote(1, "test");
         String meltQuote = gateway.createMeltQuote(1, "invoice", "test");
-        String payment = gateway.pay("request");
-        String preimage = gateway.getPaymentPreimage("id");
+        // pay must be called with a known quote id (e.g., melt quote)
+        String payment = gateway.pay(meltQuote);
+        // preimage should be available for auto-paid mint quotes
+        String preimage = gateway.getPaymentPreimage(mintQuote);
 
         assertNotNull(mintQuote);
         assertNotNull(meltQuote);
