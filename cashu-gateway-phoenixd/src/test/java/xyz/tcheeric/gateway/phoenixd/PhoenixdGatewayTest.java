@@ -134,6 +134,67 @@ public class PhoenixdGatewayTest {
         }
     }
 
+    // ensures the created payment carries the exact quoteId used to initiate payment (no stale/mismatched quoteId)
+    @Test
+    public void testQuoteIdConsistencyOnPay() throws Exception {
+        PayBolt11InvoiceInvoiceResponse payResp = new PayBolt11InvoiceInvoiceResponse();
+        payResp.setPaymentId("pid2");
+        payResp.setPaymentPreimage("pre2");
+        payResp.setPaymentHash("hash2");
+        payResp.setRecipientAmountSat(5);
+        payResp.setRoutingFeeSat(1);
+
+        GatewayQuote[] savedQuote = new GatewayQuote[1];
+        GatewayPayment[] savedPayment = new GatewayPayment[1];
+        when(service.payBolt11Invoice(any())).thenReturn(payResp);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                (mock, context) -> {
+                    when(mock.create(any(GatewayQuote.class))).thenAnswer(inv -> {
+                        GatewayQuote q = inv.getArgument(0);
+                        savedQuote[0] = q;
+                        return q;
+                    });
+                    when(mock.getByEntityId(anyString())).thenAnswer(inv -> savedQuote[0]);
+                });
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                (mock, context) -> {
+                    when(mock.create(any(GatewayPayment.class))).thenAnswer(inv -> {
+                        GatewayPayment p = inv.getArgument(0);
+                        savedPayment[0] = p;
+                        return p;
+                    });
+                })
+        ) {
+            String quoteId = gateway.createMeltQuote(5, "lnbc1consistency", "consistency");
+            gateway.pay(quoteId);
+
+            Assertions.assertNotNull(savedPayment[0]);
+            Assertions.assertEquals(quoteId, savedPayment[0].getQuoteId());
+        }
+    }
+
+    // verifies paying with an unknown/stale quoteId is rejected with a clear error
+    @Test
+    public void testPayWithUnknownQuoteIdThrows() {
+        PayBolt11InvoiceInvoiceResponse payResp = new PayBolt11InvoiceInvoiceResponse();
+        payResp.setPaymentId("pid");
+        payResp.setRecipientAmountSat(1);
+        payResp.setRoutingFeeSat(0);
+        //                                                                                                                                                          when(service.payBolt11Invoice(any())).thenReturn(payResp);
+
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                (mock, context) -> {
+                    // Simulate repository returning null for unknown quoteId
+                    when(mock.getByEntityId(anyString())).thenReturn(null);
+                });
+            MockedConstruction<PaymentClient> ignored = mockConstruction(PaymentClient.class)
+        ) {
+            Assertions.assertThrows(IllegalStateException.class, () -> gateway.pay("stale-or-unknown-quote"));
+        }
+    }
+
     // verifies paying a lightning address invoice results in a paid payment record
     @Test
     public void testPayLnInvoice() throws Exception {
