@@ -198,6 +198,12 @@ public class PhoenixdGateway implements Gateway {
 
         QuoteClient quoteClient = new QuoteClient();
         GatewayQuote quote = quoteClient.getByEntityId(quoteId);
+        if (quote == null) {
+            throw new IllegalStateException("Unknown quoteId: " + quoteId);
+        }
+        if (!quoteId.equals(quote.getQuoteId())) {
+            throw new IllegalStateException("Mismatched quoteId: requested=" + quoteId + ", stored=" + quote.getQuoteId());
+        }
         String request = quote.getRequest();
 
         if (request == null) {
