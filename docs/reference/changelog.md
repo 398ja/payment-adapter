@@ -2,6 +2,13 @@
 
 This document summarizes notable changes to the cashu-gateway project. Versions follow semantic versioning when possible.
 
+## 0.3.0
+
+- REST: enable POST create for Quote and Payment via Spring Data REST and expose IDs.
+- REST: return entity body on POST/PUT to satisfy client expectations and integration tests.
+- Fix: remove incorrect @Override declarations in repositories to avoid compilation errors in some toolchains.
+- Docs/Tests: add integration tests around create flows; minor doc updates.
+
 ## 0.2.1
 
 - PhoenixdGateway: load `phoenixd.properties` when instantiated outside Spring, ensuring `webhook.base_url` and other settings are initialized in cashu-mint and other environments that use `new PhoenixdGateway()`.
