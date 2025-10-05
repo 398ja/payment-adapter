@@ -3,8 +3,7 @@ name: Format
 on:
   pull_request:
     branches:
-      - develop
-      - master
+      - main
 
 permissions:
   contents: write
