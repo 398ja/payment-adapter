@@ -5,12 +5,12 @@
     <parent>
         <groupId>xyz.tcheeric</groupId>
         <artifactId>cashu-gateway</artifactId>
-        <version>0.3.1</version>
+        <version>0.3.2</version>
     </parent>
 
     <groupId>xyz.tcheeric</groupId>
     <artifactId>cashu-gateway-webhook</artifactId>
-    <version>0.3.1</version>
+    <version>0.3.2</version>
     <name>cashu-gateway-webhook</name>
     <packaging>war</packaging>
 

@@ -2,6 +2,10 @@
 
 This document summarizes notable changes to the cashu-gateway project. Versions follow semantic versioning when possible.
 
+## 0.3.2
+
+- Project: bump parent and module versions to 0.3.2. No functional changes; housekeeping release to prepare next iteration.
+
 ## 0.3.1
 
 - Phoenixd: reject unknown or mismatched quoteId during pay(), ensuring the wallet’s POST /mint/bolt11 quoteId matches the mint’s generated quote from POST /mint/quote/bolt11.
