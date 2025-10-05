@@ -50,65 +50,22 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
 
-        <lombok.version>1.18.36</lombok.version>
-
-        <cashu-lib-version>0.4.1</cashu-lib-version>
-
-        <phoenixd.version>0.1.4</phoenixd.version>
-
-        <!-- jackson -->
-        <fasterxml.jackson.version>2.18.1</fasterxml.jackson.version>
-
-        <!-- Test Dependency Versions -->
-        <junit.version>5.9.1</junit.version>
-        <assertj.version>3.23.1</assertj.version>
-        <spring.test.version>6.1.6</spring.test.version>
-        <mockito.core.version>5.11.0</mockito.core.version>
-        <mockito.junit.version>5.11.0</mockito.junit.version>
-        <mockito.inline.version>5.2.0</mockito.inline.version>
-        <wiremock.version>3.9.1</wiremock.version>
-        <jakarta.servlet.api.version>6.0.0</jakarta.servlet.api.version>
-
-        <!-- Maven Plugin Versions -->
-        <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
-        <maven-surefire-plugin.version>2.22.2</maven-surefire-plugin.version>
-        <maven-failsafe-plugin.version>2.22.2</maven-failsafe-plugin.version>
-        <flatten-maven-plugin.version>1.5.0</flatten-maven-plugin.version>
-        <maven-war-plugin.version>3.4.0</maven-war-plugin.version>
-
-        <spring.boot.version>3.4.0</spring.boot.version>
-
-        <logback.version>1.5.12</logback.version>
-
-        <postgresql.version>42.7.3</postgresql.version>
-
-        <!-- Container build plugins -->
-        <jib-maven-plugin.version>3.4.1</jib-maven-plugin.version>
+        <!-- All versions now managed by cashu-platform-bom -->
+        <cashu-platform-bom.version>1.0.0</cashu-platform-bom.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
-            <!-- Test Dependencies -->
+            <!-- Import Cashu Platform BOM - manages all dependency versions -->
             <dependency>
-                <groupId>org.junit.jupiter</groupId>
-                <artifactId>junit-jupiter-engine</artifactId>
-                <version>${junit.version}</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.assertj</groupId>
-                <artifactId>assertj-core</artifactId>
-                <version>${assertj.version}</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.projectlombok</groupId>
-                <artifactId>lombok</artifactId>
-                <version>${lombok.version}</version>
+                <groupId>xyz.tcheeric</groupId>
+                <artifactId>cashu-platform-bom</artifactId>
+                <version>${cashu-platform-bom.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -116,73 +73,30 @@
     <build>
         <pluginManagement>
             <plugins>
+                <!-- Plugin versions and configurations inherited from cashu-platform-bom -->
                 <plugin>
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
-                    <version>${spring.boot.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>flatten-maven-plugin</artifactId>
-                    <version>${flatten-maven-plugin.version}</version>
-                    <configuration>
-                        <updatePomFile>true</updatePomFile>
-                        <flattenMode>resolveCiFriendliesOnly</flattenMode>
-                    </configuration>
-                    <executions>
-                        <execution>
-                            <id>flatten</id>
-                            <phase>process-resources</phase>
-                            <goals>
-                                <goal>flatten</goal>
-                            </goals>
-                        </execution>
-                        <execution>
-                            <id>flatten.clean</id>
-                            <phase>clean</phase>
-                            <goals>
-                                <goal>clean</goal>
-                            </goals>
-                        </execution>
-                    </executions>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>${maven-compiler-plugin.version}</version>
-                    <configuration>
-                        <showDeprecation>true</showDeprecation>
-                        <annotationProcessorPaths>
-                            <annotationProcessorPath>
-                                <groupId>org.projectlombok</groupId>
-                                <artifactId>lombok</artifactId>
-                                <version>${lombok.version}</version>
-                            </annotationProcessorPath>
-                        </annotationProcessorPaths>
-                    </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>${maven-surefire-plugin.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>org.jacoco</groupId>
                     <artifactId>jacoco-maven-plugin</artifactId>
-                    <version>0.8.12</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-failsafe-plugin</artifactId>
-                    <version>${maven-failsafe-plugin.version}</version>
-                    <executions>
-                        <execution>
-                            <goals>
-                                <goal>integration-test</goal>
-                                <goal>verify</goal>
-                            </goals>
-                        </execution>
-                    </executions>
                 </plugin>
             </plugins>
         </pluginManagement>
@@ -190,7 +104,6 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-war-plugin</artifactId>
-                <version>${maven-war-plugin.version}</version>
             </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>

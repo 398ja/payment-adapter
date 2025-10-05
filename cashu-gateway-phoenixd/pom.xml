@@ -49,12 +49,12 @@
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>phoenixd-rest</artifactId>
-            <version>${phoenixd.version}</version>
+            <version>0.1.4</version>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>phoenixd-mock</artifactId>
-            <version>${phoenixd.version}</version>
+            <version>0.1.0</version>
         </dependency>
         <dependency>
             <groupId>xyz.tcheeric</groupId>
