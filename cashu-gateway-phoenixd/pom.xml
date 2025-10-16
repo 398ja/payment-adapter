@@ -49,12 +49,12 @@
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>phoenixd-rest</artifactId>
-            <version>${phoenixd.version}</version>
+            <version>0.1.4</version>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>phoenixd-mock</artifactId>
-            <version>${phoenixd.version}</version>
+            <version>0.1.0</version>
         </dependency>
         <dependency>
             <groupId>xyz.tcheeric</groupId>
@@ -97,12 +97,6 @@
             <groupId>org.mockito</groupId>
             <artifactId>mockito-junit-jupiter</artifactId>
             <version>5.11.0</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-inline</artifactId>
-            <version>5.2.0</version>
             <scope>test</scope>
         </dependency>
 
