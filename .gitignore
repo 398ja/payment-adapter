@@ -40,3 +40,4 @@ build/
 /cashu-gateway-phoenixd/logs/
 /cashu-gateway-phoenixd/logs/
 /cashu-gateway-webhook/logs/
+/.claude/
