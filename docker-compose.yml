@@ -1,4 +1,3 @@
-version: '3.8'
 services:
     cashu-gateway-db:
         build: ./docker/postgres
@@ -23,8 +22,6 @@ services:
         build:
             context: .
             dockerfile: cashu-gateway-webhook/Dockerfile
-        depends_on:
-            - cashu-gateway-rest
         environment:
             # Let the servlet contact the REST API inside the Compose network
             CATALINA_OPTS: -Dgateway.api.base_url=http://cashu-gateway-rest:8080
