@@ -5,6 +5,7 @@ import lombok.NonNull;
 import xyz.tcheeric.cashu.common.PaymentMethod;
 import xyz.tcheeric.cashu.entities.annotation.Supports;
 import xyz.tcheeric.gateway.common.Gateway;
+import xyz.tcheeric.gateway.common.InvoiceNotPaidException;
 
 import java.io.IOException;
 import java.security.SecureRandom;
@@ -95,7 +96,15 @@ public class DummyGateway implements Gateway {
 
     @Override
     public boolean checkPaymentStatus(@NonNull String quoteId) {
-        return get(quoteId).paid;
+        try {
+            return get(quoteId).paid;
+        } catch (IllegalArgumentException ex) {
+            throw new InvoiceNotPaidException(
+                    quoteId,
+                    "Payment record not found for quote " + quoteId,
+                    ex
+            );
+        }
     }
 
     @Override
