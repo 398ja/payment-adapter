@@ -12,7 +12,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 ENV CASHU_GATEWAY_PORT=8080
 ENV VAULT_BASE_URL=http://localhost:${CASHU_GATEWAY_PORT}
-COPY --from=build /build/target/cashu-gateway-rest-*.jar /app/app.jar
+COPY --from=build /build/cashu-gateway-rest/target/cashu-gateway-rest-*.jar /app/app.jar
 EXPOSE ${CASHU_GATEWAY_PORT}
 # Pass configurable JVM system properties from environment
 # - cashu_gateway_port: align Spring Boot server.port with env-provided port
