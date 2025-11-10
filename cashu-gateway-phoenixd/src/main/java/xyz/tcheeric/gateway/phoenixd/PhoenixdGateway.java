@@ -8,11 +8,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.PropertySource;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import xyz.tcheeric.cashu.common.PaymentMethod;
 import xyz.tcheeric.cashu.entities.annotation.Supports;
 import xyz.tcheeric.gateway.client.PaymentClient;
 import xyz.tcheeric.gateway.client.QuoteClient;
 import xyz.tcheeric.gateway.common.Gateway;
+import xyz.tcheeric.gateway.common.InvoiceNotPaidException;
 import xyz.tcheeric.gateway.model.entity.GatewayPayment;
 import xyz.tcheeric.gateway.model.entity.GatewayQuote;
 import xyz.tcheeric.gateway.model.entity.enums.Direction;
@@ -176,10 +178,19 @@ public class PhoenixdGateway implements Gateway {
     @Override
     public boolean checkPaymentStatus(String quoteId) {
         QuoteClient quoteClient = new QuoteClient();
-        //GatewayQuote quote = quoteClient.getByEntityId(quoteId);
-        GatewayPayment payment = new PaymentClient().getByQuoteId(quoteId);
-        log.debug("Checked payment status for quoteId={}, state={}", quoteId, payment.getState());
-        return State.PAID.equals(payment.getState());
+        try {
+            //GatewayQuote quote = quoteClient.getByEntityId(quoteId);
+            GatewayPayment payment = new PaymentClient().getByQuoteId(quoteId);
+            log.debug("Checked payment status for quoteId={}, state={}", quoteId, payment.getState());
+            return State.PAID.equals(payment.getState());
+        } catch (HttpClientErrorException.NotFound notFound) {
+            log.warn("phoenixd_gateway payment_missing quoteId={} state=UNPAID reason=not_recorded", quoteId);
+            throw new InvoiceNotPaidException(
+                    quoteId,
+                    "Payment record not found for quote " + quoteId,
+                    notFound
+            );
+        }
     }
 
     @Override
@@ -190,7 +201,6 @@ public class PhoenixdGateway implements Gateway {
         return payment.getPaymentId();
     }
 
-    @SneakyThrows
     @Override
     public String pay(String quoteId) {
 
@@ -252,8 +262,6 @@ public class PhoenixdGateway implements Gateway {
         log.info("Payment sent: paymentId={}", payInvoiceResponse.getPaymentId());
 
         return payInvoiceResponse.getPaymentId();
-
-        // Should never happen
     }
 
     @Override
