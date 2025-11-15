@@ -21,6 +21,9 @@ public interface PaymentRepository extends PagingAndSortingRepository<GatewayPay
     // Explicitly declare save to satisfy RepositoryInvoker detection in some setups
     <S extends GatewayPayment> S save(S entity);
 
+    // Explicitly declare findById to enable Spring Data REST /payment/{id} endpoint
+    Optional<GatewayPayment> findById(Long id);
+
     /**
      * Retrieves a payment by its external payment identifier.
      * The query selects a payment matching the provided {@code paymentId}.
