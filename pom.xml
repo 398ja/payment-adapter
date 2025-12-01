@@ -65,7 +65,7 @@
         <junit-jupiter.version>5.13.4</junit-jupiter.version>
         <junit-platform.version>1.13.4</junit-platform.version>
         <jakarta-servlet-api.version>6.0.0</jakarta-servlet-api.version>
-        <phoenixd-java.version>0.1.4</phoenixd-java.version>
+        <phoenixd-java.version>0.2.0</phoenixd-java.version>
         <phoenixd-mock.version>0.1.4</phoenixd-mock.version>
         <mockito.version>5.11.0</mockito.version>
         <commons-lang3.version>3.17.0</commons-lang3.version>
