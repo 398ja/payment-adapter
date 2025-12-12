@@ -21,6 +21,9 @@ public interface QuoteRepository extends PagingAndSortingRepository<GatewayQuote
     // Explicitly declare save to satisfy RepositoryInvoker detection in some setups
     <S extends GatewayQuote> S save(S entity);
 
+    // Explicitly declare findById to enable PATCH/PUT/DELETE on item endpoints
+    Optional<GatewayQuote> findById(Long id);
+
     /**
      * Retrieves a quote by its external quote identifier.
      * The query selects a quote matching the given {@code quoteId}.

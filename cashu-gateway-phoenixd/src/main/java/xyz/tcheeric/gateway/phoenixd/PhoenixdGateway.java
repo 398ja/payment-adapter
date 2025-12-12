@@ -178,8 +178,20 @@ public class PhoenixdGateway implements Gateway {
     @Override
     public boolean checkPaymentStatus(String quoteId) {
         QuoteClient quoteClient = new QuoteClient();
+
+        // First check the Quote state directly (supports RECEIVE quotes where payment record may not exist)
         try {
-            //GatewayQuote quote = quoteClient.getByEntityId(quoteId);
+            GatewayQuote quote = quoteClient.getByEntityId(quoteId);
+            if (State.PAID.equals(quote.getState())) {
+                log.debug("phoenixd_gateway quote_paid quoteId={} state={}", quoteId, quote.getState());
+                return true;
+            }
+        } catch (Exception e) {
+            log.warn("phoenixd_gateway quote_lookup_failed quoteId={} error={}", quoteId, e.getMessage());
+        }
+
+        // Fall back to checking Payment record (for backward compatibility with MELT quotes)
+        try {
             GatewayPayment payment = new PaymentClient().getByQuoteId(quoteId);
             log.debug("Checked payment status for quoteId={}, state={}", quoteId, payment.getState());
             return State.PAID.equals(payment.getState());
