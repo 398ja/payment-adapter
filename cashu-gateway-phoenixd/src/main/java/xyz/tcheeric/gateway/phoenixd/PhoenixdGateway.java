@@ -89,12 +89,16 @@ public class PhoenixdGateway implements Gateway {
 
         log.info("Creating mint quote: amount={}, description={}", amount, description);
 
+        // Generate a single UUID for both quoteId and externalId
+        // This allows external clients to use quoteId for phoenixd lookups (e.g., mockpay)
+        String quoteId = UUID.randomUUID().toString();
+
         // Create the invoice param
         CreateInvoiceParam param = new CreateInvoiceParam();
         param.setDescription(description);
         param.setAmountSat(amount);
         param.setExpirySeconds(expiry);
-        param.setExternalId(UUID.randomUUID().toString());
+        param.setExternalId(quoteId);
         param.setWebhookUrl(getWebhookUrl());
 
         // Create the invoice
@@ -102,8 +106,8 @@ public class PhoenixdGateway implements Gateway {
 
         // Create the GatewayQuote
         GatewayQuote quote = new GatewayQuote();
-        quote.setQuoteId(UUID.randomUUID().toString());
-        quote.setInvoiceId(param.getExternalId());
+        quote.setQuoteId(quoteId);
+        quote.setInvoiceId(quoteId);
         quote.setExpiry(param.getExpirySeconds());
         quote.setDescription(param.getDescription());
         quote.setAmount(response.getAmountSat());
@@ -137,17 +141,21 @@ public class PhoenixdGateway implements Gateway {
 
         log.info("Creating melt quote: amount={}, description={} request={}", amount, description, request);
 
+        // Generate a single UUID for both quoteId and externalId
+        // This allows external clients to use quoteId for phoenixd lookups (e.g., mockpay)
+        String quoteId = UUID.randomUUID().toString();
+
         // Create the invoice param
         CreateInvoiceParam param = new CreateInvoiceParam();
         param.setDescription(description);
         param.setAmountSat(amount);
         param.setExpirySeconds(expiry);
-        param.setExternalId(UUID.randomUUID().toString());
+        param.setExternalId(quoteId);
 
         // Create the GatewayQuote
         GatewayQuote quote = new GatewayQuote();
-        quote.setQuoteId(UUID.randomUUID().toString());
-        quote.setInvoiceId(param.getExternalId());
+        quote.setQuoteId(quoteId);
+        quote.setInvoiceId(quoteId);
         quote.setExpiry(param.getExpirySeconds());
         quote.setDescription(param.getDescription());
         quote.setAmount(amount);
