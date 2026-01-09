@@ -29,11 +29,14 @@ import xyz.tcheeric.phoenixd.model.response.PayInvoiceResponse;
 import xyz.tcheeric.gateway.phoenixd.service.PhoenixdService;
 import xyz.tcheeric.gateway.phoenixd.service.PhoenixdServiceImpl;
 
+import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.UUID;
+import java.io.InputStream;
+import java.util.Properties;
 
 /**
  * Gateway implementation that integrates with a running <code>phoenixd</code>
@@ -43,7 +46,7 @@ import java.util.UUID;
  */
 @Slf4j
 @Component
-@PropertySource("classpath:app.properties")
+@PropertySource("classpath:phoenixd.properties")
 @Supports({PaymentMethod.BOLT11, PaymentMethod.BOLT12, PaymentMethod.ON_CHAIN})
 public class PhoenixdGateway implements Gateway {
 
@@ -70,10 +73,12 @@ public class PhoenixdGateway implements Gateway {
     private PhoenixdService service = new PhoenixdServiceImpl();
 
     public PhoenixdGateway() {
+        loadPropertiesIfNeeded();
     }
 
     public PhoenixdGateway(PhoenixdService service) {
         this.service = service;
+        loadPropertiesIfNeeded();
     }
 
     @SneakyThrows
@@ -193,6 +198,12 @@ public class PhoenixdGateway implements Gateway {
 
         QuoteClient quoteClient = new QuoteClient();
         GatewayQuote quote = quoteClient.getByEntityId(quoteId);
+        if (quote == null) {
+            throw new IllegalStateException("Unknown quoteId: " + quoteId);
+        }
+        if (!quoteId.equals(quote.getQuoteId())) {
+            throw new IllegalStateException("Mismatched quoteId: requested=" + quoteId + ", stored=" + quote.getQuoteId());
+        }
         String request = quote.getRequest();
 
         if (request == null) {
@@ -306,13 +317,87 @@ public class PhoenixdGateway implements Gateway {
         }
     }
 
-    @SneakyThrows
     private URL getWebhookUrl() {
-        String wid = System.getProperty("wid");
-        if (wid == null) {
-            throw new IllegalArgumentException("Missing webhook id");
+        try {
+            if (webhookBaseUrl == null || webhookBaseUrl.isBlank()) {
+                throw new IllegalStateException("Missing configuration: 'webhook.base_url' is not set. Ensure phoenixd.properties is on the classpath or Spring @Value injection is configured.");
+            }
+            String normalized = webhookBaseUrl.replaceAll("/+$", "");
+            return URI.create(normalized + "/" + GATEWAY_NAME).toURL();
+        } catch (MalformedURLException e) {
+            log.error("Invalid webhook base URL: {}", webhookBaseUrl, e);
+            throw new RuntimeException(e);
         }
-        return URI.create(webhookBaseUrl + "?wid=" + wid).toURL();
+    }
+
+    /**
+     * Loads properties from classpath file 'phoenixd.properties' when this class is
+     * instantiated outside of a Spring context (i.e., @Value fields are not injected).
+     * Existing non-null fields are not overridden.
+     */
+    private void loadPropertiesIfNeeded() {
+        boolean needsLoad = currency == null || lnAddressFlag == null || webhookBaseUrl == null;
+        if (!needsLoad) {
+            return;
+        }
+
+        try (InputStream in = Thread.currentThread()
+                .getContextClassLoader()
+                .getResourceAsStream("phoenixd.properties")) {
+            if (in == null) {
+                log.warn("phoenixd.properties not found on classpath; relying on defaults/@Value");
+                // Provide safe defaults where applicable; critical ones remain null to fail fast
+                if (currency == null) currency = "sat";
+                if (lnAddressFlag == null) lnAddressFlag = "off";
+                // expiry/fees may remain at Java defaults if injected elsewhere
+                return;
+            }
+            Properties p = new Properties();
+            p.load(in);
+
+            if (currency == null) {
+                currency = p.getProperty("phoenixd.currency", "sat");
+            }
+            if (expiry == 0) {
+                // Prefer 'phoenixd.expiry'; retain backward compat if only 'phoenixd.expiration' is present
+                String exp = p.getProperty("phoenixd.expiry", p.getProperty("phoenixd.expiration", "60"));
+                try { expiry = Integer.parseInt(exp); } catch (NumberFormatException ignored) { expiry = 60; }
+            }
+            if (lnAddressFlag == null) {
+                lnAddressFlag = p.getProperty("phoenixd.lnaddress", "off");
+            }
+            if (feePercent == 0.0d) {
+                String fp = p.getProperty("phoenixd.fee.percent", "0.0");
+                try { feePercent = Double.parseDouble(fp); } catch (NumberFormatException ignored) { /* keep default */ }
+            }
+            if (fixedFee == 0) {
+                String ff = p.getProperty("phoenixd.fee.fixed", "0");
+                try { fixedFee = Integer.parseInt(ff); } catch (NumberFormatException ignored) { /* keep default */ }
+            }
+            if (webhookBaseUrl == null) {
+                webhookBaseUrl = p.getProperty("webhook.base_url");
+            }
+
+            // Propagate phoenixd client properties to System properties if not already set
+            String baseUrl = p.getProperty("phoenixd.base_url", "http://localhost:9740");
+            if (System.getProperty("phoenixd.base_url") == null || System.getProperty("phoenixd.base_url").isBlank()) {
+                System.setProperty("phoenixd.base_url", baseUrl);
+            }
+            String user = p.getProperty("phoenixd.username", "");
+            if (!user.isBlank() && (System.getProperty("phoenixd.username") == null)) {
+                System.setProperty("phoenixd.username", user);
+            }
+            String pass = p.getProperty("phoenixd.password", "");
+            if (!pass.isBlank() && (System.getProperty("phoenixd.password") == null)) {
+                System.setProperty("phoenixd.password", pass);
+            }
+            String timeout = p.getProperty("phoenixd.timeout", "");
+            if (!timeout.isBlank() && (System.getProperty("phoenixd.timeout") == null)) {
+                System.setProperty("phoenixd.timeout", timeout);
+            }
+        } catch (Exception e) {
+            log.error("Failed to load phoenixd.properties from classpath", e);
+        }
     }
 
     private String getRequest(@NonNull CreateInvoiceResponse response) {

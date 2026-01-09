@@ -12,7 +12,7 @@ import xyz.tcheeric.gateway.webhook.helper.validator.RequestValidatorFacade;
 
 import java.time.Instant;
 
-@WebServlet(name = "WebhookServlet", value = "/webhook")
+@WebServlet(name = "WebhookServlet", value = "/webhook/phoenixd")
 @Slf4j
 public class WebhookServlet extends HttpServlet {
 

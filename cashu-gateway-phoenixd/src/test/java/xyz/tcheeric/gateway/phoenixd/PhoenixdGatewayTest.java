@@ -53,11 +53,8 @@ public class PhoenixdGatewayTest {
         field.set(gateway, value);
     }
 
-    @AfterEach
-    public void shutdown() {
-        System.clearProperty("wid");
-    }
 
+    // verifies creating a mint quote persists a pending quote
     @Test
     public void testCreateMintQuote() throws Exception {
         CreateInvoiceResponse createResp = new CreateInvoiceResponse();
@@ -66,7 +63,6 @@ public class PhoenixdGatewayTest {
         GetLightningAddressResponse addressResp = new GetLightningAddressResponse();
         addressResp.setLightningAddress("bob@ln");
 
-        System.setProperty("wid", "testCreateMintQuote");
         GatewayQuote[] savedQuote = new GatewayQuote[1];
         when(service.createInvoice(any())).thenReturn(createResp);
         when(service.getLightningAddress()).thenReturn(addressResp);
@@ -92,6 +88,7 @@ public class PhoenixdGatewayTest {
         }
     }
 
+    // verifies paying a BOLT11 invoice results in a paid payment record
     @Test
     public void testPayBoltInvoice() throws Exception {
         PayBolt11InvoiceInvoiceResponse payResp = new PayBolt11InvoiceInvoiceResponse();
@@ -137,6 +134,68 @@ public class PhoenixdGatewayTest {
         }
     }
 
+    // ensures the created payment carries the exact quoteId used to initiate payment (no stale/mismatched quoteId)
+    @Test
+    public void testQuoteIdConsistencyOnPay() throws Exception {
+        PayBolt11InvoiceInvoiceResponse payResp = new PayBolt11InvoiceInvoiceResponse();
+        payResp.setPaymentId("pid2");
+        payResp.setPaymentPreimage("pre2");
+        payResp.setPaymentHash("hash2");
+        payResp.setRecipientAmountSat(5);
+        payResp.setRoutingFeeSat(1);
+
+        GatewayQuote[] savedQuote = new GatewayQuote[1];
+        GatewayPayment[] savedPayment = new GatewayPayment[1];
+        when(service.payBolt11Invoice(any())).thenReturn(payResp);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                (mock, context) -> {
+                    when(mock.create(any(GatewayQuote.class))).thenAnswer(inv -> {
+                        GatewayQuote q = inv.getArgument(0);
+                        savedQuote[0] = q;
+                        return q;
+                    });
+                    when(mock.getByEntityId(anyString())).thenAnswer(inv -> savedQuote[0]);
+                });
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                (mock, context) -> {
+                    when(mock.create(any(GatewayPayment.class))).thenAnswer(inv -> {
+                        GatewayPayment p = inv.getArgument(0);
+                        savedPayment[0] = p;
+                        return p;
+                    });
+                })
+        ) {
+            String quoteId = gateway.createMeltQuote(5, "lnbc1consistency", "consistency");
+            gateway.pay(quoteId);
+
+            Assertions.assertNotNull(savedPayment[0]);
+            Assertions.assertEquals(quoteId, savedPayment[0].getQuoteId());
+        }
+    }
+
+    // verifies paying with an unknown/stale quoteId is rejected with a clear error
+    @Test
+    public void testPayWithUnknownQuoteIdThrows() {
+        PayBolt11InvoiceInvoiceResponse payResp = new PayBolt11InvoiceInvoiceResponse();
+        payResp.setPaymentId("pid");
+        payResp.setRecipientAmountSat(1);
+        payResp.setRoutingFeeSat(0);
+        //                                                                                                                                                          when(service.payBolt11Invoice(any())).thenReturn(payResp);
+
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                (mock, context) -> {
+                    // Simulate repository returning null for unknown quoteId
+                    when(mock.getByEntityId(anyString())).thenReturn(null);
+                });
+            MockedConstruction<PaymentClient> ignored = mockConstruction(PaymentClient.class)
+        ) {
+            Assertions.assertThrows(IllegalStateException.class, () -> gateway.pay("stale-or-unknown-quote"));
+        }
+    }
+
+    // verifies paying a lightning address invoice results in a paid payment record
     @Test
     public void testPayLnInvoice() throws Exception {
         PayLightningAddressInvoiceResponse payResp = new PayLightningAddressInvoiceResponse();
@@ -182,6 +241,7 @@ public class PhoenixdGatewayTest {
         }
     }
 
+    // verifies payment throws when lightning address payment fails
     @Test
     public void testPayLnInvoiceFailure() {
         PayLightningAddressInvoiceResponse payResp = new PayLightningAddressInvoiceResponse();
@@ -209,6 +269,7 @@ public class PhoenixdGatewayTest {
         }
     }
 
+    // verifies payment throws when BOLT11 invoice payment fails
     @Test
     public void testPayBoltInvoiceFailure() {
         PayBolt11InvoiceInvoiceResponse payResp = new PayBolt11InvoiceInvoiceResponse();
@@ -236,6 +297,7 @@ public class PhoenixdGatewayTest {
         }
     }
 
+    // verifies payment throws when service returns null response
     @Test
     public void testNullServiceResponse() {
         GatewayQuote[] savedQuote = new GatewayQuote[1];
@@ -260,6 +322,7 @@ public class PhoenixdGatewayTest {
         }
     }
 
+    // verifies supported payment methods
     @Test
     public void testSupports()  {
         // Arrange & Act
@@ -275,4 +338,13 @@ public class PhoenixdGatewayTest {
         Assertions.assertFalse(gateway.supports(PaymentMethod.MOBILE_MONEY));
         Assertions.assertFalse(gateway.supports(PaymentMethod.MOCK));
     }
+    // verifies that webhook URL appends the gateway name
+    @Test
+    public void testWebhookUrlAppendsGatewayName() throws Exception {
+        java.lang.reflect.Method method = PhoenixdGateway.class.getDeclaredMethod("getWebhookUrl");
+        method.setAccessible(true);
+        java.net.URL url = (java.net.URL) method.invoke(gateway);
+        Assertions.assertEquals("http://localhost:9090/webhook/phoenixd", url.toString());
+    }
+
 }
