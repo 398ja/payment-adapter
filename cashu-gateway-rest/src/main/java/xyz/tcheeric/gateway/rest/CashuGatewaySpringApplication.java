@@ -69,7 +69,14 @@ public class CashuGatewaySpringApplication {
         String lowerCaseKey = key.toLowerCase(Locale.ROOT);
         return !lowerCaseKey.contains("password")
                 && !lowerCaseKey.contains("secret")
-                && !lowerCaseKey.contains("key")
+                && !lowerCaseKey.contains("privatekey")
+                && !lowerCaseKey.contains("private-key")
+                && !lowerCaseKey.contains("apikey")
+                && !lowerCaseKey.contains("api-key")
+                && !lowerCaseKey.contains("accesskey")
+                && !lowerCaseKey.contains("access-key")
+                && !lowerCaseKey.contains("secretkey")
+                && !lowerCaseKey.contains("secret-key")
                 && !lowerCaseKey.contains("token");
     }
 }
