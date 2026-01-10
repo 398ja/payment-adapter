@@ -30,6 +30,10 @@ final class GatewayClientConfig {
                 loadFromClasspath(KEY).orElse(null),
                 DEFAULT);
 
+        if (resolved == null) {
+            throw new IllegalArgumentException("Base URL is not configured");
+        }
+
         String port = firstNonBlank(
                 System.getProperty(KEY_PORT),
                 System.getenv(ENV_PORT),
