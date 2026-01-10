@@ -25,7 +25,11 @@ public class RequestValidatorFacade {
         PhoenixdWebhookRequest phoenixdWebhookRequest = new PhoenixdWebhookRequest();
         String amount = request.getParameter("amountSat");
         if (amount != null && !amount.isBlank()) {
-            phoenixdWebhookRequest.setAmountSat(Integer.parseInt(amount));
+            try {
+                phoenixdWebhookRequest.setAmountSat(Integer.parseInt(amount));
+            } catch (NumberFormatException ex) {
+                throw new IllegalArgumentException("Invalid amountSat: must be an integer", ex);
+            }
         }
         phoenixdWebhookRequest.setType(request.getParameter("type"));
         phoenixdWebhookRequest.setPaymentHash(request.getParameter("paymentHash"));
@@ -33,7 +37,7 @@ public class RequestValidatorFacade {
 
         // Short-circuit if required identifiers are missing to avoid remote calls
         if (phoenixdWebhookRequest.getExternalId() == null || phoenixdWebhookRequest.getExternalId().isBlank()) {
-            throw new IllegalArgumentException("Quote not found");
+            throw new IllegalArgumentException("Missing required parameter: externalId");
         }
         PhoenixWebhookValidator phoenixWebhookValidator = new PhoenixWebhookValidator(phoenixdWebhookRequest);
         return phoenixWebhookValidator.validate();
