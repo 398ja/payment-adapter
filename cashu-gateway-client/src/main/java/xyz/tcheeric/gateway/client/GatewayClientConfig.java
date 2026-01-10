@@ -90,6 +90,9 @@ final class GatewayClientConfig {
             // Rebuild URI with port
             String scheme = uri.getScheme();
             String host = uri.getHost();
+            if (host == null || host.isBlank()) {
+                throw new IllegalArgumentException("Invalid base URL (missing host): " + url);
+            }
             String authority = (uri.getUserInfo() != null ? uri.getUserInfo() + "@" : "") + host + ":" + port;
             String path = uri.getRawPath() == null ? "" : uri.getRawPath();
             String query = uri.getRawQuery();
