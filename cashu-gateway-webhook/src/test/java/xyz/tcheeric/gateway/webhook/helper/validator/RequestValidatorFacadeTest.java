@@ -15,6 +15,6 @@ public class RequestValidatorFacadeTest {
         MockHttpServletRequest request = new MockHttpServletRequest();
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> RequestValidatorFacade.validate(request));
-        assertEquals("Quote not found", ex.getMessage());
+        assertEquals("Missing required parameter: externalId", ex.getMessage());
     }
 }
