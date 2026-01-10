@@ -7,8 +7,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import xyz.tcheeric.gateway.model.entity.GatewayQuote;
-import xyz.tcheeric.gateway.rest.repository.QuoteRepository;
+import xyz.tcheeric.gateway.model.entity.GatewayPayment;
+import xyz.tcheeric.gateway.rest.repository.PaymentRepository;
 
 /**
  * REST controller for payment/quote lookup operations.
@@ -22,10 +22,10 @@ public class PaymentController {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(PaymentController.class);
 
-    private final QuoteRepository quoteRepository;
+    private final PaymentRepository paymentRepository;
 
-    public PaymentController(QuoteRepository quoteRepository) {
-        this.quoteRepository = quoteRepository;
+    public PaymentController(PaymentRepository paymentRepository) {
+        this.paymentRepository = paymentRepository;
     }
 
     /**
@@ -37,10 +37,10 @@ public class PaymentController {
      * @return the quote if found
      */
     @GetMapping("/search/findByQuoteId")
-    public ResponseEntity<GatewayQuote> findByQuoteId(@RequestParam("quoteId") String quoteId) {
+    public ResponseEntity<GatewayPayment> findByQuoteId(@RequestParam("quoteId") String quoteId) {
         LOGGER.debug("payment_search_by_quote_id quote_id={}", quoteId);
 
-        return quoteRepository.findByQuoteId(quoteId)
+        return paymentRepository.findByQuoteId(quoteId)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
