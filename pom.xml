@@ -4,7 +4,7 @@
 
     <groupId>xyz.tcheeric</groupId>
     <artifactId>cashu-gateway</artifactId>
-    <version>0.4.8</version>
+    <version>0.4.9</version>
     <packaging>pom</packaging>
 
     <name>cashu-gateway</name>
@@ -55,8 +55,7 @@
 
         <!-- Dependency versions -->
         <spring-boot.version>3.5.5</spring-boot.version>
-        <nostr-java-bom.version>1.1.8</nostr-java-bom.version>
-        <cashu-lib.version>0.8.1</cashu-lib.version>
+        <cashu-lib.version>0.11.1</cashu-lib.version>
         <postgresql.version>42.7.7</postgresql.version>
         <h2.version>2.2.224</h2.version>
         <lombok.version>1.18.40</lombok.version>
@@ -86,15 +85,6 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- Import Nostr Java BOM for shared dependencies -->
-            <dependency>
-                <groupId>xyz.tcheeric</groupId>
-                <artifactId>nostr-java-bom</artifactId>
-                <version>${nostr-java-bom.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-
             <!-- Import Spring Boot BOM -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
