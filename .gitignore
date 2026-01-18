@@ -37,8 +37,7 @@ build/
 ### Mac OS ###
 .DS_Store
 /.idea/
-/cashu-gateway-phoenixd/logs/
-/cashu-gateway-phoenixd/logs/
-/cashu-gateway-webhook/logs/
+/payment-gateway-phoenixd/logs/
+/payment-gateway-webhook/logs/
 /.claude/
-/cashu-gateway-rest/logs/
+/payment-gateway-rest/logs/

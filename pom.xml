@@ -3,21 +3,21 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>xyz.tcheeric</groupId>
-    <artifactId>cashu-gateway</artifactId>
+    <artifactId>payment-gateway</artifactId>
     <version>0.4.9</version>
     <packaging>pom</packaging>
 
-    <name>cashu-gateway</name>
+    <name>payment-gateway</name>
     <url>http://maven.apache.org</url>
 
     <modules>
-        <module>cashu-gateway-phoenixd</module>
-        <module>cashu-gateway-webhook</module>
-        <module>cashu-gateway-model</module>
-        <module>cashu-gateway-rest</module>
-        <module>cashu-gateway-client</module>
-        <module>cashu-gateway-dummy</module>
-        <module>cashu-gateway-common</module>
+        <module>payment-gateway-phoenixd</module>
+        <module>payment-gateway-webhook</module>
+        <module>payment-gateway-model</module>
+        <module>payment-gateway-rest</module>
+        <module>payment-gateway-client</module>
+        <module>payment-gateway-dummy</module>
+        <module>payment-gateway-common</module>
     </modules>
 
     <distributionManagement>

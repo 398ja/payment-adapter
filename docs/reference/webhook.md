@@ -1,6 +1,6 @@
 # Webhook Handler
 
-`cashu-gateway-webhook` exposes a servlet at `/webhook/phoenixd` for processing payment notifications.
+`payment-gateway-webhook` exposes a servlet at `/webhook/phoenixd` for processing payment notifications.
 
 ## Health
 

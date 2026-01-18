@@ -1,6 +1,6 @@
 # Java Client
 
-The `cashu-gateway-client` module offers REST clients for interacting with the service.
+The `payment-gateway-client` module offers REST clients for interacting with the service.
 
 ## Common Methods
 
@@ -29,18 +29,18 @@ Available on all client classes.
 
 ### Docker Compose (cashu-mint)
 
-- Set the client environment variables on the container that uses the client (e.g., `cashu-mint-rest`), not only on the server (`cashu-gateway-rest`).
+- Set the client environment variables on the container that uses the client (e.g., `cashu-mint-rest`), not only on the server (`payment-gateway-rest`).
 - Example service configuration in cashu-mint's `docker-compose.yml`:
 
   cashu-mint-rest:
     environment:
-      GATEWAY_API_BASE_URL: http://cashu-gateway-rest
+      GATEWAY_API_BASE_URL: http://payment-gateway-rest
       GATEWAY_API_PORT: 8080
     depends_on:
-      cashu-gateway-rest:
+      payment-gateway-rest:
         condition: service_healthy
 
-- Ensure both services are on the same Docker network so the hostname `cashu-gateway-rest` resolves.
+- Ensure both services are on the same Docker network so the hostname `payment-gateway-rest` resolves.
 
 ## PaymentClient
 

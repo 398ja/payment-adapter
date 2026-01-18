@@ -1,13 +1,13 @@
 # Configuration Reference
 
-This document lists configuration properties and environment variables available across Cashu Gateway modules.
+This document lists configuration properties and environment variables available across Payment Gateway modules.
 
-## REST module ([cashu-gateway-rest](../../cashu-gateway-rest))
+## REST module ([payment-gateway-rest](../../payment-gateway-rest))
 
 | Property | Default | Description |
 | --- | --- | --- |
-| `spring.application.name` | `cashu-gateway-spring` | Spring Boot application name. |
-| `spring.datasource.url` | `jdbc:postgresql://localhost:5432/cashu-gateway` | JDBC connection string. |
+| `spring.application.name` | `payment-gateway-rest` | Spring Boot application name. |
+| `spring.datasource.url` | `jdbc:postgresql://localhost:5432/payment-gateway` | JDBC connection string. |
 | `spring.datasource.driverClassName` | `org.postgresql.Driver` | JDBC driver class. |
 | `spring.datasource.username` | `postgres` | Database username. |
 | `spring.datasource.password` | `password` | Database password. |
@@ -19,14 +19,14 @@ This document lists configuration properties and environment variables available
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://db:5432/cashu-gateway` | Overrides database URL in Docker. |
+| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://db:5432/payment-gateway` | Overrides database URL in Docker. |
 | `SPRING_DATASOURCE_USERNAME` | `postgres` | Overrides database user in Docker. |
 | `SPRING_DATASOURCE_PASSWORD` | `password` | Overrides database password in Docker. |
-| `POSTGRES_DB` | `cashu-gateway` | Database name for the PostgreSQL container. |
+| `POSTGRES_DB` | `payment-gateway` | Database name for the PostgreSQL container. |
 | `POSTGRES_USER` | `postgres` | Username for the PostgreSQL container. |
 | `POSTGRES_PASSWORD` | `password` | Password for the PostgreSQL container. |
 
-## Dummy Gateway module ([cashu-gateway-dummy](../../cashu-gateway-dummy))
+## Dummy Gateway module ([payment-gateway-dummy](../../payment-gateway-dummy))
 
 | Property | Default | Description |
 | --- | --- | --- |
@@ -36,7 +36,7 @@ This document lists configuration properties and environment variables available
 | `dummy.fee_reserve` | `30` | Fee reserve amount. |
 | `webhook.base_url` | `http://localhost:9090/webhook` | Base URL for webhook callbacks; gateway name appended automatically. |
 
-## Phoenixd Gateway module ([cashu-gateway-phoenixd](../../cashu-gateway-phoenixd))
+## Phoenixd Gateway module ([payment-gateway-phoenixd](../../payment-gateway-phoenixd))
 
 | Property | Default | Description |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ This document lists configuration properties and environment variables available
 | `phoenixd.webhook_secret` | *(empty)* | Secret for verifying webhooks. |
 | `webhook.base_url` | `http://localhost:9090/webhook` | Base URL for webhook callbacks; gateway name appended automatically. |
 
-## Webhook module ([cashu-gateway-webhook](../../cashu-gateway-webhook))
+## Webhook module ([payment-gateway-webhook](../../payment-gateway-webhook))
 
 | Property | Default | Description |
 | --- | --- | --- |

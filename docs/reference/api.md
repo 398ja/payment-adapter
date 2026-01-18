@@ -1,6 +1,6 @@
 # REST API Reference
 
-This document describes the HTTP endpoints exposed by the Cashu Gateway REST service.
+This document describes the HTTP endpoints exposed by the Payment Gateway REST service.
 
 ## Quote endpoints
 

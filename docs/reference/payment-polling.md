@@ -232,7 +232,7 @@ curl -X POST "http://localhost:9740/mockpay?paymentHash=$PAYMENT_HASH"
 
 This triggers:
 1. MockLnServer marks invoice as settled
-2. Webhook sent to cashu-gateway
+2. Webhook sent to payment-gateway
 3. Payment state updated to `PAID`
 
 ## Error Handling

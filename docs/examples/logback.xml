@@ -11,7 +11,7 @@
         <appender-ref ref="STDOUT"/>
     </root>
 
-    <!-- Cashu gateway libraries -->
+    <!-- Payment gateway libraries -->
     <logger name="xyz.tcheeric" level="DEBUG"/>
 </configuration>
 

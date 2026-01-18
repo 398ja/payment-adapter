@@ -1,27 +1,25 @@
-# Cashu Gateway
+# Payment Gateway
 
-Cashu Gateway provides a RESTful service for creating and settling Lightning Network invoices. The project is organised as modular Maven components.
+Payment Gateway provides a RESTful service for creating and settling Lightning Network invoices. The project is organised as modular Maven components.
 
 ## Modules
 
 | Module | Description |
 | ------ | ----------- |
-| **cashu-gateway-model** | Domain entities and Spring Data JPA configuration. |
-| **cashu-gateway-rest** | Spring Boot application exposing REST endpoints for `GatewayQuote` and `GatewayPayment` entities. |
-| **cashu-gateway-client** | Small Java client for interacting with the REST service. |
-| **cashu-gateway-phoenixd** | Implementation of the `Gateway` interface that communicates with a [phoenixd](https://github.com/ACINQ/phoenixd) node. |
-| **cashu-gateway-webhook** | Servlet application for processing incoming webhook callbacks. |
-| **cashu-gateway-dummy** | Simple mock implementation of the `Gateway` interface used for testing. |
-| **cashu-gateway-test** | Integration tests that exercise the phoenixd gateway and REST API. |
+| **payment-gateway-model** | Domain entities and Spring Data JPA configuration. |
+| **payment-gateway-rest** | Spring Boot application exposing REST endpoints for `GatewayQuote` and `GatewayPayment` entities. |
+| **payment-gateway-client** | Small Java client for interacting with the REST service. |
+| **payment-gateway-phoenixd** | Implementation of the `Gateway` interface that communicates with a [phoenixd](https://github.com/ACINQ/phoenixd) node. |
+| **payment-gateway-webhook** | Servlet application for processing incoming webhook callbacks. |
+| **payment-gateway-dummy** | Simple mock implementation of the `Gateway` interface used for testing. |
 
 ```
-/ cashu-gateway-model      Domain model and JPA entities
-/ cashu-gateway-rest       Spring Boot REST service
-/ cashu-gateway-client     REST client library
-/ cashu-gateway-phoenixd   phoenixd integration of Gateway
-/ cashu-gateway-webhook    Servlet webhook handler
-/ cashu-gateway-dummy      Dummy Gateway implementation
-/ cashu-gateway-test       Integration tests
+/ payment-gateway-model      Domain model and JPA entities
+/ payment-gateway-rest       Spring Boot REST service
+/ payment-gateway-client     REST client library
+/ payment-gateway-phoenixd   phoenixd integration of Gateway
+/ payment-gateway-webhook    Servlet webhook handler
+/ payment-gateway-dummy      Dummy Gateway implementation
 ```
 
 ## Requirements
@@ -41,7 +39,7 @@ To build all modules run the standard Maven build using the wrapper:
 Individual modules can be built with the `-pl` flag, for example:
 
 ```bash
-./mvnw -pl cashu-gateway-rest package
+./mvnw -pl payment-gateway-rest package
 ```
 
 ## Running the REST Service
@@ -54,25 +52,25 @@ docker-compose up
 
 This will start the following containers:
 
-* **cashu-gateway-db** – PostgreSQL database on port `5432`.
+* **payment-gateway-db** – PostgreSQL database on port `5432`.
 * **phoenixd** – phoenixd Lightning node on port `9740`.
-* **cashu-gateway-rest** – Spring Boot application exposing HTTP on port `8080`.
-* **cashu-gateway-webhook** – Servlet container handling webhooks on host port `9090` (container port `8080`). Built via module Dockerfile.
+* **payment-gateway-rest** – Spring Boot application exposing HTTP on port `8080`.
+* **payment-gateway-webhook** – Servlet container handling webhooks on host port `9090` (container port `8080`). Built via module Dockerfile.
 
 The REST application can also be launched directly using Maven:
 
 ```bash
-./mvnw -pl cashu-gateway-rest spring-boot:run
+./mvnw -pl payment-gateway-rest spring-boot:run
 ```
 
 ### Webhook service (Docker)
 
 The webhook handler runs as a separate servlet container. In Docker Compose:
 
-- The REST service is reachable as `http://cashu-gateway-rest:8080`.
-- The webhook service is reachable as `http://cashu-gateway-webhook:8080/webhook/phoenixd` within the network and on the host as `http://localhost:${WEBHOOK_PORT:-9090}/webhook/phoenixd`.
+- The REST service is reachable as `http://payment-gateway-rest:8080`.
+- The webhook service is reachable as `http://payment-gateway-webhook:8080/webhook/phoenixd` within the network and on the host as `http://localhost:${WEBHOOK_PORT:-9090}/webhook/phoenixd`.
 - The REST app is configured to provide this webhook URL to phoenixd via `WEBHOOK_BASE_URL` environment variable.
-- Compose builds the webhook image from `cashu-gateway-webhook/Dockerfile`.
+- Compose builds the webhook image from `payment-gateway-webhook/Dockerfile`.
   The container also exposes `GET /health` which Docker Compose uses for health checks.
 
 Webhook identification (wid) removed
@@ -83,7 +81,7 @@ The webhook handler expects phoenixd-formatted parameters (e.g., `type`, `amount
 Database connection properties can be overridden via environment variables. In `docker-compose.yml` these are set as:
 
 ```
-SPRING_DATASOURCE_URL=jdbc:postgresql://cashu-gateway-db:5432/cashu-gateway
+SPRING_DATASOURCE_URL=jdbc:postgresql://payment-gateway-db:5432/payment-gateway
 SPRING_DATASOURCE_USERNAME=postgres
 SPRING_DATASOURCE_PASSWORD=password
 ```
@@ -106,18 +104,18 @@ Likewise for payments:
 * `GET /payment/search/findByPaymentId?paymentId=...`
 * `GET /payment/search/findByQuoteId?quoteId=...`
 
-The `cashu-gateway-client` module demonstrates basic interaction with these endpoints; see the [API reference](docs/reference/api.md) for payload details.
+The `payment-gateway-client` module demonstrates basic interaction with these endpoints; see the [API reference](docs/reference/api.md) for payload details.
 
 ## Webhook Handler
 
-The `cashu-gateway-webhook` module provides a simple servlet mapped at `/webhook/phoenixd`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. No `wid` parameter is required.
+The `payment-gateway-webhook` module provides a simple servlet mapped at `/webhook/phoenixd`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. No `wid` parameter is required.
 
 ## Running Tests
 
-Integration tests reside in the `cashu-gateway-test` module and require a running phoenixd instance as well as the REST service. Execute them with:
+Unit tests can be executed with:
 
 ```bash
-./mvnw -pl cashu-gateway-test test
+./mvnw test
 ```
 
 Running `./mvnw test` at the project root will also produce an aggregated JaCoCo
@@ -125,24 +123,24 @@ coverage report under `target/site/jacoco-aggregate/index.html`.
 
 ## Dockerfile
 
-A Dockerfile for the REST service is available under `cashu-gateway-rest/Dockerfile`. It performs a two-stage build using the Maven base image and produces a runnable JAR:
+A Dockerfile for the REST service is available under `payment-gateway-rest/Dockerfile`. It performs a two-stage build using the Maven base image and produces a runnable JAR:
 
 ```Dockerfile
 FROM maven:3.9.6-eclipse-temurin-21 AS build
 WORKDIR /app
 COPY . .
-RUN ./mvnw -pl cashu-gateway-rest -am package -DskipTests
+RUN ./mvnw -pl payment-gateway-rest -am package -DskipTests
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
-COPY --from=build /app/cashu-gateway-rest/target/cashu-gateway-rest-*.jar app.jar
+COPY --from=build /app/payment-gateway-rest/target/payment-gateway-rest-*.jar app.jar
 EXPOSE 8080
 ENTRYPOINT ["java","-jar","/app/app.jar"]
 ```
 
 ## Container Publishing
 
-The `cashu-gateway-rest` and `cashu-gateway-webhook` modules include the [Jib](https://github.com/GoogleContainerTools/jib) Maven plugin to build and publish images to a Docker registry. Running:
+The `payment-gateway-rest` and `payment-gateway-webhook` modules include the [Jib](https://github.com/GoogleContainerTools/jib) Maven plugin to build and publish images to a Docker registry. Running:
 
 ```bash
 ./mvnw deploy
@@ -150,8 +148,8 @@ The `cashu-gateway-rest` and `cashu-gateway-webhook` modules include the [Jib](h
 
 builds all modules and pushes:
 
-- `docker.398ja.xyz/cashu-gateway-rest` (tags: project version, latest)
-- `docker.398ja.xyz/cashu-gateway-webhook` (tags: project version, latest)
+- `docker.398ja.xyz/payment-gateway-rest` (tags: project version, latest)
+- `docker.398ja.xyz/payment-gateway-webhook` (tags: project version, latest)
 
 Authentication can be configured via `~/.m2/settings.xml` (server id `docker-hub` or your private registry), environment variables, or Jib's system properties. See Jib docs for details.
 
@@ -159,17 +157,17 @@ Authentication can be configured via `~/.m2/settings.xml` (server id `docker-hub
 
 | Module | Option / Variable | Description |
 | ------ | ----------------- | ----------- |
-| **cashu-gateway-rest** | `SPRING_DATASOURCE_URL` | JDBC connection string. |
+| **payment-gateway-rest** | `SPRING_DATASOURCE_URL` | JDBC connection string. |
 | | `SPRING_DATASOURCE_USERNAME` | Database user. |
 | | `SPRING_DATASOURCE_PASSWORD` | Database password. |
-| **cashu-gateway-phoenixd** | `phoenixd.currency` | Invoice currency unit. |
+| **payment-gateway-phoenixd** | `phoenixd.currency` | Invoice currency unit. |
 | | `phoenixd.expiration` | Quote lifetime in seconds. |
 | | `phoenixd.fee.percent` | Percentage fee. |
 | | `phoenixd.fee.fixed` | Fixed fee. |
 | | `phoenixd.expiry` | Invoice expiry in seconds. |
 | | `phoenixd.lnaddress` | Enable LN address support. |
 | | `webhook.base_url` | Base URL for webhook callbacks; gateway name appended automatically. |
-| **cashu-gateway-dummy** | `dummy.payment_status` | Mock payment status. |
+| **payment-gateway-dummy** | `dummy.payment_status` | Mock payment status. |
 | | `dummy.amount` | Dummy payment amount. |
 | | `dummy.expiry` | Quote expiry in seconds. |
 | | `dummy.fee_reserve` | Fee reserve amount. |

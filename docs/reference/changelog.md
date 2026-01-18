@@ -1,6 +1,6 @@
 # Changelog
 
-This document summarizes notable changes to the cashu-gateway project. Versions follow semantic versioning when possible.
+This document summarizes notable changes to the payment-gateway project. Versions follow semantic versioning when possible.
 
 ## 0.3.2
 
