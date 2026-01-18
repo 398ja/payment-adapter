@@ -2,6 +2,30 @@
 
 This document summarizes notable changes to the payment-gateway project. Versions follow semantic versioning when possible.
 
+## 0.5.0 - 2026-01-18
+
+### Changed
+- Renamed project from cashu-gateway to payment-gateway (all module artifactIds updated)
+- Refactored PaymentController to use PaymentRepository and updated endpoint response type
+- Added `-parameters` compiler flag for Spring MVC method parameter binding
+
+### Added
+- Validation for `amountSat` and `externalId` parameters in RequestValidatorFacade
+- Validation for base URL host in GatewayClientConfig
+- Enhanced key filtering to include additional sensitive terms
+- Enhanced property logging with safety checks and profile filtering
+- PaymentControllerIT integration test
+- CLAUDE.md for AI assistant guidance
+
+## 0.4.9
+
+- Bump version and update cashu-lib to 0.11.1
+- Add /payment/search/findByQuoteId endpoint alias
+
+## 0.4.8
+
+- Bump version and update cashu-lib to 0.8.1
+
 ## 0.3.2
 
 - Project: bump parent and module versions to 0.3.2. No functional changes; housekeeping release to prepare next iteration.

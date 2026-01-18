@@ -5,12 +5,12 @@
     <parent>
         <groupId>xyz.tcheeric</groupId>
         <artifactId>payment-gateway</artifactId>
-        <version>0.4.9</version>
+        <version>0.5.0</version>
     </parent>
 
     <groupId>xyz.tcheeric</groupId>
     <artifactId>payment-gateway-webhook</artifactId>
-    <version>0.4.9</version>
+    <version>0.5.0</version>
     <name>payment-gateway-webhook</name>
     <packaging>war</packaging>
 

@@ -5,10 +5,10 @@
     <parent>
         <groupId>xyz.tcheeric</groupId>
         <artifactId>payment-gateway</artifactId>
-        <version>0.4.9</version>
+        <version>0.5.0</version>
     </parent>
     <artifactId>payment-gateway-model</artifactId>
-    <version>0.4.9</version>
+    <version>0.5.0</version>
     <name>payment-gateway-model</name>
     <description>Demo project for Spring Boot</description>
     <url/>
