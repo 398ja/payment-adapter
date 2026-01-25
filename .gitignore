@@ -41,3 +41,4 @@ build/
 /payment-gateway-webhook/logs/
 /.claude/
 /payment-gateway-rest/logs/
+/project/
