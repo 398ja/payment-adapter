@@ -1,0 +1,25 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>xyz.tcheeric</groupId>
+        <artifactId>payment-adapter</artifactId>
+        <version>0.6.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>payment-adapter-core</artifactId>
+    <packaging>pom</packaging>
+
+    <name>Payment Adapter - Core</name>
+    <description>Core shared modules for payment adapter (model, common, client, rest)</description>
+
+    <modules>
+        <module>payment-adapter-common</module>
+        <module>payment-adapter-model</module>
+        <module>payment-adapter-client</module>
+        <module>payment-adapter-rest</module>
+    </modules>
+
+</project>

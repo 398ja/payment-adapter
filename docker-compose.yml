@@ -1,30 +1,30 @@
 services:
-    payment-gateway-db:
+    payment-adapter-db:
         build: ./docker/postgres
         ports:
             - "5432:5432"
-    payment-gateway-rest:
+    payment-adapter-rest:
         build:
             context: .
-            dockerfile: payment-gateway-rest/Dockerfile
+            dockerfile: payment-adapter-rest/Dockerfile
         depends_on:
-            - payment-gateway-db
-            - payment-gateway-webhook
+            - payment-adapter-db
+            - payment-adapter-webhook
         ports:
-            - "${PAYMENT_GATEWAY_PORT:-8080}:${PAYMENT_GATEWAY_PORT:-8080}"
+            - "${PAYMENT_ADAPTER_PORT:-8080}:${PAYMENT_ADAPTER_PORT:-8080}"
         environment:
-            PAYMENT_GATEWAY_PORT: ${PAYMENT_GATEWAY_PORT:-8080}
-            SPRING_DATASOURCE_URL: jdbc:postgresql://payment-gateway-db:5432/payment-gateway
+            PAYMENT_ADAPTER_PORT: ${PAYMENT_ADAPTER_PORT:-8080}
+            SPRING_DATASOURCE_URL: jdbc:postgresql://payment-adapter-db:5432/payment-adapter
             SPRING_DATASOURCE_USERNAME: postgres
             SPRING_DATASOURCE_PASSWORD: password
-            WEBHOOK_BASE_URL: http://payment-gateway-webhook:8080/webhook
-    payment-gateway-webhook:
+            WEBHOOK_BASE_URL: http://payment-adapter-webhook:8080/webhook
+    payment-adapter-webhook:
         build:
             context: .
-            dockerfile: payment-gateway-webhook/Dockerfile
+            dockerfile: payment-adapter-webhook/Dockerfile
         environment:
             # Let the servlet contact the REST API inside the Compose network
-            CATALINA_OPTS: -Dgateway.api.base_url=http://payment-gateway-rest:8080
+            CATALINA_OPTS: -Dgateway.api.base_url=http://payment-adapter-rest:8080
         ports:
             - "${WEBHOOK_PORT:-9090}:8080"
         healthcheck:

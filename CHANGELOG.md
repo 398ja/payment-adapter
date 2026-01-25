@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Changed
+- Renamed project from payment-gateway to payment-adapter (all module artifactIds and documentation updated)
 - Added `/payment/search/findByQuoteId` endpoint to return payments by quote id using `GatewayPayment`.
 - Improved webhook request validation: clarified missing `externalId` error and validation for numeric `amountSat`.
 - Hardened logging to filter sensitive property keys more precisely and avoid leaking secrets.

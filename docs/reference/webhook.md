@@ -1,6 +1,6 @@
 # Webhook Handler
 
-`payment-gateway-webhook` exposes a servlet at `/webhook/phoenixd` for processing payment notifications.
+`payment-adapter-webhook` exposes a servlet at `/webhook/phoenixd` for processing payment notifications.
 
 ## Health
 

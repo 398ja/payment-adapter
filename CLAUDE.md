@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./mvnw package
 
 # Build specific module
-./mvnw -pl payment-gateway-rest package
+./mvnw -pl payment-adapter-rest package
 
 # Run all tests
 ./mvnw test
@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./mvnw -q verify
 
 # Run REST service directly
-./mvnw -pl payment-gateway-rest spring-boot:run
+./mvnw -pl payment-adapter-rest spring-boot:run
 
 # Start full Docker stack (PostgreSQL + phoenixd + REST + webhook)
 docker-compose up
@@ -29,24 +29,24 @@ docker-compose up
 
 ## Architecture
 
-Payment Gateway is a modular Spring Boot application providing REST services for creating and settling Lightning Network invoices via the Cashu protocol.
+Payment Adapter is a modular Spring Boot application providing REST services for creating and settling Lightning Network invoices via the Cashu protocol.
 
 **Module Structure:**
 ```
-payment-gateway (parent POM)
-├── payment-gateway-model      → JPA entities (GatewayQuote, GatewayPayment)
-├── payment-gateway-common     → Gateway interface and shared exceptions
-├── payment-gateway-rest       → Spring Boot REST app (port 8080)
-├── payment-gateway-client     → Java HTTP client library
-├── payment-gateway-phoenixd   → Gateway implementation for phoenixd Lightning node
-├── payment-gateway-webhook    → Servlet webhook handler (port 9090)
-├── payment-gateway-dummy      → Mock Gateway for testing
+payment-adapter (parent POM)
+├── payment-adapter-model      → JPA entities (GatewayQuote, GatewayPayment)
+├── payment-adapter-common     → Gateway interface and shared exceptions
+├── payment-adapter-rest       → Spring Boot REST app (port 8080)
+├── payment-adapter-client     → Java HTTP client library
+├── payment-adapter-phoenixd   → Gateway implementation for phoenixd Lightning node
+├── payment-adapter-webhook    → Servlet webhook handler (port 9090)
+├── payment-adapter-dummy      → Mock Gateway for testing
 ```
 
 **Key Patterns:**
 - Gateway Pattern: Abstract `Gateway` interface with implementations (`PhoenixdGateway`, `DummyGateway`)
 - Spring Data REST: Auto-generated REST endpoints from JPA repositories
-- Dependency Inversion: Modules depend on abstractions in `payment-gateway-common`
+- Dependency Inversion: Modules depend on abstractions in `payment-adapter-common`
 
 **REST Endpoints (Spring Data REST):**
 - `GET/POST /quote` - Quote operations

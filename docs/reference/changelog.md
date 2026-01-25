@@ -1,6 +1,11 @@
 # Changelog
 
-This document summarizes notable changes to the payment-gateway project. Versions follow semantic versioning when possible.
+This document summarizes notable changes to the payment-adapter project. Versions follow semantic versioning when possible.
+
+## 0.6.0 - 2026-01-20
+
+### Changed
+- Renamed project from payment-gateway to payment-adapter (all module artifactIds and documentation updated)
 
 ## 0.5.0 - 2026-01-18
 
