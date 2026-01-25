@@ -67,6 +67,13 @@ public class CashGateway implements Gateway {
 
     private final QRCodeGenerator qrCodeGenerator;
 
+    /**
+     * Get the QR code generator instance.
+     */
+    public QRCodeGenerator qrCodeGenerator() {
+        return qrCodeGenerator;
+    }
+
     public CashGateway() {
         loadPropertiesIfNeeded();
         this.qrCodeGenerator = new QRCodeGenerator();
