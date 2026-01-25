@@ -11,12 +11,17 @@ import xyz.tcheeric.payment.adapter.core.model.entity.enums.State;
 import xyz.tcheeric.payment.adapter.webhook.exception.WebhookDuplicateException;
 import xyz.tcheeric.payment.adapter.webhook.exception.WebhookParseException;
 import xyz.tcheeric.payment.adapter.webhook.exception.WebhookProcessingException;
+import xyz.tcheeric.payment.adapter.webhook.forwarder.MintWebhookForwarder;
+import xyz.tcheeric.payment.adapter.webhook.forwarder.PaymentNotification;
 import xyz.tcheeric.payment.adapter.webhook.spi.WebhookHandler;
 import xyz.tcheeric.payment.adapter.webhook.spi.WebhookResult;
 
 /**
  * Webhook handler for Phoenixd Lightning node webhooks.
  * Processes payment_received events from phoenixd.
+ *
+ * <p>When a payment is confirmed, optionally forwards the notification
+ * to cashu-mint via the MintWebhookForwarder.
  */
 @Slf4j
 public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPayload> {
@@ -26,14 +31,21 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
 
     private final QuoteClient quoteClient;
     private final PaymentClient paymentClient;
+    private final MintWebhookForwarder mintForwarder;
 
     public PhoenixWebhookHandler() {
-        this(new QuoteClient(), new PaymentClient());
+        this(new QuoteClient(), new PaymentClient(), null);
     }
 
     public PhoenixWebhookHandler(QuoteClient quoteClient, PaymentClient paymentClient) {
+        this(quoteClient, paymentClient, null);
+    }
+
+    public PhoenixWebhookHandler(QuoteClient quoteClient, PaymentClient paymentClient,
+                                  MintWebhookForwarder mintForwarder) {
         this.quoteClient = quoteClient;
         this.paymentClient = paymentClient;
+        this.mintForwarder = mintForwarder;
     }
 
     @Override
@@ -122,6 +134,22 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
 
         log.info("Payment confirmed: paymentId={}, quoteId={}",
                 payment.getPaymentId(), quote.getQuoteId());
+
+        // Forward payment notification to mint if forwarder is configured
+        if (mintForwarder != null && mintForwarder.isEnabled()) {
+            try {
+                PaymentNotification notification = PaymentNotification.forBolt11(
+                        quote.getQuoteId(),
+                        payload.amountSat(),
+                        payload.paymentHash()
+                );
+                mintForwarder.notifyPaymentReceived(notification);
+            } catch (Exception e) {
+                // Log but don't fail - the payment is still confirmed
+                log.warn("Failed to forward payment to mint: quoteId={}, error={}",
+                        quote.getQuoteId(), e.getMessage());
+            }
+        }
 
         return WebhookResult.success(payment.getPaymentId(), State.CONFIRMED);
     }
