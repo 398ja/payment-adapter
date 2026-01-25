@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.7.0] - 2026-01-25
+
+### Added
+- New `payment-adapter-cash` module for NIP-XX Cash Payments over Nostr
+  - `payment-adapter-cash-nostr`: Nostr event types (kinds 5200-5204), URI codec
+  - `payment-adapter-cash-gateway`: CashGateway implementation, QR code generation
+  - `payment-adapter-cash-webhook`: CashWebhookHandler for processing intents
+- CashInvoice, CashIntent, CashReceipt JPA entities in payment-adapter-model
+- CashInvoiceStatus enum for state machine transitions
+- REST API endpoints for cash payments:
+  - `POST /cash/invoice` - Create new cash invoice
+  - `GET /cash/invoice/{ref}` - Get invoice status
+  - `POST /cash/invoice/{ref}/confirm` - Confirm cash received
+  - `POST /cash/invoice/{ref}/cancel` - Cancel invoice
+  - `GET /cash/invoice/{ref}/qr` - Get QR code as PNG
+- CashInvoiceStateMachine for state transitions
+- CashEventSubscriber for relay monitoring
+- NostrCashUri codec for `nostr+cash://` URI scheme
+- QRCodeGenerator using ZXing library
+- nostr-java 1.2.0 integration for Nostr protocol operations
+
+### Changed
+- Restructured project to support multiple payment types
+- Renamed payment-adapter-phoenixd module to payment-adapter-ln
+- Added payment-adapter-ln-webhook for Lightning webhook handling
+- Added payment-adapter-ln-dummy for testing
+- Renamed project from payment-gateway to payment-adapter
+
+## [0.5.0] - 2026-01-20
+
 ### Changed
 - Renamed project from payment-gateway to payment-adapter (all module artifactIds and documentation updated)
 - Added `/payment/search/findByQuoteId` endpoint to return payments by quote id using `GatewayPayment`.
