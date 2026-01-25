@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-01-25
+
+### Added
+- `MintWebhookForwarder` interface for push-based payment notifications
+- `HttpMintWebhookForwarder` implementation with retry logic and exponential backoff
+- `PaymentNotification` DTO for forwarding payment confirmations to cashu-mint
+- HMAC signature authentication for webhook forwarding
+- Configuration properties `mint.webhook.url` and `mint.webhook.secret`
+
+### Changed
+- Updated `PhoenixWebhookHandler` to forward payments to mint via `MintWebhookForwarder`
+- This enables real-time payment notifications to cashu-mint instead of polling
+
 ## [0.7.0] - 2026-01-25
 
 ### Added
