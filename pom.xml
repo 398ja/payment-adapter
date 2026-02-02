@@ -52,7 +52,7 @@
 
         <!-- Dependency versions -->
         <spring-boot.version>3.5.5</spring-boot.version>
-        <cashu-lib.version>0.11.1</cashu-lib.version>
+        <cashu-lib.version>0.16.0</cashu-lib.version>
         <postgresql.version>42.7.7</postgresql.version>
         <h2.version>2.2.224</h2.version>
         <lombok.version>1.18.40</lombok.version>
