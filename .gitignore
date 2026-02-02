@@ -42,3 +42,6 @@ build/
 /.claude/
 /payment-gateway-rest/logs/
 /project/
+/payment-adapter-core/payment-adapter-rest/logs/
+/payment-adapter-ln/payment-adapter-ln-phoenixd/logs/
+/payment-adapter-webhook/logs/
