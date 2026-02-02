@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added log directory entries to `.gitignore` for payment adapter modules.
+
+### Changed
+- Updated `nostr-java.version` to 1.2.1.
+- Updated `cashu-lib.version` to 0.16.0.
+- Moved `PaymentMethod` imports to the NUT-18 package.
+
+### Removed
+- Removed committed log files from the repository.
+
 ## [0.8.0] - 2026-01-25
 
 ### Added
