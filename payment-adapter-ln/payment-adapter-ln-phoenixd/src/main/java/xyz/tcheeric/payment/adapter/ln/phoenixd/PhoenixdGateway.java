@@ -9,7 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.PropertySource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
-import xyz.tcheeric.cashu.common.PaymentMethod;
+import xyz.tcheeric.cashu.common.nut18.PaymentMethod;
 import xyz.tcheeric.cashu.entities.annotation.Supports;
 import xyz.tcheeric.payment.adapter.core.client.PaymentClient;
 import xyz.tcheeric.payment.adapter.core.client.QuoteClient;

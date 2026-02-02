@@ -1,6 +1,6 @@
 package xyz.tcheeric.payment.adapter.core.common;
 
-import xyz.tcheeric.cashu.common.PaymentMethod;
+import xyz.tcheeric.cashu.common.nut18.PaymentMethod;
 import xyz.tcheeric.cashu.entities.annotation.Supports;
 
 import java.util.Arrays;

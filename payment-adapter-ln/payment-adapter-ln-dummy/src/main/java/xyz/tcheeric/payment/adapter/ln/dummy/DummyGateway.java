@@ -2,7 +2,7 @@ package xyz.tcheeric.payment.adapter.ln.dummy;
 
 import lombok.NoArgsConstructor;
 import lombok.NonNull;
-import xyz.tcheeric.cashu.common.PaymentMethod;
+import xyz.tcheeric.cashu.common.nut18.PaymentMethod;
 import xyz.tcheeric.cashu.entities.annotation.Supports;
 import xyz.tcheeric.payment.adapter.core.common.Gateway;
 import xyz.tcheeric.payment.adapter.core.common.InvoiceNotPaidException;

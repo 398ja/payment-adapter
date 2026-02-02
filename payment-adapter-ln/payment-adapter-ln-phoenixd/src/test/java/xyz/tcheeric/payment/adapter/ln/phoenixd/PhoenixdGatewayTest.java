@@ -16,7 +16,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import xyz.tcheeric.cashu.common.PaymentMethod;
+import xyz.tcheeric.cashu.common.nut18.PaymentMethod;
 import xyz.tcheeric.payment.adapter.core.common.Gateway;
 import xyz.tcheeric.phoenixd.model.response.PayBolt11InvoiceInvoiceResponse;
 import xyz.tcheeric.phoenixd.model.response.PayLightningAddressInvoiceResponse;
