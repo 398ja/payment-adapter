@@ -75,7 +75,7 @@
 
         <spring.boot.version>3.4.0</spring.boot.version>
 
-        <logback.version>1.5.12</logback.version>
+        <logback.version>1.5.25</logback.version>
 
         <postgresql.version>42.7.3</postgresql.version>
     </properties>
