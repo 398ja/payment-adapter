@@ -16,6 +16,7 @@ import xyz.tcheeric.payment.adapter.core.model.repository.CashInvoiceRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.CashReceiptRepository;
 import xyz.tcheeric.payment.adapter.test.integration.BasePostgresIT;
 import xyz.tcheeric.payment.adapter.test.integration.TestDataFactory;
+import xyz.tcheeric.payment.adapter.webhook.forwarder.GatewayWebhookForwarder;
 
 import java.time.Instant;
 import java.util.List;
@@ -32,6 +33,9 @@ class CashInvoiceServiceIT extends BasePostgresIT {
 
     @MockBean
     private NostrClient nostrClient;
+
+    @MockBean
+    private GatewayWebhookForwarder webhookForwarder;
 
     @Autowired
     private CashInvoiceService invoiceService;

@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import xyz.tcheeric.payment.adapter.cash.nostr.client.NostrClient;
 import xyz.tcheeric.payment.adapter.cash.nostr.crypto.Nip44EncryptionService;
+import xyz.tcheeric.payment.adapter.webhook.forwarder.GatewayWebhookForwarder;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -28,5 +29,11 @@ public class MockNostrConfig {
     @Primary
     public Nip44EncryptionService nip44EncryptionService() {
         return new Nip44EncryptionService();
+    }
+
+    @Bean
+    @Primary
+    public GatewayWebhookForwarder gatewayWebhookForwarder() {
+        return mock(GatewayWebhookForwarder.class);
     }
 }

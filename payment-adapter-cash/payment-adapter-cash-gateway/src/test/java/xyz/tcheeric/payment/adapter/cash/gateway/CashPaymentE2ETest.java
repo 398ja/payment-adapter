@@ -15,6 +15,7 @@ import xyz.tcheeric.payment.adapter.core.model.entity.enums.CashInvoiceStatus;
 import xyz.tcheeric.payment.adapter.core.model.entity.enums.CashReceiptStatus;
 import xyz.tcheeric.payment.adapter.core.model.repository.CashInvoiceRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.CashReceiptRepository;
+import xyz.tcheeric.payment.adapter.webhook.forwarder.GatewayWebhookForwarder;
 
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -40,6 +41,9 @@ class CashPaymentE2ETest {
     @Mock
     private NostrClient nostrClient;
 
+    @Mock
+    private GatewayWebhookForwarder webhookForwarder;
+
     private CashInvoiceStateMachine stateMachine;
     private Nip44EncryptionService encryptionService;
     private CashInvoiceService invoiceService;
@@ -49,9 +53,9 @@ class CashPaymentE2ETest {
         stateMachine = new CashInvoiceStateMachine();
         encryptionService = new Nip44EncryptionService();
         invoiceService = new CashInvoiceService(
-                invoiceRepository, receiptRepository, stateMachine, nostrClient, encryptionService);
+                invoiceRepository, receiptRepository, stateMachine, nostrClient, encryptionService, webhookForwarder);
         ReflectionTestUtils.setField(invoiceService, "defaultExpiry", 300);
-        ReflectionTestUtils.setField(invoiceService, "defaultRelays", "wss://relay.damus.io,wss://nos.lol");
+        ReflectionTestUtils.setField(invoiceService, "defaultRelays", "wss://relay.imani.casa,wss://relay.398ja.xyz");
         ReflectionTestUtils.setField(invoiceService, "proofCodeLength", 4);
     }
 

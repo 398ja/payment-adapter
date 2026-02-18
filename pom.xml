@@ -78,8 +78,8 @@
         <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.5.4</maven-surefire-plugin.version>
         <maven-failsafe-plugin.version>3.5.4</maven-failsafe-plugin.version>
-        <skip.integration.tests>false</skip.integration.tests>
-        <skip.e2e.tests>false</skip.e2e.tests>
+        <skip.integration.tests>true</skip.integration.tests>
+        <skip.e2e.tests>true</skip.e2e.tests>
         <maven-war-plugin.version>3.4.0</maven-war-plugin.version>
         <flatten-maven-plugin.version>1.7.2</flatten-maven-plugin.version>
         <jacoco-maven-plugin.version>0.8.13</jacoco-maven-plugin.version>
@@ -285,18 +285,18 @@
     </dependencyManagement>
 
     <profiles>
-        <!-- Run integration tests only: ./mvnw verify -P integration-tests -->
+        <!-- Run integration tests: ./mvnw verify -P integration-tests -->
         <profile>
             <id>integration-tests</id>
             <properties>
-                <skip.e2e.tests>true</skip.e2e.tests>
+                <skip.integration.tests>false</skip.integration.tests>
             </properties>
         </profile>
-        <!-- Run E2E tests only: ./mvnw verify -P e2e-tests -->
+        <!-- Run E2E tests: ./mvnw verify -P e2e-tests -->
         <profile>
             <id>e2e-tests</id>
             <properties>
-                <skip.integration.tests>true</skip.integration.tests>
+                <skip.e2e.tests>false</skip.e2e.tests>
             </properties>
         </profile>
     </profiles>

@@ -28,14 +28,16 @@ class PaymentNotificationTest {
     void forCash_shouldCreateCorrectNotification() {
         // When
         PaymentNotification notification = PaymentNotification.forCash(
-                "quote789", 500, "receipt123");
+                "quote789", 500, "USD", "receipt123", "02aabb");
 
         // Then
         assertEquals("quote789", notification.getQuoteId());
         assertEquals("cash", notification.getPaymentMethod());
         assertEquals(500, notification.getAmount());
+        assertEquals("USD", notification.getUnit());
         assertNull(notification.getPreimage());
         assertEquals("receipt123", notification.getReceiptId());
+        assertEquals("02aabb", notification.getCustomerPubkey());
         assertNotNull(notification.getPaidAt());
     }
 

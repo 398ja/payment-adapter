@@ -35,7 +35,7 @@ class FlywayMigrationIT extends BasePostgresIT {
                 "id", "ref", "ephemeral_pubkey", "ephemeral_privkey", "amount",
                 "fiat", "memo", "proof_code", "expires_at", "relay_urls",
                 "status", "event_id", "created_at", "published_at",
-                "intent_received_at", "paid_at", "cancel_reason");
+                "intent_received_at", "paid_at", "cancel_reason", "customer_pubkey");
     }
 
     // Verifies that the cash_intent table exists with expected columns
