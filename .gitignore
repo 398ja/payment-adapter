@@ -45,3 +45,7 @@ build/
 /payment-adapter-core/payment-adapter-rest/logs/
 /payment-adapter-ln/payment-adapter-ln-phoenixd/logs/
 /payment-adapter-webhook/logs/
+/payment-adapter-cash/payment-adapter-cash-gateway/logs/
+/payment-adapter-cash/payment-adapter-cash-webhook/logs/
+/payment-adapter-test/payment-adapter-test-integration/logs/
+/payment-adapter-test/payment-adapter-test-e2e/logs/

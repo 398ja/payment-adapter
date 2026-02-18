@@ -1,22 +1,36 @@
 package xyz.tcheeric.payment.adapter.cash.gateway.subscriber;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
+import nostr.base.ElementAttribute;
+import nostr.event.impl.GenericEvent;
+import nostr.event.tag.GenericTag;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import xyz.tcheeric.payment.adapter.cash.gateway.CashGateway;
+import org.springframework.transaction.annotation.Transactional;
+import xyz.tcheeric.payment.adapter.cash.nostr.client.NostrClient;
+import xyz.tcheeric.payment.adapter.cash.nostr.event.CashEventKind;
+import xyz.tcheeric.payment.adapter.cash.nostr.event.CashIntentEvent;
+import xyz.tcheeric.payment.adapter.cash.nostr.event.payload.CashIntentPayload;
+import xyz.tcheeric.payment.adapter.cash.gateway.service.CashInvoiceService;
 import xyz.tcheeric.payment.adapter.cash.gateway.state.CashInvoiceStateMachine;
 import xyz.tcheeric.payment.adapter.core.model.entity.CashInvoice;
 import xyz.tcheeric.payment.adapter.core.model.entity.enums.CashInvoiceStatus;
+import xyz.tcheeric.payment.adapter.core.model.repository.CashIntentRepository;
+import xyz.tcheeric.payment.adapter.core.model.repository.CashInvoiceRepository;
+import xyz.tcheeric.payment.adapter.core.model.repository.CashReceiptRepository;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
@@ -27,11 +41,8 @@ import java.util.function.Consumer;
  *   <li>Subscribes to relays for CashIntent events (kind 5201)</li>
  *   <li>Monitors invoice expiry</li>
  *   <li>Notifies listeners of state changes</li>
+ *   <li>Auto-prunes old transaction data</li>
  * </ul>
- *
- * <p>In a full implementation, this would use nostr-java's WebSocket
- * client to subscribe to relays. For now, it provides the framework
- * for event handling and expiry monitoring.
  */
 @Slf4j
 @Service
@@ -40,19 +51,47 @@ public class CashEventSubscriber {
     @Value("${cash.subscriber.enabled:true}")
     private boolean enabled;
 
-    @Value("${cash.subscriber.expiry-check-interval:30000}")
-    private long expiryCheckInterval;
+    @Value("${cash.retention.days:30}")
+    private int retentionDays;
 
-    private final CashGateway cashGateway;
+    private final CashInvoiceService invoiceService;
     private final CashInvoiceStateMachine stateMachine;
+    private final NostrClient nostrClient;
+    private final CashInvoiceRepository invoiceRepository;
+    private final CashIntentRepository intentRepository;
+    private final CashReceiptRepository receiptRepository;
     private final Map<String, Consumer<CashInvoice>> stateChangeListeners = new ConcurrentHashMap<>();
+    private final Map<String, String> activeSubscriptions = new ConcurrentHashMap<>();
 
-    private ExecutorService executor;
+    // Metrics counters
+    private Counter intentsReceivedCounter;
+    private Counter invoicesExpiredCounter;
+
     private volatile boolean running;
 
-    public CashEventSubscriber(CashGateway cashGateway, CashInvoiceStateMachine stateMachine) {
-        this.cashGateway = cashGateway;
+    @Autowired
+    public CashEventSubscriber(CashInvoiceService invoiceService,
+                               CashInvoiceStateMachine stateMachine,
+                               NostrClient nostrClient,
+                               CashInvoiceRepository invoiceRepository,
+                               CashIntentRepository intentRepository,
+                               CashReceiptRepository receiptRepository,
+                               @Autowired(required = false) MeterRegistry meterRegistry) {
+        this.invoiceService = invoiceService;
         this.stateMachine = stateMachine;
+        this.nostrClient = nostrClient;
+        this.invoiceRepository = invoiceRepository;
+        this.intentRepository = intentRepository;
+        this.receiptRepository = receiptRepository;
+
+        if (meterRegistry != null) {
+            intentsReceivedCounter = Counter.builder("cash.intents.received")
+                    .description("Number of cash intents received")
+                    .register(meterRegistry);
+            invoicesExpiredCounter = Counter.builder("cash.invoices.expired")
+                    .description("Number of cash invoices expired")
+                    .register(meterRegistry);
+        }
     }
 
     @PostConstruct
@@ -64,15 +103,14 @@ public class CashEventSubscriber {
 
         log.info("Starting cash event subscriber");
         this.running = true;
-        this.executor = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "cash-event-subscriber");
-            t.setDaemon(true);
-            return t;
-        });
 
-        // TODO: In production, start WebSocket connections to relays
-        // For each active invoice, subscribe for kind 5201 events with matching ref
-        log.info("Cash event subscriber started (relay connections not yet implemented)");
+        // Subscribe for active invoices
+        List<CashInvoice> activeInvoices = invoiceService.findActiveInvoices();
+        for (CashInvoice invoice : activeInvoices) {
+            subscribeForInvoice(invoice);
+        }
+
+        log.info("Cash event subscriber started with {} active subscriptions", activeSubscriptions.size());
     }
 
     @PreDestroy
@@ -80,17 +118,10 @@ public class CashEventSubscriber {
         log.info("Stopping cash event subscriber");
         this.running = false;
 
-        if (executor != null) {
-            executor.shutdown();
-            try {
-                if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                    executor.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                executor.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
+        for (String subId : activeSubscriptions.values()) {
+            nostrClient.unsubscribe(subId);
         }
+        activeSubscriptions.clear();
 
         log.info("Cash event subscriber stopped");
     }
@@ -99,6 +130,7 @@ public class CashEventSubscriber {
      * Scheduled task to check for expired invoices.
      */
     @Scheduled(fixedDelayString = "${cash.subscriber.expiry-check-interval:30000}")
+    @Transactional
     public void checkExpiredInvoices() {
         if (!running) {
             return;
@@ -106,26 +138,56 @@ public class CashEventSubscriber {
 
         log.debug("Checking for expired invoices");
 
-        // TODO: In production, iterate over all pending invoices from repository
-        // For now, this is handled in CashGateway.getInvoiceByRef()
+        List<CashInvoice> expired = invoiceService.findExpiredInvoices();
+        for (CashInvoice invoice : expired) {
+            if (stateMachine.tryExpire(invoice)) {
+                invoiceRepository.save(invoice);
+                notifyStateChange(invoice);
+                unsubscribeForInvoice(invoice.getRef());
+                if (invoicesExpiredCounter != null) {
+                    invoicesExpiredCounter.increment();
+                }
+            }
+        }
+
+        if (!expired.isEmpty()) {
+            log.info("Expired {} invoice(s)", expired.size());
+        }
+    }
+
+    /**
+     * Scheduled task to prune old transaction data.
+     */
+    @Scheduled(cron = "${cash.retention.cron:0 0 2 * * ?}")
+    @Transactional
+    public void pruneOldTransactions() {
+        if (!running) {
+            return;
+        }
+
+        Instant cutoff = Instant.now().minus(retentionDays, ChronoUnit.DAYS);
+        log.info("Pruning transactions older than {} (retention={} days)", cutoff, retentionDays);
+
+        invoiceRepository.deleteByCreatedAtBefore(cutoff);
+        intentRepository.deleteByReceivedAtBefore(cutoff);
+        receiptRepository.deleteByConfirmedAtBefore(cutoff);
+
+        log.info("Transaction pruning complete");
     }
 
     /**
      * Handle an incoming CashIntent event (kind 5201).
-     *
-     * @param ref            the invoice reference
-     * @param customerPubkey customer's ephemeral public key
-     * @param proof          optional proof code
      */
     public void handleIntent(String ref, String customerPubkey, String proof) {
         log.info("Handling intent: ref={}, customerPubkey={}", ref, customerPubkey);
 
         try {
-            cashGateway.recordIntent(ref, customerPubkey, proof);
+            invoiceService.recordIntent(ref, customerPubkey, proof);
 
-            CashInvoice invoice = cashGateway.getInvoiceByRef(ref);
-            if (invoice != null) {
-                notifyStateChange(invoice);
+            invoiceService.getInvoiceByRef(ref).ifPresent(this::notifyStateChange);
+
+            if (intentsReceivedCounter != null) {
+                intentsReceivedCounter.increment();
             }
         } catch (Exception e) {
             log.error("Failed to handle intent: ref={}", ref, e);
@@ -133,10 +195,73 @@ public class CashEventSubscriber {
     }
 
     /**
+     * Handle an incoming relay event.
+     */
+    private void handleRelayEvent(GenericEvent event) {
+        try {
+            if (event.getKind() == CashEventKind.CASH_INTENT) {
+                // Parse intent from event
+                String ref = extractRefTag(event);
+                String customerPubkey = event.getPubKey() != null ? event.getPubKey().toString() : null;
+
+                if (ref != null) {
+                    // Check for duplicate via DB
+                    String eventId = event.getId();
+                    if (eventId != null && intentRepository.existsByEventId(eventId)) {
+                        log.debug("Duplicate intent event ignored: eventId={}", eventId);
+                        return;
+                    }
+                    handleIntent(ref, customerPubkey, null);
+                }
+            } else if (event.getKind() == CashEventKind.CASH_CANCEL) {
+                String ref = extractRefTag(event);
+                if (ref != null) {
+                    handleCancel(ref, "cash.cancelled_by_customer");
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to handle relay event: kind={}", event.getKind(), e);
+        }
+    }
+
+    private String extractRefTag(GenericEvent event) {
+        if (event.getTags() != null) {
+            for (var tag : event.getTags()) {
+                if (tag instanceof GenericTag genericTag && "ref".equals(genericTag.getCode())) {
+                    var attrs = genericTag.getAttributes();
+                    if (attrs != null && !attrs.isEmpty()) {
+                        return attrs.get(0).value().toString();
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Handle an incoming CashCancel event from customer (kind 5203).
+     */
+    public void handleCancel(String ref, String reason) {
+        log.info("Handling cancel from customer: ref={}, reason={}", ref, reason);
+
+        try {
+            invoiceService.cancelInvoice(ref, reason != null ? reason : "cash.cancelled_by_customer");
+
+            invoiceService.getInvoiceByRef(ref).ifPresent(invoice -> {
+                notifyStateChange(invoice);
+                unsubscribeForInvoice(ref);
+            });
+        } catch (IllegalArgumentException e) {
+            log.warn("Cancel for unknown invoice: ref={}", ref);
+        } catch (IllegalStateException e) {
+            log.warn("Cannot cancel invoice: ref={}, error={}", ref, e.getMessage());
+        } catch (Exception e) {
+            log.error("Failed to handle cancel: ref={}", ref, e);
+        }
+    }
+
+    /**
      * Register a listener for invoice state changes.
-     *
-     * @param listenerId unique listener identifier
-     * @param listener   callback for state changes
      */
     public void addStateChangeListener(String listenerId, Consumer<CashInvoice> listener) {
         stateChangeListeners.put(listenerId, listener);
@@ -145,19 +270,12 @@ public class CashEventSubscriber {
 
     /**
      * Remove a state change listener.
-     *
-     * @param listenerId the listener to remove
      */
     public void removeStateChangeListener(String listenerId) {
         stateChangeListeners.remove(listenerId);
         log.debug("Removed state change listener: {}", listenerId);
     }
 
-    /**
-     * Notify all listeners of a state change.
-     *
-     * @param invoice the invoice that changed
-     */
     private void notifyStateChange(CashInvoice invoice) {
         for (Map.Entry<String, Consumer<CashInvoice>> entry : stateChangeListeners.entrySet()) {
             try {
@@ -170,36 +288,34 @@ public class CashEventSubscriber {
 
     /**
      * Subscribe to relays for a specific invoice.
-     *
-     * @param invoice the invoice to subscribe for
      */
     public void subscribeForInvoice(CashInvoice invoice) {
-        if (!running) {
+        if (!running || !nostrClient.isRunning()) {
             return;
         }
 
-        log.debug("Subscribing for invoice: ref={}", invoice.getRef());
+        String ref = invoice.getRef();
+        if (activeSubscriptions.containsKey(ref)) {
+            return;
+        }
 
-        // TODO: Create subscription filter for kind 5201 with ref tag
-        // Filter: {"kinds": [5201], "#ref": [invoice.getRef()]}
-        // Connect to each relay in invoice.getRelayUrls()
+        List<String> relays = Arrays.asList(invoice.getRelayUrls().split(","));
+        String subId = nostrClient.subscribe(
+                CashEventKind.CASH_INTENT, ref, relays, this::handleRelayEvent);
+        activeSubscriptions.put(ref, subId);
 
-        List<String> relays = List.of(invoice.getRelayUrls().split(","));
-        log.info("Would subscribe to {} relays for ref={}", relays.size(), invoice.getRef());
+        log.debug("Subscribed for invoice: ref={}, subId={}", ref, subId);
     }
 
     /**
      * Unsubscribe from relays for a specific invoice.
-     *
-     * @param ref the invoice reference
      */
     public void unsubscribeForInvoice(String ref) {
-        if (!running) {
-            return;
+        String subId = activeSubscriptions.remove(ref);
+        if (subId != null) {
+            nostrClient.unsubscribe(subId);
+            log.debug("Unsubscribed for invoice: ref={}", ref);
         }
-
-        log.debug("Unsubscribing for invoice: ref={}", ref);
-        // TODO: Close subscription for this ref
     }
 
     /**

@@ -16,6 +16,7 @@ import java.util.Set;
  * <pre>
  * CREATED → PENDING (published to relays)
  * PENDING → INTENT_RECEIVED (customer intent received)
+ * PENDING → PAID (direct confirmation without intent)
  * PENDING → EXPIRED (TTL exceeded)
  * PENDING → CANCELLED (merchant cancelled)
  * INTENT_RECEIVED → PAID (cash confirmed)
@@ -51,6 +52,7 @@ public class CashInvoiceStateMachine {
         return switch (from) {
             case CREATED -> to == CashInvoiceStatus.PENDING;
             case PENDING -> to == CashInvoiceStatus.INTENT_RECEIVED ||
+                           to == CashInvoiceStatus.PAID ||
                            to == CashInvoiceStatus.EXPIRED ||
                            to == CashInvoiceStatus.CANCELLED;
             case INTENT_RECEIVED -> to == CashInvoiceStatus.PAID ||
@@ -71,6 +73,7 @@ public class CashInvoiceStateMachine {
             case CREATED -> EnumSet.of(CashInvoiceStatus.PENDING);
             case PENDING -> EnumSet.of(
                     CashInvoiceStatus.INTENT_RECEIVED,
+                    CashInvoiceStatus.PAID,
                     CashInvoiceStatus.EXPIRED,
                     CashInvoiceStatus.CANCELLED);
             case INTENT_RECEIVED -> EnumSet.of(

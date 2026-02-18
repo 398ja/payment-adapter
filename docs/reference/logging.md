@@ -1,6 +1,6 @@
 # Logging Reference
 
-This guide shows how to enable and tune logging for the Cashu Gateway modules and clients.
+This guide shows how to enable and tune logging for the Payment Adapter modules and clients.
 
 SLF4J is used as the logging API, with Logback as the default implementation in examples.
 
@@ -9,7 +9,7 @@ SLF4J is used as the logging API, with Logback as the default implementation in 
 - Add properties to your `application.properties` or `application.yml`:
 
   - `logging.level.root=INFO`
-  - `logging.level.xyz.tcheeric=DEBUG` (to see detailed gateway/client logs)
+  - `logging.level.xyz.tcheeric=DEBUG` (to see detailed adapter/client logs)
 
 - Example (`application.properties`):
 
@@ -31,7 +31,7 @@ SLF4J is used as the logging API, with Logback as the default implementation in 
 
 ## Module‑specific loggers
 
-- `xyz.tcheeric.gateway` – gateway clients and common code
-- `xyz.tcheeric.gateway.phoenixd` – phoenixd gateway integration
-- `xyz.tcheeric.gateway.webhook` – webhook handler
-
+- `xyz.tcheeric.payment.adapter.core` – model, common, REST, and client code
+- `xyz.tcheeric.payment.adapter.cash` – cash gateway, nostr, and webhook modules
+- `xyz.tcheeric.payment.adapter.ln` – phoenixd gateway integration
+- `xyz.tcheeric.payment.adapter.webhook` – webhook handler and forwarder

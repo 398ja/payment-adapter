@@ -15,6 +15,7 @@
         <module>payment-adapter-webhook</module>
         <module>payment-adapter-ln</module>
         <module>payment-adapter-cash</module>
+        <module>payment-adapter-test</module>
     </modules>
 
     <distributionManagement>
@@ -57,6 +58,8 @@
         <h2.version>2.2.224</h2.version>
         <lombok.version>1.18.40</lombok.version>
         <logback.version>1.5.18</logback.version>
+        <testcontainers.version>1.20.4</testcontainers.version>
+        <awaitility.version>4.2.2</awaitility.version>
         <wiremock.version>3.9.1</wiremock.version>
         <junit-jupiter.version>5.13.4</junit-jupiter.version>
         <junit-platform.version>1.13.4</junit-platform.version>
@@ -75,6 +78,8 @@
         <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.5.4</maven-surefire-plugin.version>
         <maven-failsafe-plugin.version>3.5.4</maven-failsafe-plugin.version>
+        <skip.integration.tests>false</skip.integration.tests>
+        <skip.e2e.tests>false</skip.e2e.tests>
         <maven-war-plugin.version>3.4.0</maven-war-plugin.version>
         <flatten-maven-plugin.version>1.7.2</flatten-maven-plugin.version>
         <jacoco-maven-plugin.version>0.8.13</jacoco-maven-plugin.version>
@@ -89,6 +94,15 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
                 <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Testcontainers BOM -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -238,6 +252,12 @@
 
             <!-- Test Dependencies -->
             <dependency>
+                <groupId>org.awaitility</groupId>
+                <artifactId>awaitility</artifactId>
+                <version>${awaitility.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
                 <groupId>org.wiremock</groupId>
                 <artifactId>wiremock</artifactId>
                 <version>${wiremock.version}</version>
@@ -263,6 +283,23 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
+
+    <profiles>
+        <!-- Run integration tests only: ./mvnw verify -P integration-tests -->
+        <profile>
+            <id>integration-tests</id>
+            <properties>
+                <skip.e2e.tests>true</skip.e2e.tests>
+            </properties>
+        </profile>
+        <!-- Run E2E tests only: ./mvnw verify -P e2e-tests -->
+        <profile>
+            <id>e2e-tests</id>
+            <properties>
+                <skip.integration.tests>true</skip.integration.tests>
+            </properties>
+        </profile>
+    </profiles>
 
     <build>
         <pluginManagement>

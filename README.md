@@ -1,25 +1,39 @@
 # Payment Adapter
 
-Payment Adapter provides a RESTful service for creating and settling Lightning Network invoices. The project is organised as modular Maven components.
+Payment Adapter provides RESTful services for creating and settling Lightning Network invoices and NIP-XX Cash Payments over Nostr. The project is organised as modular Maven components grouped into four aggregators.
 
 ## Modules
 
-| Module | Description |
-| ------ | ----------- |
-| **payment-adapter-model** | Domain entities and Spring Data JPA configuration. |
-| **payment-adapter-rest** | Spring Boot application exposing REST endpoints for `GatewayQuote` and `GatewayPayment` entities. |
-| **payment-adapter-client** | Small Java client for interacting with the REST service. |
-| **payment-adapter-phoenixd** | Implementation of the `Gateway` interface that communicates with a [phoenixd](https://github.com/ACINQ/phoenixd) node. |
-| **payment-adapter-webhook** | Servlet application for processing incoming webhook callbacks. |
-| **payment-adapter-dummy** | Simple mock implementation of the `Gateway` interface used for testing. |
+| Aggregator | Module | Description |
+| ---------- | ------ | ----------- |
+| **payment-adapter-core** | payment-adapter-model | Domain entities and Spring Data JPA configuration. |
+| | payment-adapter-common | `Gateway` interface and shared exceptions. |
+| | payment-adapter-rest | Spring Boot application exposing REST endpoints (port 8080). |
+| | payment-adapter-client | Java HTTP client library for the REST service. |
+| **payment-adapter-ln** | payment-adapter-ln-phoenixd | `Gateway` implementation for [phoenixd](https://github.com/ACINQ/phoenixd). |
+| | payment-adapter-ln-dummy | Mock `Gateway` for testing. |
+| | payment-adapter-ln-webhook | Lightning webhook handler. |
+| **payment-adapter-cash** | payment-adapter-cash-nostr | Nostr event types (kinds 5200–5204), `nostr+cash://` URI codec. |
+| | payment-adapter-cash-gateway | `CashGateway` implementation, QR code generation, REST controller. |
+| | payment-adapter-cash-webhook | `CashWebhookHandler` for processing kind 5201 intents. |
+| **payment-adapter-webhook** | *(single module)* | Servlet webhook handler with SPI dispatch and `MintWebhookForwarder`. |
 
 ```
-/ payment-adapter-model      Domain model and JPA entities
-/ payment-adapter-rest       Spring Boot REST service
-/ payment-adapter-client     REST client library
-/ payment-adapter-phoenixd   phoenixd integration of Gateway
-/ payment-adapter-webhook    Servlet webhook handler
-/ payment-adapter-dummy      Dummy Gateway implementation
+payment-adapter/
+├── payment-adapter-core/
+│   ├── payment-adapter-model          Domain model and JPA entities
+│   ├── payment-adapter-common         Gateway interface and shared types
+│   ├── payment-adapter-rest           Spring Boot REST service
+│   └── payment-adapter-client         REST client library
+├── payment-adapter-ln/
+│   ├── payment-adapter-ln-phoenixd    phoenixd Gateway implementation
+│   ├── payment-adapter-ln-dummy       Dummy Gateway for testing
+│   └── payment-adapter-ln-webhook     Lightning webhook handler
+├── payment-adapter-cash/
+│   ├── payment-adapter-cash-nostr     Nostr events and URI codec
+│   ├── payment-adapter-cash-gateway   Cash Gateway, QR, REST controller
+│   └── payment-adapter-cash-webhook   Cash webhook handler
+└── payment-adapter-webhook            Servlet webhook handler (port 9090)
 ```
 
 ## Requirements
@@ -36,10 +50,16 @@ To build all modules run the standard Maven build using the wrapper:
 ./mvnw package
 ```
 
+Full verification (build + test + integration test):
+
+```bash
+./mvnw -q verify
+```
+
 Individual modules can be built with the `-pl` flag, for example:
 
 ```bash
-./mvnw -pl payment-adapter-rest package
+./mvnw -pl payment-adapter-core/payment-adapter-rest -am package
 ```
 
 ## Running the REST Service
@@ -60,7 +80,7 @@ This will start the following containers:
 The REST application can also be launched directly using Maven:
 
 ```bash
-./mvnw -pl payment-adapter-rest spring-boot:run
+./mvnw -pl payment-adapter-core/payment-adapter-rest spring-boot:run
 ```
 
 ### Webhook service (Docker)
@@ -73,11 +93,6 @@ The webhook handler runs as a separate servlet container. In Docker Compose:
 - Compose builds the webhook image from `payment-adapter-webhook/Dockerfile`.
   The container also exposes `GET /health` which Docker Compose uses for health checks.
 
-Webhook identification (wid) removed
-
-Earlier versions mentioned a `wid` (webhook id) used to route webhook requests. This has been removed to simplify configuration.
-The webhook handler expects phoenixd-formatted parameters (e.g., `type`, `amountSat`, `paymentHash`, `externalId`) at `/webhook/phoenixd` without any id parameter.
-
 Database connection properties can be overridden via environment variables. In `docker-compose.yml` these are set as:
 
 ```
@@ -88,7 +103,9 @@ SPRING_DATASOURCE_PASSWORD=password
 
 ## API Overview
 
-The REST layer is implemented using Spring Data REST. A full description of each endpoint is available in the [API reference](docs/reference/api.md). Once the service is running the following resources are available:
+### Lightning Payments
+
+The Lightning REST layer is implemented using Spring Data REST. A full description of each endpoint is available in the [API reference](docs/reference/api.md). Once the service is running the following resources are available:
 
 * `GET /quote` – list quotes
 * `POST /quote` – create a quote
@@ -106,9 +123,25 @@ Likewise for payments:
 
 The `payment-adapter-client` module demonstrates basic interaction with these endpoints; see the [API reference](docs/reference/api.md) for payload details.
 
+### Cash Payments
+
+Cash payments use the NIP-XX protocol over Nostr for in-person cash transactions. See [Cash Payments reference](docs/reference/cash-payments.md) for protocol details.
+
+* `POST /cash/invoice` – create a cash invoice (returns QR code)
+* `GET /cash/invoice/{ref}` – get invoice status
+* `POST /cash/invoice/{ref}/confirm` – confirm cash received
+* `POST /cash/invoice/{ref}/cancel` – cancel invoice
+* `GET /cash/invoice/{ref}/qr` – get QR code as PNG image
+* `GET /cash/invoice/{ref}/qr-payload` – get raw `nostr+cash://` URI
+
 ## Webhook Handler
 
-The `payment-adapter-webhook` module provides a simple servlet mapped at `/webhook/phoenixd`. `PhoenixWebhookValidator` validates requests originating from phoenixd and updates payments through the REST client. No `wid` parameter is required.
+The `payment-adapter-webhook` module uses a SPI pattern to dispatch webhooks to registered handlers:
+
+- **Lightning:** `/webhook/phoenixd` – processes phoenixd payment notifications
+- **Cash:** `/webhook/cash` – processes Nostr kind 5201 CashIntent events
+
+The `MintWebhookForwarder` (v0.8.0) forwards confirmed payments to cashu-mint for real-time quote status updates. See [Webhook reference](docs/reference/webhook.md) for details.
 
 ## Running Tests
 
@@ -118,22 +151,28 @@ Unit tests can be executed with:
 ./mvnw test
 ```
 
+Full verification:
+
+```bash
+./mvnw -q verify
+```
+
 Running `./mvnw test` at the project root will also produce an aggregated JaCoCo
 coverage report under `target/site/jacoco-aggregate/index.html`.
 
 ## Dockerfile
 
-A Dockerfile for the REST service is available under `payment-adapter-rest/Dockerfile`. It performs a two-stage build using the Maven base image and produces a runnable JAR:
+A Dockerfile for the REST service is available under `payment-adapter-core/payment-adapter-rest/Dockerfile`. It performs a two-stage build using the Maven base image and produces a runnable JAR:
 
 ```Dockerfile
 FROM maven:3.9.6-eclipse-temurin-21 AS build
 WORKDIR /app
 COPY . .
-RUN ./mvnw -pl payment-adapter-rest -am package -DskipTests
+RUN ./mvnw -pl payment-adapter-core/payment-adapter-rest -am package -DskipTests
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
-COPY --from=build /app/payment-adapter-rest/target/payment-adapter-rest-*.jar app.jar
+COPY --from=build /app/payment-adapter-core/payment-adapter-rest/target/payment-adapter-rest-*.jar app.jar
 EXPOSE 8080
 ENTRYPOINT ["java","-jar","/app/app.jar"]
 ```
@@ -160,20 +199,27 @@ Authentication can be configured via `~/.m2/settings.xml` (server id `docker-hub
 | **payment-adapter-rest** | `SPRING_DATASOURCE_URL` | JDBC connection string. |
 | | `SPRING_DATASOURCE_USERNAME` | Database user. |
 | | `SPRING_DATASOURCE_PASSWORD` | Database password. |
-| **payment-adapter-phoenixd** | `phoenixd.currency` | Invoice currency unit. |
+| **payment-adapter-ln-phoenixd** | `phoenixd.currency` | Invoice currency unit. |
 | | `phoenixd.expiration` | Quote lifetime in seconds. |
 | | `phoenixd.fee.percent` | Percentage fee. |
 | | `phoenixd.fee.fixed` | Fixed fee. |
 | | `phoenixd.expiry` | Invoice expiry in seconds. |
 | | `phoenixd.lnaddress` | Enable LN address support. |
 | | `webhook.base_url` | Base URL for webhook callbacks; gateway name appended automatically. |
-| **payment-adapter-dummy** | `dummy.payment_status` | Mock payment status. |
+| **payment-adapter-ln-dummy** | `dummy.payment_status` | Mock payment status. |
 | | `dummy.amount` | Dummy payment amount. |
 | | `dummy.expiry` | Quote expiry in seconds. |
 | | `dummy.fee_reserve` | Fee reserve amount. |
 | | `webhook.base_url` | Base URL for webhook callbacks; gateway name appended automatically. |
+| **payment-adapter-cash-gateway** | `cash.default.expiry` | Invoice expiry in seconds (default 300). |
+| | `cash.default.relays` | Default relay URLs (comma-separated). |
+| | `cash.proof.length` | Proof code length (default 4). |
+| | `cash.subscriber.enabled` | Enable Nostr event subscriber. |
+| **payment-adapter-webhook** | `mint.webhook.url` | Cashu-mint webhook endpoint for payment forwarding. |
+| | `mint.webhook.secret` | HMAC secret for webhook signature. |
+| | `mint.webhook.enabled` | Enable/disable mint forwarding (default true). |
 
-Each module reads configuration from its `app.properties` file or environment variables. See the guides in [docs](docs) for deployment details.
+Each module reads configuration from its properties file or environment variables. See the [Configuration reference](docs/reference/configuration.md) for full details.
 
 ## License
 

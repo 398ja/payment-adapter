@@ -54,3 +54,7 @@ Available on all client classes.
 | Method | Inputs | Response | Description |
 |--------|--------|----------|-------------|
 | `getByInvoiceId(String invoiceId)` | Lightning invoice id | Matching `GatewayQuote`. |
+
+## Cash Endpoints
+
+The cash payment endpoints (`/cash/invoice`) do not currently have a dedicated client library. Use standard HTTP clients to interact with the cash REST API described in the [API Reference](api.md#cash-invoice-endpoints).

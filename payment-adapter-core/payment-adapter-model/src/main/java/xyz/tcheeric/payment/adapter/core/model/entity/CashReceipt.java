@@ -2,6 +2,8 @@ package xyz.tcheeric.payment.adapter.core.model.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -9,6 +11,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import xyz.tcheeric.payment.adapter.core.model.entity.enums.CashReceiptStatus;
 
 import java.io.Serial;
 import java.time.Instant;
@@ -38,6 +41,13 @@ public class CashReceipt implements GatewayEntity {
      */
     @Column(name = "ref", nullable = false, unique = true, length = 24)
     private String ref;
+
+    /**
+     * Receipt status
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false)
+    private CashReceiptStatus status;
 
     /**
      * Actual amount received (may differ from invoice amount)
@@ -74,6 +84,7 @@ public class CashReceipt implements GatewayEntity {
     public static CashReceipt create(String ref, Integer amountReceived, String eventId) {
         CashReceipt receipt = new CashReceipt();
         receipt.setRef(ref);
+        receipt.setStatus(CashReceiptStatus.CONFIRMED);
         receipt.setAmountReceived(amountReceived);
         receipt.setConfirmedAt(Instant.now());
         receipt.setEventId(eventId);

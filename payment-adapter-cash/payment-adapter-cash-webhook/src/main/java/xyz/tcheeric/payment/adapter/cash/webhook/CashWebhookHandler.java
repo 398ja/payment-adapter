@@ -6,9 +6,11 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import xyz.tcheeric.payment.adapter.cash.nostr.event.CashEventKind;
 import xyz.tcheeric.payment.adapter.cash.nostr.event.CashIntentEvent;
+import xyz.tcheeric.payment.adapter.cash.nostr.event.NostrEventBase;
 import xyz.tcheeric.payment.adapter.cash.nostr.event.payload.CashIntentPayload;
 import xyz.tcheeric.payment.adapter.core.model.entity.CashIntent;
 import xyz.tcheeric.payment.adapter.core.model.entity.enums.State;
+import xyz.tcheeric.payment.adapter.core.model.repository.CashIntentRepository;
 import xyz.tcheeric.payment.adapter.webhook.exception.WebhookDuplicateException;
 import xyz.tcheeric.payment.adapter.webhook.exception.WebhookParseException;
 import xyz.tcheeric.payment.adapter.webhook.exception.WebhookProcessingException;
@@ -18,31 +20,28 @@ import xyz.tcheeric.payment.adapter.webhook.spi.WebhookResult;
 
 import java.io.BufferedReader;
 import java.time.Instant;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 
 /**
  * Webhook handler for processing cash payment intents (NIP-XX kind 5201).
- * This handler receives events from Nostr relays when customers signal
- * their intent to pay cash.
- *
- * <p>The webhook endpoint expects a JSON body containing:
- * <ul>
- *   <li>The Nostr event (kind 5201)</li>
- *   <li>Optionally, the decrypted content if the relay/proxy decrypted it</li>
- * </ul>
+ * Uses database-backed idempotency and Schnorr signature verification.
  */
 @Slf4j
 public class CashWebhookHandler implements WebhookHandler<CashWebhookPayload> {
 
     private static final String PAYMENT_TYPE = "cash";
+    private static final long CLOCK_DRIFT_TOLERANCE_SECONDS = 60;
+    private static final long MAX_FUTURE_SECONDS = 300;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    // In-memory store for processed intents (use database in production)
-    private final Set<String> processedEventIds = ConcurrentHashMap.newKeySet();
-    private final Map<String, CashIntent> intents = new ConcurrentHashMap<>();
+    private final CashIntentRepository intentRepository;
+
+    // Callback for notifying when an intent is received: (ref, CashIntent) -> void
+    private volatile BiConsumer<String, CashIntent> intentReceivedCallback;
+
+    public CashWebhookHandler(CashIntentRepository intentRepository) {
+        this.intentRepository = intentRepository;
+    }
 
     @Override
     public String getPaymentType() {
@@ -100,7 +99,7 @@ public class CashWebhookHandler implements WebhookHandler<CashWebhookPayload> {
                 throw new WebhookParseException("Missing required 'ref' tag in event");
             }
 
-            // Check for decrypted content (might be provided separately by relay/proxy)
+            // Check for decrypted content
             String decryptedContent = null;
             if (root.has("decrypted_content")) {
                 decryptedContent = root.get("decrypted_content").asText();
@@ -124,7 +123,6 @@ public class CashWebhookHandler implements WebhookHandler<CashWebhookPayload> {
                 }
             }
 
-            // Use event timestamp if customer timestamp not available
             if (customerTimestamp == null) {
                 customerTimestamp = createdAt;
             }
@@ -151,14 +149,19 @@ public class CashWebhookHandler implements WebhookHandler<CashWebhookPayload> {
 
     @Override
     public void validateSignature(CashWebhookPayload payload, HttpServletRequest request) throws WebhookSignatureException {
-        // Validate Nostr event signature per NIP-01
         if (payload.getSignature() == null || payload.getSignature().isEmpty()) {
             throw new WebhookSignatureException("Missing event signature");
         }
 
-        // TODO: Implement NIP-01 signature verification using nostr-java
-        // For now, we trust the relay to have validated the signature
-        log.debug("Signature validation skipped (relay trusted): eventId={}", payload.getEventId());
+        // Verify Schnorr signature using NostrEventBase
+        if (payload.getRawEvent() != null) {
+            boolean valid = NostrEventBase.verifySignatureFromJson(payload.getRawEvent());
+            if (!valid) {
+                log.warn("Invalid Schnorr signature for event: eventId={}", payload.getEventId());
+                throw new WebhookSignatureException("Invalid event signature");
+            }
+            log.debug("Signature verified: eventId={}", payload.getEventId());
+        }
     }
 
     @Override
@@ -168,28 +171,31 @@ public class CashWebhookHandler implements WebhookHandler<CashWebhookPayload> {
 
         log.info("Processing cash intent webhook: eventId={}, ref={}", eventId, ref);
 
-        // Check for duplicate
-        if (processedEventIds.contains(eventId)) {
+        // Check for duplicate via DB
+        if (intentRepository.existsByEventId(eventId)) {
             log.info("Duplicate cash intent webhook: eventId={}", eventId);
             throw new WebhookDuplicateException("Event already processed: " + eventId);
         }
 
         try {
-            // Validate ref (would check against stored invoices in production)
-            if (ref == null || ref.length() < 4) {
-                throw new WebhookProcessingException("Invalid ref: " + ref);
+            // Validate ref format
+            if (ref == null || ref.length() < 4 || ref.length() > 24) {
+                throw new WebhookProcessingException("Invalid ref format: " + ref);
+            }
+            if (!ref.matches("^[0-9a-fA-F]+$")) {
+                throw new WebhookProcessingException("Invalid ref: must be hex string");
             }
 
-            // Validate timestamp (reject events too far in the future)
+            // Validate timestamp
             if (payload.getCustomerTimestamp() != null) {
                 long nowSeconds = Instant.now().getEpochSecond();
                 long eventSeconds = payload.getCustomerTimestamp();
-                if (eventSeconds > nowSeconds + 300) { // 5 min tolerance
+                if (eventSeconds > nowSeconds + MAX_FUTURE_SECONDS) {
                     throw new WebhookProcessingException("Event timestamp too far in future");
                 }
             }
 
-            // Create CashIntent record
+            // Create and persist CashIntent
             CashIntent intent = CashIntent.create(
                     ref,
                     payload.getCustomerPubkey(),
@@ -198,16 +204,19 @@ public class CashWebhookHandler implements WebhookHandler<CashWebhookPayload> {
                     eventId
             );
             intent.setProcessed(true);
-
-            // Store the intent
-            intents.put(eventId, intent);
-            processedEventIds.add(eventId);
+            intentRepository.save(intent);
 
             log.info("Cash intent processed: eventId={}, ref={}, customerPubkey={}",
                     eventId, ref, payload.getCustomerPubkey());
 
-            // TODO: Notify the CashGateway/merchant that an intent was received
-            // This could trigger a WebSocket notification to the merchant UI
+            // Notify callback
+            if (intentReceivedCallback != null) {
+                try {
+                    intentReceivedCallback.accept(ref, intent);
+                } catch (Exception e) {
+                    log.warn("Intent callback failed for ref={}: {}", ref, e.getMessage());
+                }
+            }
 
             return WebhookResult.success(ref, State.PENDING);
 
@@ -220,23 +229,10 @@ public class CashWebhookHandler implements WebhookHandler<CashWebhookPayload> {
     }
 
     /**
-     * Get a processed intent by event ID.
+     * Set a callback to be notified when an intent is received.
      */
-    public CashIntent getIntent(String eventId) {
-        return intents.get(eventId);
-    }
-
-    /**
-     * Get all intents for a specific invoice ref.
-     */
-    public Set<CashIntent> getIntentsByRef(String ref) {
-        Set<CashIntent> result = new HashSet<>();
-        for (CashIntent intent : intents.values()) {
-            if (ref.equals(intent.getRef())) {
-                result.add(intent);
-            }
-        }
-        return result;
+    public void setIntentReceivedCallback(BiConsumer<String, CashIntent> callback) {
+        this.intentReceivedCallback = callback;
     }
 
     private String getRequiredField(JsonNode node, String field) throws WebhookParseException {
