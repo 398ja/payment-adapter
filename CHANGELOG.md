@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-02-18
+
+### Added
+- `customerPubkey` field on `CashInvoice` entity and `PaymentNotification` DTO
+- `POST /cash/invoice/{ref}/intent` endpoint on `CashPaymentController`
+- `customerPubkey` field on `CashInvoiceResponse` DTO
+- `unit` field on `PaymentNotification` for currency denomination
+
+### Fixed
+- Maven profile defaults inverted so `-P integration-tests,e2e-tests` activates both suites correctly
+- Test compilation for `GatewayWebhookForwarder` dependency across integration and E2E modules
+- `FlywayMigrationIT` updated for `customer_pubkey` column expectation
+- Surefire/Failsafe plugin configuration in `payment-adapter-cash-gateway` to respect profile-based test skipping
+
 ## [0.9.0] - 2026-02-18
 
 ### Added
