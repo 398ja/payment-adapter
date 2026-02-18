@@ -17,6 +17,8 @@ import xyz.tcheeric.payment.adapter.core.model.entity.CashReceipt;
 import xyz.tcheeric.payment.adapter.core.model.entity.enums.CashInvoiceStatus;
 import xyz.tcheeric.payment.adapter.core.model.repository.CashInvoiceRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.CashReceiptRepository;
+import xyz.tcheeric.payment.adapter.webhook.forwarder.GatewayWebhookForwarder;
+import xyz.tcheeric.payment.adapter.webhook.forwarder.PaymentNotification;
 
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -38,7 +40,7 @@ public class CashInvoiceService {
     @Value("${cash.default.expiry:300}")
     private int defaultExpiry;
 
-    @Value("${cash.default.relays:wss://relay.damus.io,wss://nos.lol}")
+    @Value("${cash.default.relays:wss://relay.imani.casa,wss://relay.398ja.xyz}")
     private String defaultRelays;
 
     @Value("${cash.proof.length:4}")
@@ -49,17 +51,20 @@ public class CashInvoiceService {
     private final CashInvoiceStateMachine stateMachine;
     private final NostrClient nostrClient;
     private final Nip44EncryptionService encryptionService;
+    private final GatewayWebhookForwarder webhookForwarder;
 
     public CashInvoiceService(CashInvoiceRepository invoiceRepository,
                               CashReceiptRepository receiptRepository,
                               CashInvoiceStateMachine stateMachine,
                               NostrClient nostrClient,
-                              Nip44EncryptionService encryptionService) {
+                              Nip44EncryptionService encryptionService,
+                              GatewayWebhookForwarder webhookForwarder) {
         this.invoiceRepository = invoiceRepository;
         this.receiptRepository = receiptRepository;
         this.stateMachine = stateMachine;
         this.nostrClient = nostrClient;
         this.encryptionService = encryptionService;
+        this.webhookForwarder = webhookForwarder;
     }
 
     /**
@@ -204,6 +209,19 @@ public class CashInvoiceService {
         // Save receipt
         receipt = receiptRepository.save(receipt);
 
+        // Notify gateway via webhook to trigger voucher minting saga
+        try {
+            PaymentNotification notification = PaymentNotification.forCash(
+                    ref, received, invoice.getFiat(),
+                    receipt.getEventId(), invoice.getCustomerPubkey());
+            boolean sent = webhookForwarder.notifyPaymentConfirmed(notification);
+            if (!sent) {
+                log.warn("Failed to forward cash payment webhook for ref={}", ref);
+            }
+        } catch (Exception e) {
+            log.error("Error forwarding cash payment webhook for ref={}: {}", ref, e.getMessage(), e);
+        }
+
         log.info("Cash receipt confirmed: ref={}, amountReceived={}", ref, received);
         return receipt;
     }
@@ -255,7 +273,11 @@ public class CashInvoiceService {
 
         if (!stateMachine.canReceiveIntent(invoice.getStatus())) {
             log.warn("Intent received for non-pending invoice: ref={}, status={}", ref, invoice.getStatus());
-            return;
+            throw new IllegalStateException("Invoice is " + invoice.getStatus() + ": " + ref);
+        }
+
+        if (customerPubkey != null && !customerPubkey.isBlank()) {
+            invoice.setCustomerPubkey(customerPubkey);
         }
 
         stateMachine.transition(invoice, CashInvoiceStatus.INTENT_RECEIVED);

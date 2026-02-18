@@ -56,6 +56,11 @@ public class CashInvoiceResponse {
     private String proofCode;
 
     /**
+     * Customer's Nostr public key (set after intent received).
+     */
+    private String customerPubkey;
+
+    /**
      * Invoice expiration time.
      */
     private Instant expiresAt;
@@ -107,6 +112,7 @@ public class CashInvoiceResponse {
                 .status(invoice.getStatus())
                 .merchantPubkey(invoice.getEphemeralPubkey())
                 .proofCode(invoice.getProofCode())
+                .customerPubkey(invoice.getCustomerPubkey())
                 .expiresAt(invoice.getExpiresAt())
                 .relayUrls(invoice.getRelayUrls() != null
                         ? Arrays.asList(invoice.getRelayUrls().split(","))

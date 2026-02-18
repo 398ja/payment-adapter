@@ -194,6 +194,39 @@ public class CashPaymentController {
         }
     }
 
+    @Operation(summary = "Submit customer intent to pay",
+            description = "Customer signals they are at the counter and ready to pay")
+    @ApiResponse(responseCode = "200", description = "Intent recorded")
+    @ApiResponse(responseCode = "404", description = "Invoice not found")
+    @ApiResponse(responseCode = "409", description = "Invoice not in a state to receive intent")
+    @PostMapping("/invoice/{ref}/intent")
+    public ResponseEntity<CashInvoiceResponse> submitIntent(
+            @PathVariable String ref,
+            @Valid @RequestBody(required = false) CashIntentRequest request) {
+
+        log.info("Submitting intent: ref={}", ref);
+
+        try {
+            String customerPubkey = request != null ? request.getCustomerPubkey() : null;
+            cashGateway.recordIntent(ref, customerPubkey, null);
+
+            CashInvoice invoice = cashGateway.getInvoiceByRef(ref);
+            if (invoice == null) {
+                return ResponseEntity.notFound().build();
+            }
+
+            CashInvoiceResponse response = CashInvoiceResponse.fromEntity(invoice);
+            log.info("Intent recorded: ref={}", ref);
+            return ResponseEntity.ok(response);
+
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        } catch (IllegalStateException e) {
+            log.warn("Invalid state for intent: ref={}, error={}", ref, e.getMessage());
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        }
+    }
+
     @Operation(summary = "Get QR payload URI",
             description = "Returns the nostr+cash:// URI for custom QR generation")
     @GetMapping("/invoice/{ref}/qr-payload")

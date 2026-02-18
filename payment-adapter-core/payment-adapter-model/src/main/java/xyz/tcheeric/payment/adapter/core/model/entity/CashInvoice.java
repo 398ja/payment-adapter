@@ -132,6 +132,12 @@ public class CashInvoice implements GatewayEntity {
     private Instant paidAt;
 
     /**
+     * Customer's Nostr public key (hex-encoded, set on intent received)
+     */
+    @Column(name = "customer_pubkey", length = 66)
+    private String customerPubkey;
+
+    /**
      * Cancellation reason code (if cancelled)
      */
     @Column(name = "cancel_reason", length = 64)
