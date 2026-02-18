@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-02-18
+
+### Added
+- `payment-adapter-test` aggregator module with Testcontainers PostgreSQL
+  - `payment-adapter-test-integration`: 61 integration tests (repositories, services, migrations, webhooks, rate limiter)
+  - `payment-adapter-test-e2e`: 50 end-to-end tests (REST flows, QR codes, SSE events, concurrency, error handling)
+- Maven profiles for selective test execution (`-P integration-tests`, `-P e2e-tests`)
+- `CashInvoiceService` for cash invoice business logic
+- `CashRateLimiter` with token bucket rate limiting for invoice creation
+- `NostrClient` and `WebSocketRelayConnection` for Nostr relay communication
+- `Nip44EncryptionService` for NIP-44 payload encryption
+- `EphemeralKeyPair` for per-invoice cryptographic key generation
+- `CashPayloadCodec` and `NfcNdefBuilder` for cash payment URI encoding
+- `NostrEventBase` for Nostr event construction and signing
+- `CashEventFilter` for filtering cash-related Nostr events
+- `CashReceiptStatus` enum for receipt state tracking
+- `CashInvoiceRepository`, `CashIntentRepository`, `CashReceiptRepository` Spring Data interfaces
+- Flyway migrations V1-V3 for cash invoice, intent, and receipt tables
+- SSE endpoint `GET /cash/invoice/{ref}/events` for real-time status updates
+- QR payload endpoint `GET /cash/invoice/{ref}/qr-payload` for URI content
+- Unit tests for CashGateway, CashInvoiceStateMachine, NostrClient, EphemeralKeyPair, Nip44EncryptionService, CashWebhookHandler, and Nostr codec
+
+### Changed
+- Updated `cashu-lib.version` to 0.16.0
+- Updated `nostr-java.version` to 1.2.1
+- Refactored `CashPaymentController` to use `CashInvoiceService`
+- Refactored `CashEventSubscriber` with relay lifecycle management and scheduled expiry checks
+- Refactored `CashWebhookHandler` with validation and duplicate detection
+
 ## [0.8.0] - 2026-02-02
 
 ### Added
