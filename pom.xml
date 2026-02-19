@@ -80,7 +80,7 @@
         <maven-failsafe-plugin.version>3.5.4</maven-failsafe-plugin.version>
         <skip.integration.tests>true</skip.integration.tests>
         <skip.e2e.tests>true</skip.e2e.tests>
-        <maven-war-plugin.version>3.4.0</maven-war-plugin.version>
+        <maven-war-plugin.version>3.5.1</maven-war-plugin.version>
         <flatten-maven-plugin.version>1.7.2</flatten-maven-plugin.version>
         <jacoco-maven-plugin.version>0.8.13</jacoco-maven-plugin.version>
         <jib-maven-plugin.version>3.4.1</jib-maven-plugin.version>
