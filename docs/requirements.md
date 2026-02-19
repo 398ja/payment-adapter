@@ -1,6 +1,6 @@
 # Requirements
 
-Cashu Gateway requires:
+Payment Adapter requires:
 
 - Java 21 or newer
 - Maven 3.8+

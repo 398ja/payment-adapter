@@ -1,30 +1,30 @@
 services:
-    cashu-gateway-db:
+    payment-adapter-db:
         build: ./docker/postgres
         ports:
             - "5432:5432"
-    cashu-gateway-rest:
+    payment-adapter-rest:
         build:
             context: .
-            dockerfile: cashu-gateway-rest/Dockerfile
+            dockerfile: payment-adapter-rest/Dockerfile
         depends_on:
-            - cashu-gateway-db
-            - cashu-gateway-webhook
+            - payment-adapter-db
+            - payment-adapter-webhook
         ports:
-            - "${CASHU_GATEWAY_PORT:-8080}:${CASHU_GATEWAY_PORT:-8080}"
+            - "${PAYMENT_ADAPTER_PORT:-8080}:${PAYMENT_ADAPTER_PORT:-8080}"
         environment:
-            CASHU_GATEWAY_PORT: ${CASHU_GATEWAY_PORT:-8080}
-            SPRING_DATASOURCE_URL: jdbc:postgresql://cashu-gateway-db:5432/cashu-gateway
+            PAYMENT_ADAPTER_PORT: ${PAYMENT_ADAPTER_PORT:-8080}
+            SPRING_DATASOURCE_URL: jdbc:postgresql://payment-adapter-db:5432/payment-adapter
             SPRING_DATASOURCE_USERNAME: postgres
             SPRING_DATASOURCE_PASSWORD: password
-            WEBHOOK_BASE_URL: http://cashu-gateway-webhook:8080/webhook
-    cashu-gateway-webhook:
+            WEBHOOK_BASE_URL: http://payment-adapter-webhook:8080/webhook
+    payment-adapter-webhook:
         build:
             context: .
-            dockerfile: cashu-gateway-webhook/Dockerfile
+            dockerfile: payment-adapter-webhook/Dockerfile
         environment:
             # Let the servlet contact the REST API inside the Compose network
-            CATALINA_OPTS: -Dgateway.api.base_url=http://cashu-gateway-rest:8080
+            CATALINA_OPTS: -Dgateway.api.base_url=http://payment-adapter-rest:8080
         ports:
             - "${WEBHOOK_PORT:-9090}:8080"
         healthcheck:

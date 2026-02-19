@@ -4,9 +4,9 @@
 #
 # Usage: ./scripts/restart-dev.sh [service_name]
 # Examples:
-#   ./scripts/restart-dev.sh                    # Restart all cashu services
-#   ./scripts/restart-dev.sh cashu-mint-rest    # Restart specific service
-#   ./scripts/restart-dev.sh cashu-gateway-rest # Restart gateway only
+#   ./scripts/restart-dev.sh                     # Restart all services
+#   ./scripts/restart-dev.sh cashu-mint-rest     # Restart specific service
+#   ./scripts/restart-dev.sh payment-gateway-rest # Restart gateway only
 
 set -euo pipefail
 

@@ -1,9 +1,9 @@
 # Docker Usage
 
-The REST service includes a Dockerfile at `cashu-gateway-rest/Dockerfile`. Build the image:
+The REST service includes a Dockerfile at `payment-adapter-rest/Dockerfile`. Build the image:
 
 ```bash
-docker build -t cashu-gateway-rest cashu-gateway-rest
+docker build -t payment-adapter-rest payment-adapter-rest
 ```
 
 `docker-compose.yml` can build and run all images:
@@ -21,4 +21,4 @@ The project is configured with the [Jib](https://github.com/GoogleContainerTools
 ./mvnw deploy
 ```
 
-builds the REST module and pushes the resulting image to `docker.398ja.xyz/cashu-gateway-rest`.
+builds the REST module and pushes the resulting image to `docker.398ja.xyz/payment-adapter-rest`.

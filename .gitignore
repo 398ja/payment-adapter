@@ -37,8 +37,15 @@ build/
 ### Mac OS ###
 .DS_Store
 /.idea/
-/cashu-gateway-phoenixd/logs/
-/cashu-gateway-phoenixd/logs/
-/cashu-gateway-webhook/logs/
+/payment-gateway-phoenixd/logs/
+/payment-gateway-webhook/logs/
 /.claude/
-/cashu-gateway-rest/logs/
+/payment-gateway-rest/logs/
+/project/
+/payment-adapter-core/payment-adapter-rest/logs/
+/payment-adapter-ln/payment-adapter-ln-phoenixd/logs/
+/payment-adapter-webhook/logs/
+/payment-adapter-cash/payment-adapter-cash-gateway/logs/
+/payment-adapter-cash/payment-adapter-cash-webhook/logs/
+/payment-adapter-test/payment-adapter-test-integration/logs/
+/payment-adapter-test/payment-adapter-test-e2e/logs/
