@@ -104,6 +104,9 @@ public class CashEventSubscriber {
         log.info("Starting cash event subscriber");
         this.running = true;
 
+        // Register callback so newly created invoices get subscribed automatically
+        invoiceService.setInvoiceCreatedCallback(this::subscribeForInvoice);
+
         // Subscribe for active invoices
         List<CashInvoice> activeInvoices = invoiceService.findActiveInvoices();
         for (CashInvoice invoice : activeInvoices) {

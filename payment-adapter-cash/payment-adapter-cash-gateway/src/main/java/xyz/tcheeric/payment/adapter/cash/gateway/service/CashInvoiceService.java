@@ -53,6 +53,9 @@ public class CashInvoiceService {
     private final Nip44EncryptionService encryptionService;
     private final GatewayWebhookForwarder webhookForwarder;
 
+    // Callback for subscribing new invoices to relay events
+    private volatile java.util.function.Consumer<CashInvoice> invoiceCreatedCallback;
+
     public CashInvoiceService(CashInvoiceRepository invoiceRepository,
                               CashReceiptRepository receiptRepository,
                               CashInvoiceStateMachine stateMachine,
@@ -65,6 +68,13 @@ public class CashInvoiceService {
         this.nostrClient = nostrClient;
         this.encryptionService = encryptionService;
         this.webhookForwarder = webhookForwarder;
+    }
+
+    /**
+     * Set a callback to be notified when a new invoice is created.
+     */
+    public void setInvoiceCreatedCallback(java.util.function.Consumer<CashInvoice> callback) {
+        this.invoiceCreatedCallback = callback;
     }
 
     /**
@@ -137,6 +147,15 @@ public class CashInvoiceService {
         // Persist
         invoice = invoiceRepository.save(invoice);
 
+        // Subscribe to relay events for this invoice
+        if (invoiceCreatedCallback != null) {
+            try {
+                invoiceCreatedCallback.accept(invoice);
+            } catch (Exception e) {
+                log.warn("Invoice created callback failed for ref={}: {}", ref, e.getMessage());
+            }
+        }
+
         log.info("Created cash invoice: ref={}, expiresAt={}", ref, expiresAt);
         return invoice;
     }
@@ -173,9 +192,14 @@ public class CashInvoiceService {
         EphemeralKeyPair keyPair = EphemeralKeyPair.fromHex(
                 invoice.getEphemeralPubkey(), invoice.getEphemeralPrivkey());
 
+        // Address receipt to customer pubkey if available, otherwise fall back to merchant key
+        PublicKey recipientPubkey = invoice.getCustomerPubkey() != null && !invoice.getCustomerPubkey().isBlank()
+                ? new PublicKey(invoice.getCustomerPubkey())
+                : keyPair.getPublicKey();
+
         CashReceiptEvent receiptEvent = CashReceiptEvent.builder()
                 .merchantPubkey(keyPair.getPublicKey())
-                .customerPubkey(keyPair.getPublicKey()) // use same key if no customer key known
+                .customerPubkey(recipientPubkey)
                 .ref(ref)
                 .amountReceived(received)
                 .build();
@@ -183,7 +207,7 @@ public class CashInvoiceService {
         try {
             String payloadJson = receiptEvent.serializePayload();
             String encrypted = encryptionService.encrypt(
-                    payloadJson, keyPair.getPrivateKeyHex(), keyPair.getPublicKey());
+                    payloadJson, keyPair.getPrivateKeyHex(), recipientPubkey);
             receiptEvent.getEvent().setContent(encrypted);
         } catch (JsonProcessingException e) {
             log.warn("Failed to encrypt receipt payload: {}", e.getMessage());

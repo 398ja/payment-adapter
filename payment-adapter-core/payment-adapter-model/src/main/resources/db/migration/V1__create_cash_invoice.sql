@@ -16,7 +16,8 @@ CREATE TABLE cash_invoice (
     published_at    TIMESTAMP WITH TIME ZONE,
     intent_received_at TIMESTAMP WITH TIME ZONE,
     paid_at         TIMESTAMP WITH TIME ZONE,
-    cancel_reason   VARCHAR(64)
+    cancel_reason   VARCHAR(64),
+    customer_pubkey VARCHAR(66)
 );
 
 CREATE INDEX idx_cashinvoice_ref ON cash_invoice (ref);

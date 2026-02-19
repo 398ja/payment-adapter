@@ -12,7 +12,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 ENV PAYMENT_GATEWAY_PORT=8080
 ENV VAULT_BASE_URL=http://localhost:${PAYMENT_GATEWAY_PORT}
-COPY --from=build /build/payment-gateway-rest/target/payment-gateway-rest-*.jar /app/app.jar
+COPY --from=build /build/payment-adapter-core/payment-adapter-rest/target/payment-adapter-rest-*.jar /app/app.jar
 EXPOSE ${PAYMENT_GATEWAY_PORT}
 # Pass configurable JVM system properties from environment
 # - payment_gateway_port: align Spring Boot server.port with env-provided port

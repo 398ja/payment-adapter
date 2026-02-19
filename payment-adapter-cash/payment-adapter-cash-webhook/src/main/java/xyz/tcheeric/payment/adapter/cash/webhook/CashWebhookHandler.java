@@ -34,12 +34,26 @@ public class CashWebhookHandler implements WebhookHandler<CashWebhookPayload> {
     private static final long MAX_FUTURE_SECONDS = 300;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private final CashIntentRepository intentRepository;
+    private CashIntentRepository intentRepository;
 
     // Callback for notifying when an intent is received: (ref, CashIntent) -> void
     private volatile BiConsumer<String, CashIntent> intentReceivedCallback;
 
+    /**
+     * No-arg constructor required by ServiceLoader SPI.
+     * Call {@link #setIntentRepository(CashIntentRepository)} before processing webhooks.
+     */
+    public CashWebhookHandler() {
+    }
+
     public CashWebhookHandler(CashIntentRepository intentRepository) {
+        this.intentRepository = intentRepository;
+    }
+
+    /**
+     * Set the intent repository (used when handler is loaded via ServiceLoader).
+     */
+    public void setIntentRepository(CashIntentRepository intentRepository) {
         this.intentRepository = intentRepository;
     }
 
