@@ -84,7 +84,7 @@
         <flatten-maven-plugin.version>1.7.2</flatten-maven-plugin.version>
         <jacoco-maven-plugin.version>0.8.13</jacoco-maven-plugin.version>
         <jib-maven-plugin.version>3.4.1</jib-maven-plugin.version>
-        <spring-boot-maven-plugin.version>3.5.5</spring-boot-maven-plugin.version>
+        <spring-boot-maven-plugin.version>4.0.2</spring-boot-maven-plugin.version>
     </properties>
 
     <dependencyManagement>
