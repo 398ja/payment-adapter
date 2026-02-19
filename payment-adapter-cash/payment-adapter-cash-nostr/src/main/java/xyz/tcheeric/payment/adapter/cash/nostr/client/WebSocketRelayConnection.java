@@ -31,6 +31,7 @@ public class WebSocketRelayConnection implements RelayConnection {
     private final AtomicInteger reconnectAttempts = new AtomicInteger(0);
 
     private volatile WebSocket webSocket;
+    private volatile HttpClient httpClient;
     private volatile boolean shouldReconnect = true;
     private volatile boolean connected = false;
 
@@ -54,11 +55,12 @@ public class WebSocketRelayConnection implements RelayConnection {
 
     private void doConnect() {
         try {
-            HttpClient client = HttpClient.newBuilder()
+            closeHttpClient();
+            httpClient = HttpClient.newBuilder()
                     .executor(Executors.newVirtualThreadPerTaskExecutor())
                     .build();
 
-            webSocket = client.newWebSocketBuilder()
+            webSocket = httpClient.newWebSocketBuilder()
                     .buildAsync(URI.create(relayUrl), new WebSocket.Listener() {
                         private final StringBuilder messageBuffer = new StringBuilder();
 
@@ -122,6 +124,15 @@ public class WebSocketRelayConnection implements RelayConnection {
             } catch (Exception e) {
                 log.debug("Error closing WebSocket: {}", e.getMessage());
             }
+        }
+        closeHttpClient();
+    }
+
+    private void closeHttpClient() {
+        HttpClient client = this.httpClient;
+        if (client != null) {
+            client.close();
+            this.httpClient = null;
         }
     }
 

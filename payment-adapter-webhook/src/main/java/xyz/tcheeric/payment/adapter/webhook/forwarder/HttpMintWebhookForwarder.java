@@ -16,6 +16,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.concurrent.TimeUnit;
 
 /**
  * HTTP-based implementation of MintWebhookForwarder.
@@ -84,10 +85,9 @@ public class HttpMintWebhookForwarder implements MintWebhookForwarder {
                 notification.getQuoteId(), notification.getPaymentMethod());
 
         int attempt = 0;
-        int delayMs = initialDelayMs;
+        long delayMs = initialDelayMs;
 
-        while (attempt < maxRetryAttempts) {
-            attempt++;
+        for (attempt = 1; attempt <= maxRetryAttempts; attempt++) {
             try {
                 if (sendNotification(notification)) {
                     log.info("Payment notification forwarded successfully: quoteId={}",
@@ -101,8 +101,8 @@ public class HttpMintWebhookForwarder implements MintWebhookForwarder {
 
             if (attempt < maxRetryAttempts) {
                 try {
-                    Thread.sleep(delayMs);
-                    delayMs = (int) (delayMs * retryMultiplier);
+                    TimeUnit.MILLISECONDS.sleep(delayMs);
+                    delayMs = (long) (delayMs * retryMultiplier);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;

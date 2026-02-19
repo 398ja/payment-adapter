@@ -1,0 +1,52 @@
+{
+  "properties": [
+    {
+      "name": "cash.default.expiry",
+      "type": "java.lang.Integer",
+      "description": "Default invoice expiry in seconds.",
+      "defaultValue": 300
+    },
+    {
+      "name": "cash.default.relays",
+      "type": "java.lang.String",
+      "description": "Default relay URLs (comma-separated).",
+      "defaultValue": "wss://relay.damus.io,wss://nos.lol"
+    },
+    {
+      "name": "cash.proof.length",
+      "type": "java.lang.Integer",
+      "description": "Proof code length (digits).",
+      "defaultValue": 4
+    },
+    {
+      "name": "cash.subscriber.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Enable/disable the cash event subscriber.",
+      "defaultValue": true
+    },
+    {
+      "name": "cash.subscriber.expiry-check-interval",
+      "type": "java.lang.Long",
+      "description": "Interval in milliseconds for checking expired invoices.",
+      "defaultValue": 30000
+    },
+    {
+      "name": "cash.retention.days",
+      "type": "java.lang.Integer",
+      "description": "Transaction retention period in days.",
+      "defaultValue": 30
+    },
+    {
+      "name": "cash.retention.cron",
+      "type": "java.lang.String",
+      "description": "Cron expression for transaction pruning schedule.",
+      "defaultValue": "0 0 2 * * ?"
+    },
+    {
+      "name": "cash.ratelimit.invoices-per-hour",
+      "type": "java.lang.Integer",
+      "description": "Maximum invoices per hour per source for rate limiting.",
+      "defaultValue": 100
+    }
+  ]
+}

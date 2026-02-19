@@ -24,7 +24,6 @@ import xyz.tcheeric.payment.adapter.core.model.entity.CashReceipt;
 
 import java.io.IOException;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * REST controller for cash payment operations.
@@ -41,7 +40,6 @@ public class CashPaymentController {
     private final CashGateway cashGateway;
     private final CashRateLimiter rateLimiter;
     private final CashEventSubscriber eventSubscriber;
-    private final ConcurrentHashMap<String, SseEmitter> sseEmitters = new ConcurrentHashMap<>();
 
     public CashPaymentController(CashGateway cashGateway,
                                  CashRateLimiter rateLimiter,
@@ -248,8 +246,6 @@ public class CashPaymentController {
         SseEmitter emitter = new SseEmitter(300_000L); // 5 minute timeout
         String listenerId = "sse-" + ref + "-" + UUID.randomUUID().toString().substring(0, 8);
 
-        sseEmitters.put(listenerId, emitter);
-
         // Register state change listener
         eventSubscriber.addStateChangeListener(listenerId, invoice -> {
             if (ref.equals(invoice.getRef())) {
@@ -274,19 +270,19 @@ public class CashPaymentController {
 
         emitter.onCompletion(() -> {
             eventSubscriber.removeStateChangeListener(listenerId);
-            sseEmitters.remove(listenerId);
+
             log.debug("SSE completed for ref={}", ref);
         });
 
         emitter.onTimeout(() -> {
             eventSubscriber.removeStateChangeListener(listenerId);
-            sseEmitters.remove(listenerId);
+
             log.debug("SSE timeout for ref={}", ref);
         });
 
         emitter.onError(e -> {
             eventSubscriber.removeStateChangeListener(listenerId);
-            sseEmitters.remove(listenerId);
+
             log.debug("SSE error for ref={}: {}", ref, e.getMessage());
         });
 

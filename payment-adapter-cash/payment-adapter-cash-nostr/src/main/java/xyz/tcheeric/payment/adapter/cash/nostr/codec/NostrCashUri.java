@@ -69,8 +69,7 @@ public class NostrCashUri {
     /**
      * Gift wrap preference
      */
-    @Builder.Default
-    private final Boolean giftWrap = null;
+    private final Boolean giftWrap;
 
     /**
      * Hashed location token (optional)

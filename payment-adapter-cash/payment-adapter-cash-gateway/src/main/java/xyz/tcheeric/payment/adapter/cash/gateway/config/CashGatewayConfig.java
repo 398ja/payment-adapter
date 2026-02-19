@@ -2,6 +2,7 @@ package xyz.tcheeric.payment.adapter.cash.gateway.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import xyz.tcheeric.payment.adapter.cash.gateway.CashGateway;
@@ -17,6 +18,7 @@ import xyz.tcheeric.payment.adapter.core.common.GatewayRegistry;
  */
 @Configuration
 @EnableScheduling
+@ComponentScan(basePackageClasses = CashGateway.class)
 public class CashGatewayConfig {
 
     @Value("${cash.default.relays:wss://relay.damus.io,wss://nos.lol}")
