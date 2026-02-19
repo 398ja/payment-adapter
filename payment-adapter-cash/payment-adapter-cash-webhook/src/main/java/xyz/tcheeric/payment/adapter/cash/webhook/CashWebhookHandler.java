@@ -185,6 +185,10 @@ public class CashWebhookHandler implements WebhookHandler<CashWebhookPayload> {
 
         log.info("Processing cash intent webhook: eventId={}, ref={}", eventId, ref);
 
+        if (intentRepository == null) {
+            throw new WebhookProcessingException("CashWebhookHandler not initialized: intentRepository is null");
+        }
+
         // Check for duplicate via DB
         if (intentRepository.existsByEventId(eventId)) {
             log.info("Duplicate cash intent webhook: eventId={}", eventId);

@@ -6,7 +6,7 @@ services:
     payment-adapter-rest:
         build:
             context: .
-            dockerfile: payment-adapter-rest/Dockerfile
+            dockerfile: payment-adapter-core/payment-adapter-rest/Dockerfile
         depends_on:
             - payment-adapter-db
             - payment-adapter-webhook
