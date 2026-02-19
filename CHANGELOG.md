@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-02-19
+
+### Fixed
+- Missing `customer_pubkey` column in V1 Flyway migration for `cash_invoice` table
+- Receipt event (kind 5202) now addressed to stored customer pubkey instead of merchant key
+- Invalid customer pubkey handled gracefully with fallback to merchant key in receipt flow
+- Newly created invoices now subscribed to Nostr relay events automatically (not only at startup)
+- `CashWebhookHandler` ServiceLoader discovery via added no-arg constructor
+- Dockerfile COPY path updated from `payment-gateway-rest` to `payment-adapter-rest`
+- `HttpClient` AutoCloseable leak in `WebSocketRelayConnection`
+- Busy-wait retry loops replaced with `TimeUnit.MILLISECONDS.sleep` in webhook forwarders
+- Removed dead `giftWrap` `@Builder.Default null` constant in `NostrCashUri`
+- Removed unused `sseEmitters` map from `CashPaymentController`
+- Added `@ComponentScan` to `CashGatewayConfig` for `CashGateway` bean discovery
+- Added Spring configuration metadata for custom `cash.*` properties
+
 ## [0.10.0] - 2026-02-18
 
 ### Added
