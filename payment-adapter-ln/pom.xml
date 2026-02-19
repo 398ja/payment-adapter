@@ -1,0 +1,24 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>xyz.tcheeric</groupId>
+        <artifactId>payment-adapter</artifactId>
+        <version>0.10.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>payment-adapter-ln</artifactId>
+    <packaging>pom</packaging>
+
+    <name>Payment Adapter - Lightning Network</name>
+    <description>Lightning Network payment gateway modules (phoenixd, dummy)</description>
+
+    <modules>
+        <module>payment-adapter-ln-phoenixd</module>
+        <module>payment-adapter-ln-dummy</module>
+        <module>payment-adapter-ln-webhook</module>
+    </modules>
+
+</project>
