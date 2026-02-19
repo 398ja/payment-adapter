@@ -18,6 +18,8 @@ import xyz.tcheeric.payment.adapter.webhook.exception.WebhookSignatureException;
 import xyz.tcheeric.payment.adapter.webhook.spi.WebhookHandler;
 import xyz.tcheeric.payment.adapter.webhook.spi.WebhookResult;
 
+import org.springframework.beans.factory.annotation.Autowired;
+
 import java.io.BufferedReader;
 import java.time.Instant;
 import java.util.function.BiConsumer;
@@ -51,8 +53,10 @@ public class CashWebhookHandler implements WebhookHandler<CashWebhookPayload> {
     }
 
     /**
-     * Set the intent repository (used when handler is loaded via ServiceLoader).
+     * Set the intent repository (used when handler is loaded via ServiceLoader
+     * or injected by Spring when available as a bean).
      */
+    @Autowired(required = false)
     public void setIntentRepository(CashIntentRepository intentRepository) {
         this.intentRepository = intentRepository;
     }
