@@ -193,9 +193,15 @@ public class CashInvoiceService {
                 invoice.getEphemeralPubkey(), invoice.getEphemeralPrivkey());
 
         // Address receipt to customer pubkey if available, otherwise fall back to merchant key
-        PublicKey recipientPubkey = invoice.getCustomerPubkey() != null && !invoice.getCustomerPubkey().isBlank()
-                ? new PublicKey(invoice.getCustomerPubkey())
-                : keyPair.getPublicKey();
+        PublicKey recipientPubkey = keyPair.getPublicKey();
+        if (invoice.getCustomerPubkey() != null && !invoice.getCustomerPubkey().isBlank()) {
+            try {
+                recipientPubkey = new PublicKey(invoice.getCustomerPubkey());
+            } catch (IllegalArgumentException e) {
+                log.warn("Invalid customer pubkey for ref={}, falling back to merchant key: {}",
+                        ref, e.getMessage());
+            }
+        }
 
         CashReceiptEvent receiptEvent = CashReceiptEvent.builder()
                 .merchantPubkey(keyPair.getPublicKey())
