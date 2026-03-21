@@ -15,6 +15,7 @@
         <module>payment-adapter-webhook</module>
         <module>payment-adapter-ln</module>
         <module>payment-adapter-cash</module>
+        <module>payment-adapter-stripe</module>
         <module>payment-adapter-test</module>
     </modules>
 
@@ -61,6 +62,7 @@
         <testcontainers.version>1.20.4</testcontainers.version>
         <awaitility.version>4.2.2</awaitility.version>
         <wiremock.version>3.9.1</wiremock.version>
+        <stripe-java.version>31.4.1</stripe-java.version>
         <junit-jupiter.version>5.13.4</junit-jupiter.version>
         <junit-platform.version>1.13.4</junit-platform.version>
         <jakarta-servlet-api.version>6.0.0</jakarta-servlet-api.version>
@@ -185,6 +187,11 @@
             </dependency>
 
             <!-- Other Dependencies -->
+            <dependency>
+                <groupId>com.stripe</groupId>
+                <artifactId>stripe-java</artifactId>
+                <version>${stripe-java.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-lang3</artifactId>

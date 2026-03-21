@@ -41,6 +41,21 @@
             <artifactId>payment-adapter-cash-nostr</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-rest</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-stripe-gateway</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-stripe-webhook</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <!-- Spring Boot Web + Test -->
         <dependency>

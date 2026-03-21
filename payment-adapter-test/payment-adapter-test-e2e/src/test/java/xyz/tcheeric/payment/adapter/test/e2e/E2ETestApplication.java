@@ -7,8 +7,12 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 @SpringBootApplication
 @EntityScan("xyz.tcheeric.payment.adapter.core.model.entity")
-@EnableJpaRepositories("xyz.tcheeric.payment.adapter.core.model.repository")
+@EnableJpaRepositories(basePackages = {
+        "xyz.tcheeric.payment.adapter.core.model.repository",
+        "xyz.tcheeric.payment.adapter.core.rest.repository"
+})
 @ComponentScan(basePackages = {
+        "xyz.tcheeric.payment.adapter.core.rest",
         "xyz.tcheeric.payment.adapter.cash.gateway",
         "xyz.tcheeric.payment.adapter.cash.webhook",
         "xyz.tcheeric.payment.adapter.test.e2e.config"

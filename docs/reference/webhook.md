@@ -83,6 +83,7 @@ The webhook module uses a Service Provider Interface (SPI) pattern for extensibi
 |---------|-------------|----------|--------|
 | `PhoenixWebhookHandler` | `phoenixd` | `/webhook/phoenixd` | `payment-adapter-ln-webhook` |
 | `CashWebhookHandler` | `cash` | `/webhook/cash` | `payment-adapter-cash-webhook` |
+| `StripeWebhookHandler` | `stripe` | `/webhook/stripe` | `payment-adapter-stripe-webhook` |
 
 Handlers are discovered via `META-INF/services/xyz.tcheeric.payment.adapter.webhook.spi.WebhookHandler`.
 
@@ -122,3 +123,28 @@ The `MintWebhookForwarder` (added in v0.8.0) enables push-based payment notifica
 ```
 
 For cash payments, `paymentMethod` is `"cash"` and `receiptId` is included instead of `preimage`.
+
+## Stripe Webhook
+
+`POST /webhook/stripe` processes signed Stripe event payloads.
+
+### Request Body
+
+The webhook expects the raw JSON event body sent by Stripe. Signature
+verification uses the `Stripe-Signature` header and the configured
+`STRIPE_WEBHOOK_SECRET`.
+
+### Supported Events
+
+- `checkout.session.completed`
+- `checkout.session.async_payment_succeeded`
+- `charge.refunded`
+- `charge.dispute.created`
+
+### Validation Rules
+
+1. The raw body must be present and parse as JSON.
+2. The `Stripe-Signature` header must verify successfully within the configured tolerance window.
+3. Event IDs are deduplicated using persisted `ProcessedStripeWebhookEvent` records.
+4. Successful Checkout events must match the stored quote amount, currency, and Checkout Session ID.
+5. Refund and dispute events update Stripe-native state only and do not roll the generic quote or payment state backward.

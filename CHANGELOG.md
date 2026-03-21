@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `payment-adapter-stripe` aggregator with gateway, webhook, and connect modules
+- `StripeGateway` with hosted Checkout Session quote creation and persisted pending payment records
+- Stripe persistence entities and Flyway migration for payment references, processed webhook events, and connected accounts
+- `StripeWebhookHandler` with signature verification, duplicate-event tracking, and quote/payment reconciliation
+- Stripe configuration properties, documentation, and tests for gateway, webhook, and connect flows
+
 ## [0.10.0] - 2026-02-18
 
 ### Added
