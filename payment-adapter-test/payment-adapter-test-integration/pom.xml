@@ -148,6 +148,7 @@
                     </includes>
                     <skipITs>${skip.integration.tests}</skipITs>
                     <argLine>--add-opens=java.base/java.lang=ALL-UNNAMED -Djdk.attach.allowAttachSelf=true</argLine>
+                    <forkedProcessExitTimeoutInSeconds>${test.fork.exit.timeout.seconds}</forkedProcessExitTimeoutInSeconds>
                 </configuration>
             </plugin>
         </plugins>

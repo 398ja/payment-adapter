@@ -80,6 +80,7 @@
         <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.5.4</maven-surefire-plugin.version>
         <maven-failsafe-plugin.version>3.5.4</maven-failsafe-plugin.version>
+        <test.fork.exit.timeout.seconds>120</test.fork.exit.timeout.seconds>
         <skip.integration.tests>true</skip.integration.tests>
         <skip.e2e.tests>true</skip.e2e.tests>
         <maven-war-plugin.version>3.4.0</maven-war-plugin.version>
@@ -365,6 +366,7 @@
                     <version>${maven-surefire-plugin.version}</version>
                     <configuration>
                         <argLine>--add-opens=java.base/java.lang=ALL-UNNAMED -Djdk.attach.allowAttachSelf=true</argLine>
+                        <forkedProcessExitTimeoutInSeconds>${test.fork.exit.timeout.seconds}</forkedProcessExitTimeoutInSeconds>
                     </configuration>
                 </plugin>
                 <plugin>
@@ -376,6 +378,9 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-failsafe-plugin</artifactId>
                     <version>${maven-failsafe-plugin.version}</version>
+                    <configuration>
+                        <forkedProcessExitTimeoutInSeconds>${test.fork.exit.timeout.seconds}</forkedProcessExitTimeoutInSeconds>
+                    </configuration>
                     <executions>
                         <execution>
                             <goals>
