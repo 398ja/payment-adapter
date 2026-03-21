@@ -7,12 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-03-21
+
 ### Added
 - `payment-adapter-stripe` aggregator with gateway, webhook, and connect modules
 - `StripeGateway` with hosted Checkout Session quote creation and persisted pending payment records
 - Stripe persistence entities and Flyway migration for payment references, processed webhook events, and connected accounts
 - `StripeWebhookHandler` with signature verification, duplicate-event tracking, and quote/payment reconciliation
 - Stripe configuration properties, documentation, and tests for gateway, webhook, and connect flows
+- `QuoteClient.updateQuote()` method for PUT requests on quote entities
+
+### Fixed
+- `@Autowired` annotation on `CashWebhookHandler` repository setter
+- Dockerfiles and compose configuration for new module structure
+- Invalid customer pubkey handling in cash receipt flow
 
 ## [0.10.0] - 2026-02-18
 
