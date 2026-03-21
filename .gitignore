@@ -51,3 +51,4 @@ build/
 /payment-adapter-test/payment-adapter-test-e2e/logs/
 /payment-adapter-stripe/payment-adapter-stripe-gateway/logs/
 /payment-adapter-stripe/payment-adapter-stripe-webhook/logs/
+/payment-adapter-stripe/payment-adapter-stripe-gateway/logs/
