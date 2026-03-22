@@ -191,6 +191,7 @@ class StripeWebhookHandlerDbIT extends BasePostgresIT {
                 .paymentIntentId("pi_mismatch")
                 .amountTotal(999)
                 .currency("usd")
+                .paymentStatus("paid")
                 .build();
 
         assertThrows(WebhookProcessingException.class, () -> stripeWebhookHandler.handle(payload));
