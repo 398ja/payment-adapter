@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.Environment;
@@ -15,8 +16,9 @@ import org.springframework.core.env.Profiles;
 import org.springframework.core.env.PropertySource;
 
 
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = "xyz.tcheeric.payment.adapter")
 @EntityScan("xyz.tcheeric.payment.adapter.core.model.entity")
+@EnableJpaRepositories(basePackages = "xyz.tcheeric.payment.adapter.core")
 @Slf4j
 public class PaymentGatewaySpringApplication {
 

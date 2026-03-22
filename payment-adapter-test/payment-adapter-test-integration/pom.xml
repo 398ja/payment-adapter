@@ -5,7 +5,7 @@
     <parent>
         <groupId>xyz.tcheeric</groupId>
         <artifactId>payment-adapter-test</artifactId>
-        <version>0.10.0</version>
+        <version>0.11.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -39,6 +39,21 @@
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>payment-adapter-cash-nostr</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-stripe-gateway</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-stripe-webhook</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-stripe-connect</artifactId>
             <version>${project.version}</version>
         </dependency>
 
@@ -133,6 +148,7 @@
                     </includes>
                     <skipITs>${skip.integration.tests}</skipITs>
                     <argLine>--add-opens=java.base/java.lang=ALL-UNNAMED -Djdk.attach.allowAttachSelf=true</argLine>
+                    <forkedProcessExitTimeoutInSeconds>${test.fork.exit.timeout.seconds}</forkedProcessExitTimeoutInSeconds>
                 </configuration>
             </plugin>
         </plugins>

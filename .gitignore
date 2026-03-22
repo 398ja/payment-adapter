@@ -49,3 +49,6 @@ build/
 /payment-adapter-cash/payment-adapter-cash-webhook/logs/
 /payment-adapter-test/payment-adapter-test-integration/logs/
 /payment-adapter-test/payment-adapter-test-e2e/logs/
+/payment-adapter-stripe/payment-adapter-stripe-gateway/logs/
+/payment-adapter-stripe/payment-adapter-stripe-webhook/logs/
+/payment-adapter-stripe/payment-adapter-stripe-gateway/logs/
