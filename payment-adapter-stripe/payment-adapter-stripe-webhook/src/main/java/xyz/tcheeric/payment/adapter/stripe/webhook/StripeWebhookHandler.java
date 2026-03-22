@@ -167,11 +167,27 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
                                                    ProcessedStripeWebhookEvent eventRecord) throws WebhookProcessingException {
         StripePaymentReference paymentReference = findPaymentReference(payload);
         String quoteId = resolveQuoteId(payload, paymentReference);
+
+        validateReference(payload, paymentReference);
+
+        boolean paymentSettled = "paid".equalsIgnoreCase(payload.getPaymentStatus());
+
+        if (!paymentSettled && "checkout.session.completed".equals(payload.getEventType())) {
+            log.info("Checkout session completed with payment_status='{}' for quoteId={}; deferring settlement to async_payment_succeeded",
+                    payload.getPaymentStatus(), quoteId);
+            paymentReference.setStripeStatus(StringUtils.defaultIfBlank(payload.getPaymentStatus(), payload.getStatus()));
+            paymentReference.setLivemode(payload.isLivemode());
+            paymentReference.setLastEventId(payload.getEventId());
+            paymentReference.setUpdatedAt(Instant.now());
+            paymentReferenceRepository.save(paymentReference);
+            markProcessed(eventRecord);
+            return new WebhookResult(true, null, State.PENDING, Map.of("eventType", payload.getEventType(), "deferred", true));
+        }
+
         GatewayQuote quote = getRequiredQuote(quoteId);
         GatewayPayment payment = getRequiredPayment(quoteId);
 
         validateAmountAndCurrency(payload, quote);
-        validateReference(payload, paymentReference);
 
         if (!State.PAID.equals(quote.getState())) {
             quote.setState(State.PAID);
