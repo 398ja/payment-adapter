@@ -1,8 +1,9 @@
 package xyz.tcheeric.payment.adapter.stripe.webhook;
 
+import jakarta.servlet.ReadListener;
+import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
-import java.io.BufferedReader;
-import java.io.StringReader;
+import java.io.ByteArrayInputStream;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -68,7 +69,7 @@ class StripeWebhookHandlerTest {
     // Verifies a Checkout success webhook payload is parsed into the expected Stripe fields.
     @Test
     void parsesCheckoutSuccessPayload() throws Exception {
-        when(request.getReader()).thenReturn(new BufferedReader(new StringReader("""
+        String rawBody = """
                 {
                   "id":"evt_123",
                   "type":"checkout.session.completed",
@@ -83,7 +84,8 @@ class StripeWebhookHandlerTest {
                     "metadata":{"quote_id":"quote-123"}
                   }}
                 }
-                """)));
+                """;
+        when(request.getInputStream()).thenReturn(toServletInputStream(rawBody));
 
         StripeWebhookPayload payload = handler.parsePayload(request);
 
@@ -158,5 +160,30 @@ class StripeWebhookHandlerTest {
         assertEquals("pi_test_123", result.paymentId());
         verify(quoteClient).updateQuote(any(GatewayQuote.class));
         verify(paymentClient).updatePayment(any(GatewayPayment.class));
+    }
+
+    private static ServletInputStream toServletInputStream(String content) {
+        ByteArrayInputStream byteStream = new ByteArrayInputStream(content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return new ServletInputStream() {
+            @Override
+            public int read() {
+                return byteStream.read();
+            }
+
+            @Override
+            public boolean isFinished() {
+                return byteStream.available() == 0;
+            }
+
+            @Override
+            public boolean isReady() {
+                return true;
+            }
+
+            @Override
+            public void setReadListener(ReadListener readListener) {
+                // no-op for tests
+            }
+        };
     }
 }

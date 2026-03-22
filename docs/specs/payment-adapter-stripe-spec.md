@@ -185,7 +185,7 @@ them in Stripe-specific persistence instead of corrupting the generic model.
 
 ```java
 @Entity
-@Table(name = "stripe_payment_references")
+@Table(name = "stripe_payment_reference")
 public class StripePaymentReference {
 
     @Id
@@ -219,7 +219,7 @@ public class StripePaymentReference {
 
 ```java
 @Entity
-@Table(name = "stripe_webhook_events")
+@Table(name = "processed_stripe_webhook_event")
 public class ProcessedStripeWebhookEvent {
 
     @Id

@@ -3,9 +3,7 @@ package xyz.tcheeric.payment.adapter.stripe.webhook;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
@@ -46,12 +44,19 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
     private PaymentClient paymentClient;
     private StripeWebhookSignatureVerifier signatureVerifier;
 
+    /**
+     * No-arg constructor required by ServiceLoader SPI.
+     * Repositories must be injected via {@code @Autowired} setters before handling webhooks.
+     * In a non-Spring environment, {@link #handle} will throw until repositories are set.
+     */
     public StripeWebhookHandler() {
-        this(null, null, new QuoteClient(), new PaymentClient(),
-                new DefaultStripeWebhookSignatureVerifier(
-                        System.getenv("STRIPE_WEBHOOK_SECRET"),
-                        parseTolerance(System.getenv("STRIPE_WEBHOOK_TOLERANCE_SECONDS"))
-                ));
+        this.quoteClient = new QuoteClient();
+        this.paymentClient = new PaymentClient();
+        this.signatureVerifier = new DefaultStripeWebhookSignatureVerifier(
+                System.getenv("STRIPE_WEBHOOK_SECRET"),
+                parseTolerance(System.getenv("STRIPE_WEBHOOK_TOLERANCE_SECONDS"))
+        );
+        log.info("StripeWebhookHandler loaded via SPI; repositories will be injected by Spring context");
     }
 
     public StripeWebhookHandler(ProcessedStripeWebhookEventRepository processedEventRepository,
@@ -224,9 +229,12 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
 
     private ProcessedStripeWebhookEvent startEventProcessing(StripeWebhookPayload payload) throws WebhookDuplicateException {
         Optional<ProcessedStripeWebhookEvent> existingEvent = processedEventRepository.findById(payload.getEventId());
-        if (existingEvent.isPresent()
-                && existingEvent.get().getProcessingStatus() == StripeWebhookProcessingStatus.PROCESSED) {
-            throw new WebhookDuplicateException("Stripe webhook already processed: " + payload.getEventId());
+        if (existingEvent.isPresent()) {
+            StripeWebhookProcessingStatus status = existingEvent.get().getProcessingStatus();
+            if (status == StripeWebhookProcessingStatus.PROCESSED
+                    || status == StripeWebhookProcessingStatus.PROCESSING) {
+                throw new WebhookDuplicateException("Stripe webhook already " + status.name().toLowerCase() + ": " + payload.getEventId());
+            }
         }
 
         ProcessedStripeWebhookEvent event = existingEvent.orElseGet(ProcessedStripeWebhookEvent::new);
@@ -237,7 +245,11 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         event.setReceivedAt(defaultIfNull(event.getReceivedAt(), payload.getEventTimestamp()));
         event.setProcessingStatus(StripeWebhookProcessingStatus.PROCESSING);
         event.setLastError(null);
-        return processedEventRepository.save(event);
+        try {
+            return processedEventRepository.save(event);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            throw new WebhookDuplicateException("Concurrent Stripe webhook processing detected: " + payload.getEventId());
+        }
     }
 
     private void markProcessed(ProcessedStripeWebhookEvent eventRecord) {
@@ -322,12 +334,8 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
     }
 
     private String readBody(HttpServletRequest request) throws WebhookParseException {
-        try (BufferedReader reader = request.getReader(); StringWriter writer = new StringWriter()) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                writer.write(line);
-            }
-            return writer.toString();
+        try {
+            return new String(request.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new WebhookParseException("Failed to read Stripe webhook body", e);
         }
@@ -387,11 +395,19 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         }
     }
 
+    private static final long DEFAULT_TOLERANCE_SECONDS = 300L;
+
     private static long parseTolerance(String toleranceValue) {
         if (StringUtils.isBlank(toleranceValue)) {
-            return 300L;
+            return DEFAULT_TOLERANCE_SECONDS;
         }
-        return Long.parseLong(toleranceValue);
+        try {
+            return Long.parseLong(toleranceValue);
+        } catch (NumberFormatException e) {
+            log.warn("Invalid STRIPE_WEBHOOK_TOLERANCE_SECONDS value '{}', using default {}s",
+                    toleranceValue, DEFAULT_TOLERANCE_SECONDS);
+            return DEFAULT_TOLERANCE_SECONDS;
+        }
     }
 
     private static <T> T defaultIfNull(T value, T defaultValue) {

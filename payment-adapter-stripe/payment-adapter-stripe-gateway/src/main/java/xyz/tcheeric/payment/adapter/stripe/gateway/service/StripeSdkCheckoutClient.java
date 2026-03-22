@@ -1,6 +1,5 @@
 package xyz.tcheeric.payment.adapter.stripe.gateway.service;
 
-import com.stripe.Stripe;
 import com.stripe.exception.StripeException;
 import com.stripe.model.checkout.Session;
 import com.stripe.net.RequestOptions;
@@ -18,9 +17,14 @@ public class StripeSdkCheckoutClient implements StripeCheckoutClient {
 
     private final StripeGatewayProperties properties;
 
+    private RequestOptions buildRequestOptions() {
+        return RequestOptions.builder()
+                .setApiKey(properties.getSecretKey())
+                .build();
+    }
+
     @Override
     public StripeCheckoutSession createCheckoutSession(StripeCheckoutRequest checkoutRequest) {
-        Stripe.apiKey = properties.getSecretKey();
         try {
             SessionCreateParams params = SessionCreateParams.builder()
                     .setMode(SessionCreateParams.Mode.PAYMENT)
@@ -32,7 +36,7 @@ public class StripeSdkCheckoutClient implements StripeCheckoutClient {
                     .addLineItem(buildLineItem(checkoutRequest))
                     .build();
 
-            RequestOptions requestOptions = RequestOptions.builder()
+            RequestOptions requestOptions = buildRequestOptions().toBuilder()
                     .setIdempotencyKey(checkoutRequest.getIdempotencyKey())
                     .build();
 
@@ -44,9 +48,8 @@ public class StripeSdkCheckoutClient implements StripeCheckoutClient {
 
     @Override
     public StripeCheckoutSession retrieveCheckoutSession(String sessionId) {
-        Stripe.apiKey = properties.getSecretKey();
         try {
-            return toCheckoutSession(Session.retrieve(sessionId));
+            return toCheckoutSession(Session.retrieve(sessionId, buildRequestOptions()));
         } catch (StripeException e) {
             throw new StripeGatewayException("Failed to retrieve Stripe checkout session: " + sessionId, e);
         }
