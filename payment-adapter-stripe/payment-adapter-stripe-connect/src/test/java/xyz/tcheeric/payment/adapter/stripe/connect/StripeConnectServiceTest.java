@@ -14,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.junit.jupiter.api.extension.ExtendWith;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAccount;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ProcessedStripeWebhookEvent;
+import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeWebhookProcessingStatus;
 import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccountRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.ProcessedStripeWebhookEventRepository;
 import xyz.tcheeric.payment.adapter.stripe.connect.config.StripeConnectProperties;
@@ -174,6 +175,66 @@ class StripeConnectServiceTest {
 
         when(stripeConnectClient.constructWebhookEvent("{}", "sig", "whsec_test")).thenReturn(event);
         when(processedEventRepository.findById("evt_123")).thenReturn(Optional.empty());
+        when(processedEventRepository.save(any(ProcessedStripeWebhookEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(accountRepository.findByStripeAccountId("acct_123")).thenReturn(Optional.empty());
+        when(accountRepository.findByMerchantPubkey("merchant-123")).thenReturn(Optional.empty());
+        when(accountRepository.save(any(ConnectedStripeAccount.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        StripeConnectWebhookResponse response = service.handleWebhook("{}", "sig");
+
+        assertThat(response.status()).isEqualTo("processed");
+        verify(accountRepository).save(any(ConnectedStripeAccount.class));
+    }
+
+    // Verifies that deauthorization webhook uses event.account field, not data.object.
+    @Test
+    void handleWebhookDeauthorizedUsesEventAccountField() {
+        Event event = mock(Event.class);
+        when(event.getId()).thenReturn("evt_deauth");
+        when(event.getType()).thenReturn("account.application.deauthorized");
+        when(event.getLivemode()).thenReturn(Boolean.FALSE);
+        when(event.getAccount()).thenReturn("acct_123");
+
+        ConnectedStripeAccount existing = existingAccount();
+        when(stripeConnectClient.constructWebhookEvent("{}", "sig", "whsec_test")).thenReturn(event);
+        when(processedEventRepository.findById("evt_deauth")).thenReturn(Optional.empty());
+        when(processedEventRepository.save(any(ProcessedStripeWebhookEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(accountRepository.findByStripeAccountId("acct_123")).thenReturn(Optional.of(existing));
+
+        StripeConnectWebhookResponse response = service.handleWebhook("{}", "sig");
+
+        assertThat(response.status()).isEqualTo("processed");
+        verify(accountRepository).delete(existing);
+    }
+
+    // Verifies that a previously failed event is retried instead of being marked duplicate.
+    @Test
+    void handleWebhookRetriesFailedEvent() {
+        Account account = new Account();
+        account.setId("acct_123");
+        account.setChargesEnabled(Boolean.TRUE);
+        account.setPayoutsEnabled(Boolean.FALSE);
+        account.setDetailsSubmitted(Boolean.TRUE);
+        account.setDefaultCurrency("usd");
+        account.setCountry("US");
+        account.setEmail("merchant@example.com");
+        account.setMetadata(java.util.Map.of("merchant_pubkey", "merchant-123"));
+
+        EventDataObjectDeserializer deserializer = mock(EventDataObjectDeserializer.class);
+        when(deserializer.getObject()).thenReturn(Optional.of(account));
+
+        Event event = mock(Event.class);
+        when(event.getId()).thenReturn("evt_retry");
+        when(event.getType()).thenReturn("account.updated");
+        when(event.getDataObjectDeserializer()).thenReturn(deserializer);
+
+        ProcessedStripeWebhookEvent failedRecord = new ProcessedStripeWebhookEvent();
+        failedRecord.setEventId("evt_retry");
+        failedRecord.setProcessingStatus(StripeWebhookProcessingStatus.FAILED);
+        failedRecord.setLastError("previous error");
+
+        when(stripeConnectClient.constructWebhookEvent("{}", "sig", "whsec_test")).thenReturn(event);
+        when(processedEventRepository.findById("evt_retry")).thenReturn(Optional.of(failedRecord));
         when(processedEventRepository.save(any(ProcessedStripeWebhookEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(accountRepository.findByStripeAccountId("acct_123")).thenReturn(Optional.empty());
         when(accountRepository.findByMerchantPubkey("merchant-123")).thenReturn(Optional.empty());

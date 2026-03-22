@@ -43,7 +43,10 @@ public class StripeSdkConnectClient implements StripeConnectClient {
         try {
             return toSnapshot(Account.retrieve(stripeAccountId, requestOptions()));
         } catch (StripeException e) {
-            throw StripeConnectException.accountNotFound(stripeAccountId, e);
+            if (e.getStatusCode() != null && e.getStatusCode() == 404) {
+                throw StripeConnectException.accountNotFound(stripeAccountId, e);
+            }
+            throw StripeConnectException.apiError("Failed to retrieve Stripe account: " + stripeAccountId, e);
         }
     }
 

@@ -93,11 +93,14 @@ public class StripeConnectService {
         Event event = stripeConnectClient.constructWebhookEvent(payload, signatureHeader, connectProperties.getWebhookSecret());
 
         Optional<ProcessedStripeWebhookEvent> existing = processedEventRepository.findById(event.getId());
-        if (existing.isPresent()) {
+        if (existing.isPresent() && existing.get().getProcessingStatus() == StripeWebhookProcessingStatus.PROCESSED) {
             return new StripeConnectWebhookResponse(event.getId(), "duplicate");
         }
 
-        ProcessedStripeWebhookEvent eventRecord = startEventRecord(event, payload);
+        ProcessedStripeWebhookEvent eventRecord = existing.orElseGet(() -> startEventRecord(event, payload));
+        eventRecord.setProcessingStatus(StripeWebhookProcessingStatus.PROCESSING);
+        eventRecord.setLastError(null);
+        processedEventRepository.save(eventRecord);
         try {
             switch (event.getType()) {
                 case "account.updated" -> handleAccountUpdated(event);
@@ -160,8 +163,13 @@ public class StripeConnectService {
     }
 
     private void handleAccountDeauthorized(Event event) {
-        Account account = extractAccount(event);
-        connectedStripeAccountRepository.findByStripeAccountId(account.getId())
+        String stripeAccountId = event.getAccount();
+        if (stripeAccountId == null || stripeAccountId.isBlank()) {
+            throw new StripeConnectException(
+                    StripeConnectExceptionCode.STRIPE_API_ERROR,
+                    "Deauthorization webhook missing account ID");
+        }
+        connectedStripeAccountRepository.findByStripeAccountId(stripeAccountId)
                 .ifPresent(connectedStripeAccountRepository::delete);
     }
 
