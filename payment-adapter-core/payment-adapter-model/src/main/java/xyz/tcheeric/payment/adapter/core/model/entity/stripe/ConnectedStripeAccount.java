@@ -40,8 +40,23 @@ public class ConnectedStripeAccount {
     @Column(name = "payouts_enabled", nullable = false)
     private boolean payoutsEnabled;
 
+    @Column(name = "details_submitted", nullable = false)
+    private boolean detailsSubmitted;
+
     @Column(name = "default_currency")
     private String defaultCurrency;
+
+    @Column(name = "requirements_due", length = 4096)
+    private String requirementsDue;
+
+    @Column(name = "disabled_reason")
+    private String disabledReason;
+
+    @Column(name = "country", length = 8)
+    private String country;
+
+    @Column(name = "email")
+    private String email;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;

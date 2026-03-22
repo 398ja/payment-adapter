@@ -79,6 +79,18 @@ class FlywayMigrationIT extends BasePostgresIT {
                 "received_at", "processing_status", "processed_at", "last_error");
     }
 
+    // Verifies that the connected Stripe account table stores the merchant-facing Connect status fields.
+    @Test
+    void connectedStripeAccountTable_hasExpectedColumns() {
+        List<String> columns = getColumnNames("connected_stripe_account");
+
+        assertThat(columns).containsExactlyInAnyOrder(
+                "id", "merchant_pubkey", "stripe_account_id", "onboarding_complete",
+                "charges_enabled", "payouts_enabled", "details_submitted", "default_currency",
+                "requirements_due", "disabled_reason", "country", "email",
+                "created_at", "updated_at");
+    }
+
     // Verifies that unique indexes exist on cash_invoice.ref
     @Test
     void cashInvoice_hasUniqueRefIndex() {

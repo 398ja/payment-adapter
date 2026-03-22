@@ -10,4 +10,6 @@ public interface ConnectedStripeAccountRepository extends CrudRepository<Connect
     Optional<ConnectedStripeAccount> findByMerchantPubkey(String merchantPubkey);
 
     Optional<ConnectedStripeAccount> findByStripeAccountId(String stripeAccountId);
+
+    void deleteByMerchantPubkey(String merchantPubkey);
 }
