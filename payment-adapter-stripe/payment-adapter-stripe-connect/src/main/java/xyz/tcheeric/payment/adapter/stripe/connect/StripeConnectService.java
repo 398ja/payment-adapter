@@ -11,9 +11,12 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAccount;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ProcessedStripeWebhookEvent;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeWebhookProcessingStatus;
@@ -26,8 +29,8 @@ import xyz.tcheeric.payment.adapter.stripe.connect.model.StripeConnectAccountRes
 import xyz.tcheeric.payment.adapter.stripe.connect.model.StripeConnectWebhookResponse;
 import xyz.tcheeric.payment.adapter.stripe.gateway.config.StripeGatewayProperties;
 
+@Slf4j
 @Service
-@RequiredArgsConstructor
 public class StripeConnectService {
 
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
@@ -38,6 +41,25 @@ public class StripeConnectService {
     private final ObjectMapper objectMapper;
     private final ConnectedStripeAccountRepository connectedStripeAccountRepository;
     private final ProcessedStripeWebhookEventRepository processedEventRepository;
+    private final TransactionTemplate requiresNewTx;
+
+    public StripeConnectService(
+            StripeConnectProperties connectProperties,
+            StripeGatewayProperties gatewayProperties,
+            StripeConnectClient stripeConnectClient,
+            ObjectMapper objectMapper,
+            ConnectedStripeAccountRepository connectedStripeAccountRepository,
+            ProcessedStripeWebhookEventRepository processedEventRepository,
+            PlatformTransactionManager transactionManager) {
+        this.connectProperties = connectProperties;
+        this.gatewayProperties = gatewayProperties;
+        this.stripeConnectClient = stripeConnectClient;
+        this.objectMapper = objectMapper;
+        this.connectedStripeAccountRepository = connectedStripeAccountRepository;
+        this.processedEventRepository = processedEventRepository;
+        this.requiresNewTx = new TransactionTemplate(transactionManager);
+        this.requiresNewTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+    }
 
     @Transactional
     public StripeConnectAccountResponse createOrResume(String merchantPubkey, String returnUrl, String refreshUrl) {
@@ -92,12 +114,20 @@ public class StripeConnectService {
         requireEnabled();
         Event event = stripeConnectClient.constructWebhookEvent(payload, signatureHeader, connectProperties.getWebhookSecret());
 
+        String currentHash = sha256(payload);
         Optional<ProcessedStripeWebhookEvent> existing = processedEventRepository.findById(event.getId());
-        if (existing.isPresent() && existing.get().getProcessingStatus() == StripeWebhookProcessingStatus.PROCESSED) {
-            return new StripeConnectWebhookResponse(event.getId(), "duplicate");
+        if (existing.isPresent()) {
+            ProcessedStripeWebhookEvent prev = existing.get();
+            if (prev.getProcessingStatus() == StripeWebhookProcessingStatus.PROCESSED) {
+                if (!currentHash.equals(prev.getPayloadHash())) {
+                    log.warn("Webhook {} redelivered with different payload hash (stored={}, received={})",
+                            event.getId(), prev.getPayloadHash(), currentHash);
+                }
+                return new StripeConnectWebhookResponse(event.getId(), "duplicate");
+            }
         }
 
-        ProcessedStripeWebhookEvent eventRecord = existing.orElseGet(() -> startEventRecord(event, payload));
+        ProcessedStripeWebhookEvent eventRecord = existing.orElseGet(() -> startEventRecord(event, payload, currentHash));
         eventRecord.setProcessingStatus(StripeWebhookProcessingStatus.PROCESSING);
         eventRecord.setLastError(null);
         processedEventRepository.save(eventRecord);
@@ -113,7 +143,7 @@ public class StripeConnectService {
             markProcessed(eventRecord);
             return new StripeConnectWebhookResponse(event.getId(), "processed");
         } catch (RuntimeException e) {
-            markFailed(eventRecord, e.getMessage());
+            markFailed(event.getId(), e.getMessage());
             throw e;
         }
     }
@@ -316,11 +346,11 @@ public class StripeConnectService {
                 "Missing required Stripe Connect URL: " + fieldName);
     }
 
-    private ProcessedStripeWebhookEvent startEventRecord(Event event, String payload) {
+    private ProcessedStripeWebhookEvent startEventRecord(Event event, String payload, String payloadHash) {
         ProcessedStripeWebhookEvent record = new ProcessedStripeWebhookEvent();
         record.setEventId(event.getId());
         record.setEventType(event.getType());
-        record.setPayloadHash(sha256(payload));
+        record.setPayloadHash(payloadHash);
         record.setLivemode(Boolean.TRUE.equals(event.getLivemode()));
         record.setReceivedAt(Instant.now());
         record.setProcessingStatus(StripeWebhookProcessingStatus.PROCESSING);
@@ -334,10 +364,13 @@ public class StripeConnectService {
         processedEventRepository.save(record);
     }
 
-    private void markFailed(ProcessedStripeWebhookEvent record, String message) {
-        record.setProcessingStatus(StripeWebhookProcessingStatus.FAILED);
-        record.setLastError(message);
-        processedEventRepository.save(record);
+    private void markFailed(String eventId, String message) {
+        requiresNewTx.executeWithoutResult(status ->
+                processedEventRepository.findById(eventId).ifPresent(record -> {
+                    record.setProcessingStatus(StripeWebhookProcessingStatus.FAILED);
+                    record.setLastError(message);
+                    processedEventRepository.save(record);
+                }));
     }
 
     private String sha256(String payload) {

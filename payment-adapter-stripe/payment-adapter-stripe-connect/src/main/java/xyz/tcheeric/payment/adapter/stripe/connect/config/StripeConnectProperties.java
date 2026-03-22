@@ -1,6 +1,7 @@
 package xyz.tcheeric.payment.adapter.stripe.connect.config;
 
 import jakarta.annotation.PostConstruct;
+import java.util.Locale;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -17,7 +18,7 @@ public class StripeConnectProperties {
     @PostConstruct
     void normalize() {
         if (country != null && !country.isBlank()) {
-            country = country.trim().toUpperCase();
+            country = country.trim().toUpperCase(Locale.ROOT);
         }
     }
 }

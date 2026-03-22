@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.PlatformTransactionManager;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAccount;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ProcessedStripeWebhookEvent;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeWebhookProcessingStatus;
@@ -58,13 +60,17 @@ class StripeConnectServiceTest {
         StripeGatewayProperties gatewayProperties = new StripeGatewayProperties();
         gatewayProperties.setDefaultCurrency("usd");
 
+        PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
+        org.mockito.Mockito.lenient().when(txManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+
         service = new StripeConnectService(
                 connectProperties,
                 gatewayProperties,
                 stripeConnectClient,
                 new ObjectMapper(),
                 accountRepository,
-                processedEventRepository);
+                processedEventRepository,
+                txManager);
     }
 
     @Test
