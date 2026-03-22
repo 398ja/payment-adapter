@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-03-22
+
+### Added
+- Stripe Connect onboarding flow with `createOrResume`, `refresh`, `getStatus`, and `disconnect` endpoints
+- `StripeConnectClient` interface and `StripeSdkConnectClient` implementation for Stripe Account API
+- `StripeConnectController` REST endpoints for merchant account lifecycle management
+- `StripeConnectExceptionHandler` with structured error responses and exception codes
+- `StripeAccountSnapshot` record for mapping Stripe Account API responses
+- `StripeConnectConfig` for Stripe Connect bean configuration
+- Webhook handling for `account.updated` and `account.application.deauthorized` events with idempotent processing
+- `details_submitted`, `requirements_due`, `disabled_reason`, `country`, and `email` fields on `ConnectedStripeAccount` entity
+- Flyway V5 migration to extend `connected_stripe_account` table with new columns
+- Integration tests for `StripeConnectService` with mocked Stripe client
+
+### Fixed
+- V5 Flyway migration H2 compatibility by splitting multi-column `ALTER TABLE` into individual statements
+- Stripe settlement gated on `payment_status` for async payment methods
+- `paymentStatus` assertion added to amount-mismatch integration test
+
 ## [0.11.0] - 2026-03-21
 
 ### Added
