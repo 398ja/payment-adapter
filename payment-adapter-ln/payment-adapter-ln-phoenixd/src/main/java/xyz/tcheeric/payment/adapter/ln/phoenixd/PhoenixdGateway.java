@@ -300,6 +300,13 @@ public class PhoenixdGateway implements Gateway {
     }
 
     @Override
+    public java.time.Instant getCreatedAt(String quoteId) {
+        QuoteClient client = new QuoteClient();
+        GatewayQuote quote = client.getByEntityId(quoteId);
+        return quote != null ? quote.getCreatedAt() : null;
+    }
+
+    @Override
     public Integer getFeeReserve(String quoteId) {
 /*
         PaymentClient client = new PaymentClient();

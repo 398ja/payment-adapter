@@ -12,6 +12,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -19,6 +20,7 @@ import xyz.tcheeric.payment.adapter.core.model.entity.enums.Direction;
 import xyz.tcheeric.payment.adapter.core.model.entity.enums.State;
 
 import java.io.Serial;
+import java.time.Instant;
 /**
  * JPA entity representing a quote handled by the gateway for minting or melting
  * operations. The {@link #create(String, String, Integer, String, String, Integer, String)}
@@ -56,6 +58,25 @@ public class GatewayQuote implements GatewayEntity {
 
     @Enumerated(EnumType.STRING)
     private Direction direction;
+
+    /**
+     * Spec 041 (cashu-mint REQ-MINT-3) — when the row was created. Lets the
+     * mint compute the absolute expiry instant from this + {@link #expiry}
+     * (which is a TTL in seconds) and enforce {@code quote_expired} strictly.
+     * Auto-populated by {@link #onCreate()} via JPA's {@code @PrePersist} so
+     * existing factory callers don't need to set it. Nullable for backward
+     * compatibility — rows persisted before this column was added decode
+     * cleanly with null and the mint skips enforcement in that case.
+     */
+    @Column(name = "created_at")
+    private Instant createdAt;
+
+    @PrePersist
+    void onCreate() {
+        if (this.createdAt == null) {
+            this.createdAt = Instant.now();
+        }
+    }
 
     /**
      * Factory method to create a {@link GatewayQuote} with default state and direction.

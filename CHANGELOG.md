@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-06-05
+
+### Added
+- `Gateway.getCreatedAt(quoteId)` default port returning `Instant` (default: `null`). Lets cashu-mint's `MintTask` enforce strict NUT-04 quote expiry by computing `createdAt + getPaymentExpiry()` — required by spec 041 REQ-MINT-3 (client-side voucher minting).
+- `GatewayQuote.createdAt` JPA column (`@Column(name = "created_at") Instant`) auto-populated by a `@PrePersist` hook. Nullable for backward compatibility — pre-existing rows decode cleanly and the mint falls through to permissive behaviour for those.
+- `PhoenixdGateway.getCreatedAt(String)` override — looks up the JPA row and returns `createdAt`.
+
+### Changed
+- None of the additions are breaking. The new interface default method preserves binary compatibility for existing `Gateway` implementations; the new JPA column is additive.
+
 ## [0.12.0] - 2026-03-22
 
 ### Added
