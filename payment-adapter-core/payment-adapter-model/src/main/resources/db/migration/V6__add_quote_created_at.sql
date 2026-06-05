@@ -1,0 +1,20 @@
+-- Spec 041 REQ-MINT-3 — strict NUT-04 quote expiry enforcement.
+--
+-- Adds the `created_at` column to the existing `quote` table so the cashu
+-- mint's MintTask can compute the absolute quote-expiry instant as
+-- `created_at + expiry` and reject mint requests past that instant.
+--
+-- Nullable on purpose:
+--   * Pre-existing rows persisted before this column was added retain NULL,
+--     and Gateway.getCreatedAt(quoteId) returns null for them. The mint
+--     treats null as "skip enforcement" and falls through to existing
+--     permissive behaviour. See:
+--     - payment-adapter-core/payment-adapter-common/src/main/java/
+--       xyz/tcheeric/payment/adapter/core/common/Gateway.java
+--     - GatewayQuote.@PrePersist onCreate() — populates createdAt for
+--       every NEW row.
+--
+-- Idempotent via IF NOT EXISTS so re-runs against an already-migrated
+-- database (e.g. an environment where Hibernate hbm2ddl previously added
+-- the column) are safe.
+ALTER TABLE quote ADD COLUMN IF NOT EXISTS created_at TIMESTAMP;
