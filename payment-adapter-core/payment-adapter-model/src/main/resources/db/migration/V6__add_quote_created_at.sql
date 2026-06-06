@@ -14,7 +14,14 @@
 --     - GatewayQuote.@PrePersist onCreate() — populates createdAt for
 --       every NEW row.
 --
--- Idempotent via IF NOT EXISTS so re-runs against an already-migrated
--- database (e.g. an environment where Hibernate hbm2ddl previously added
--- the column) are safe.
-ALTER TABLE quote ADD COLUMN IF NOT EXISTS created_at TIMESTAMP;
+-- The `quote` table is managed by Hibernate ddl-auto, NOT by an earlier
+-- Flyway migration (V1–V5 only create the cash/stripe tables). Flyway runs
+-- BEFORE Hibernate, so on a fresh database (CI/test with ddl-auto, or a
+-- clean deploy) the `quote` table does not exist yet when this migration
+-- runs. Guard with ALTER TABLE IF EXISTS (supported by both H2 2.x and
+-- PostgreSQL) so this becomes a safe no-op there — Hibernate then creates
+-- `quote` already carrying `created_at` from the entity field. On an
+-- environment where `quote` predates the column, the ALTER adds it.
+--
+-- Idempotent via IF NOT EXISTS on the column so re-runs are safe.
+ALTER TABLE IF EXISTS quote ADD COLUMN IF NOT EXISTS created_at TIMESTAMP;

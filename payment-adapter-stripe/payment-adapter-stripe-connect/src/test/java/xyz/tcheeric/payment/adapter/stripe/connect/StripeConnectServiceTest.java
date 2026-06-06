@@ -252,6 +252,37 @@ class StripeConnectServiceTest {
         verify(accountRepository).save(any(ConnectedStripeAccount.class));
     }
 
+    // A first-time failing Connect webhook must still persist a FAILED audit
+    // record via the REQUIRES_NEW handler, even though the outer transaction's
+    // PROCESSING insert is not yet committed (so findById returns empty there).
+    @Test
+    void handleWebhookPersistsFailedRecordForFirstTimeFailure() {
+        EventDataObjectDeserializer deserializer = mock(EventDataObjectDeserializer.class);
+        when(deserializer.getObject()).thenReturn(Optional.empty()); // -> extractAccount throws
+
+        Event event = mock(Event.class);
+        when(event.getId()).thenReturn("evt_fail_new");
+        when(event.getType()).thenReturn("account.updated");
+        when(event.getLivemode()).thenReturn(Boolean.FALSE);
+        when(event.getDataObjectDeserializer()).thenReturn(deserializer);
+
+        when(stripeConnectClient.constructWebhookEvent("{}", "sig", "whsec_test")).thenReturn(event);
+        when(processedEventRepository.findById("evt_fail_new")).thenReturn(Optional.empty());
+        when(processedEventRepository.save(any(ProcessedStripeWebhookEvent.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThrows(StripeConnectException.class, () -> service.handleWebhook("{}", "sig"));
+
+        org.mockito.ArgumentCaptor<ProcessedStripeWebhookEvent> captor =
+                org.mockito.ArgumentCaptor.forClass(ProcessedStripeWebhookEvent.class);
+        verify(processedEventRepository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
+        assertThat(captor.getAllValues()).anySatisfy(record -> {
+            assertThat(record.getEventId()).isEqualTo("evt_fail_new");
+            assertThat(record.getProcessingStatus()).isEqualTo(StripeWebhookProcessingStatus.FAILED);
+            assertThat(record.getLastError()).isEqualTo("Webhook did not contain an account object");
+        });
+    }
+
     private ConnectedStripeAccount existingAccount() {
         ConnectedStripeAccount account = new ConnectedStripeAccount();
         account.setMerchantPubkey("merchant-123");
