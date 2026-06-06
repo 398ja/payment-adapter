@@ -58,6 +58,39 @@ class FlywayMigrationIT extends BasePostgresIT {
                 "event_id", "published_at");
     }
 
+    // Verifies that the Stripe payment reference table exists with the expected columns.
+    @Test
+    void stripePaymentReferenceTable_hasExpectedColumns() {
+        List<String> columns = getColumnNames("stripe_payment_reference");
+
+        assertThat(columns).containsExactlyInAnyOrder(
+                "id", "quote_id", "checkout_session_id", "payment_intent_id", "charge_id",
+                "connected_account_id", "stripe_status", "livemode", "last_event_id",
+                "refunded_amount_minor", "disputed", "created_at", "updated_at");
+    }
+
+    // Verifies that the processed Stripe webhook event table exists with lifecycle-tracking columns.
+    @Test
+    void processedStripeWebhookEventTable_hasExpectedColumns() {
+        List<String> columns = getColumnNames("processed_stripe_webhook_event");
+
+        assertThat(columns).containsExactlyInAnyOrder(
+                "event_id", "event_type", "payload_hash", "livemode",
+                "received_at", "processing_status", "processed_at", "last_error");
+    }
+
+    // Verifies that the connected Stripe account table stores the merchant-facing Connect status fields.
+    @Test
+    void connectedStripeAccountTable_hasExpectedColumns() {
+        List<String> columns = getColumnNames("connected_stripe_account");
+
+        assertThat(columns).containsExactlyInAnyOrder(
+                "id", "merchant_pubkey", "stripe_account_id", "onboarding_complete",
+                "charges_enabled", "payouts_enabled", "details_submitted", "default_currency",
+                "requirements_due", "disabled_reason", "country", "email",
+                "created_at", "updated_at");
+    }
+
     // Verifies that unique indexes exist on cash_invoice.ref
     @Test
     void cashInvoice_hasUniqueRefIndex() {

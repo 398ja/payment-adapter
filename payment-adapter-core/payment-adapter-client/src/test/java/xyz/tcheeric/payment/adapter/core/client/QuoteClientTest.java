@@ -9,6 +9,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
 import xyz.tcheeric.payment.adapter.core.model.entity.GatewayQuote;
+import xyz.tcheeric.payment.adapter.core.model.entity.enums.State;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -65,5 +66,28 @@ public class QuoteClientTest {
         mockServer.verify();
         assertThat(result.getId()).isEqualTo(2L);
         assertThat(result.getDescription()).isEqualTo("desc");
+    }
+
+    // Verifies updating a quote sends a PUT request to the entity resource URL.
+    @Test
+    void updateQuoteCallsCorrectUrlAndReturnsUpdatedQuote() throws Exception {
+        GatewayQuote request = new GatewayQuote();
+        request.setId(9L);
+        request.setState(State.PAID);
+
+        GatewayQuote expected = new GatewayQuote();
+        expected.setId(9L);
+        expected.setState(State.PAID);
+
+        String body = objectMapper.writeValueAsString(expected);
+        mockServer.expect(requestTo("http://localhost:8080/quote/9"))
+                .andExpect(method(HttpMethod.PUT))
+                .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+
+        GatewayQuote result = quoteClient.updateQuote(request);
+
+        mockServer.verify();
+        assertThat(result.getId()).isEqualTo(9L);
+        assertThat(result.getState()).isEqualTo(State.PAID);
     }
 }

@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-06-06
+
+### Fixed
+- **Stripe refunds recorded the original charge amount, not the refunded total.** `handleChargeRefunded` set `refundedAmountMinor` from the charge `amount`; it now parses Stripe's `amount_refunded` field (via a new `StripeWebhookPayload.refundedAmountMinor`), so partial refunds record the actual refunded value. [PR #229 review]
+
+### Documentation
+- README: `stripe.default-currency` is a currency code (e.g. `usd`), not a minor-units amount. [PR #229 review]
+- `docs/reference/configuration.md`: webhook tolerance is read from the `STRIPE_WEBHOOK_TOLERANCE_SECONDS` environment variable (the verifier is instantiated via `ServiceLoader`, outside Spring), not a Spring property. [PR #229 review]
+
+## [0.13.1] - 2026-06-06
+
+### Fixed
+- **V6 Flyway migration crashed on fresh databases.** `V6__add_quote_created_at.sql` did `ALTER TABLE quote …`, but `quote` is created by Hibernate `ddl-auto`, not by an earlier migration — Flyway runs first, so on a fresh DB (CI/tests, clean deploy) the table didn't exist yet (`Table "QUOTE" not found`). Now guarded with `ALTER TABLE IF EXISTS` (H2 2.x + PostgreSQL), making it a safe no-op there while still adding the column on environments where `quote` predates it.
+- **Stripe webhooks always failed (`StripeWebhookHandler` had null repositories).** `WebhookRegistry` discovers handlers via `ServiceLoader`, so Spring never invoked the `@Autowired` setters and every Stripe payment webhook failed `ensureDependencies()`. Added `StripeWebhookHandlerConfiguration` which registers a Spring-wired handler, replacing the ServiceLoader stub.
+- **Stripe/card quotes skipped strict expiry enforcement.** `StripeGateway` persisted `created_at` but didn't override `Gateway.getCreatedAt()`, so callers fell back to `null` and never enforced `createdAt + expiry`. Added the override (mirrors `PhoenixdGateway`).
+- **First-time failing Stripe Connect webhooks left no audit record.** The `@Transactional` `handleWebhook` rolled back the just-inserted PROCESSING row, and the `REQUIRES_NEW` failure handler only did `findById` (couldn't see the uncommitted row), so no FAILED record persisted. `markFailed` now upserts — creating the FAILED record in the new transaction when absent.
+
+## [0.13.0] - 2026-06-05
+
+### Added
+- `Gateway.getCreatedAt(quoteId)` default port returning `Instant` (default: `null`). Lets cashu-mint's `MintTask` enforce strict NUT-04 quote expiry by computing `createdAt + getPaymentExpiry()` — required by spec 041 REQ-MINT-3 (client-side voucher minting).
+- `GatewayQuote.createdAt` JPA column (`@Column(name = "created_at") Instant`) auto-populated by a `@PrePersist` hook. Nullable for backward compatibility — pre-existing rows decode cleanly and the mint falls through to permissive behaviour for those.
+- `PhoenixdGateway.getCreatedAt(String)` override — looks up the JPA row and returns `createdAt`.
+
+### Changed
+- None of the additions are breaking. The new interface default method preserves binary compatibility for existing `Gateway` implementations; the new JPA column is additive.
+
+## [0.12.0] - 2026-03-22
+
+### Added
+- Stripe Connect onboarding flow with `createOrResume`, `refresh`, `getStatus`, and `disconnect` endpoints
+- `StripeConnectClient` interface and `StripeSdkConnectClient` implementation for Stripe Account API
+- `StripeConnectController` REST endpoints for merchant account lifecycle management
+- `StripeConnectExceptionHandler` with structured error responses and exception codes
+- `StripeAccountSnapshot` record for mapping Stripe Account API responses
+- `StripeConnectConfig` for Stripe Connect bean configuration
+- Webhook handling for `account.updated` and `account.application.deauthorized` events with idempotent processing
+- `details_submitted`, `requirements_due`, `disabled_reason`, `country`, and `email` fields on `ConnectedStripeAccount` entity
+- Flyway V5 migration to extend `connected_stripe_account` table with new columns
+- Integration tests for `StripeConnectService` with mocked Stripe client
+
+### Fixed
+- V5 Flyway migration H2 compatibility by splitting multi-column `ALTER TABLE` into individual statements
+- Stripe settlement gated on `payment_status` for async payment methods
+- `paymentStatus` assertion added to amount-mismatch integration test
+
+## [0.11.0] - 2026-03-21
+
+### Added
+- `payment-adapter-stripe` aggregator with gateway, webhook, and connect modules
+- `StripeGateway` with hosted Checkout Session quote creation and persisted pending payment records
+- Stripe persistence entities and Flyway migration for payment references, processed webhook events, and connected accounts
+- `StripeWebhookHandler` with signature verification, duplicate-event tracking, and quote/payment reconciliation
+- Stripe configuration properties, documentation, and tests for gateway, webhook, and connect flows
+- `QuoteClient.updateQuote()` method for PUT requests on quote entities
+
+### Fixed
+- `@Autowired` annotation on `CashWebhookHandler` repository setter
+- Dockerfiles and compose configuration for new module structure
+- Invalid customer pubkey handling in cash receipt flow
+
 ## [0.10.0] - 2026-02-18
 
 ### Added

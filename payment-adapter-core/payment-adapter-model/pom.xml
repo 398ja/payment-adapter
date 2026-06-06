@@ -5,11 +5,11 @@
     <parent>
         <groupId>xyz.tcheeric</groupId>
         <artifactId>payment-adapter-core</artifactId>
-        <version>0.10.0</version>
+        <version>0.13.2</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>payment-adapter-model</artifactId>
-    <version>0.10.0</version>
+    <version>0.13.2</version>
     <name>payment-adapter-model</name>
     <description>Demo project for Spring Boot</description>
     <url/>
@@ -77,6 +77,10 @@
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
         <!-- Spring Data JPA -->

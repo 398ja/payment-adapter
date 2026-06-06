@@ -1,6 +1,6 @@
 # Payment Adapter
 
-Payment Adapter provides RESTful services for creating and settling Lightning Network invoices and NIP-XX Cash Payments over Nostr. The project is organised as modular Maven components grouped into four aggregators.
+Payment Adapter provides RESTful services for creating and settling Lightning Network invoices, hosted Stripe Checkout payments, and NIP-XX Cash Payments over Nostr. The project is organised as modular Maven components grouped into multiple aggregators.
 
 ## Modules
 
@@ -16,6 +16,9 @@ Payment Adapter provides RESTful services for creating and settling Lightning Ne
 | **payment-adapter-cash** | payment-adapter-cash-nostr | Nostr event types (kinds 5200–5204), `nostr+cash://` URI codec. |
 | | payment-adapter-cash-gateway | `CashGateway` implementation, QR code generation, REST controller. |
 | | payment-adapter-cash-webhook | `CashWebhookHandler` for processing kind 5201 intents. |
+| **payment-adapter-stripe** | payment-adapter-stripe-gateway | `StripeGateway` implementation for hosted Checkout Session payments. |
+| | payment-adapter-stripe-webhook | `StripeWebhookHandler` for Stripe payment events. |
+| | payment-adapter-stripe-connect | Merchant account linking and Stripe Connect helpers. |
 | **payment-adapter-webhook** | *(single module)* | Servlet webhook handler with SPI dispatch and `MintWebhookForwarder`. |
 
 ```
@@ -33,6 +36,10 @@ payment-adapter/
 │   ├── payment-adapter-cash-nostr     Nostr events and URI codec
 │   ├── payment-adapter-cash-gateway   Cash Gateway, QR, REST controller
 │   └── payment-adapter-cash-webhook   Cash webhook handler
+├── payment-adapter-stripe/
+│   ├── payment-adapter-stripe-gateway Stripe Checkout gateway implementation
+│   ├── payment-adapter-stripe-webhook Stripe webhook handler
+│   └── payment-adapter-stripe-connect Stripe Connect support services
 └── payment-adapter-webhook            Servlet webhook handler (port 9090)
 ```
 
@@ -134,12 +141,17 @@ Cash payments use the NIP-XX protocol over Nostr for in-person cash transactions
 * `GET /cash/invoice/{ref}/qr` – get QR code as PNG image
 * `GET /cash/invoice/{ref}/qr-payload` – get raw `nostr+cash://` URI
 
+### Stripe Payments
+
+Stripe payments use hosted Checkout Sessions and are confirmed by signed webhook events. The adapter persists the Checkout Session URL on the quote and tracks Stripe-native identifiers separately from Lightning fields.
+
 ## Webhook Handler
 
 The `payment-adapter-webhook` module uses a SPI pattern to dispatch webhooks to registered handlers:
 
 - **Lightning:** `/webhook/phoenixd` – processes phoenixd payment notifications
 - **Cash:** `/webhook/cash` – processes Nostr kind 5201 CashIntent events
+- **Stripe:** `/webhook/stripe` – processes signed Stripe Checkout and charge events
 
 The `MintWebhookForwarder` (v0.8.0) forwards confirmed payments to cashu-mint for real-time quote status updates. See [Webhook reference](docs/reference/webhook.md) for details.
 
@@ -215,6 +227,12 @@ Authentication can be configured via `~/.m2/settings.xml` (server id `docker-hub
 | | `cash.default.relays` | Default relay URLs (comma-separated). |
 | | `cash.proof.length` | Proof code length (default 4). |
 | | `cash.subscriber.enabled` | Enable Nostr event subscriber. |
+| **payment-adapter-stripe-gateway** | `stripe.enabled` | Enable the Stripe gateway integration. |
+| | `stripe.secret-key` | Stripe secret API key. |
+| | `stripe.success-url` | Checkout success redirect URL. |
+| | `stripe.cancel-url` | Checkout cancel redirect URL. |
+| | `stripe.default-currency` | Default Stripe currency code (e.g. `usd`). |
+| | `stripe.checkout-expiry-seconds` | Checkout Session expiry. |
 | **payment-adapter-webhook** | `mint.webhook.url` | Cashu-mint webhook endpoint for payment forwarding. |
 | | `mint.webhook.secret` | HMAC secret for webhook signature. |
 | | `mint.webhook.enabled` | Enable/disable mint forwarding (default true). |

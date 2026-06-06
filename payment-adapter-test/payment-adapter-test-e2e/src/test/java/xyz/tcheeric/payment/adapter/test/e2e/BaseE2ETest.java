@@ -3,6 +3,8 @@ package xyz.tcheeric.payment.adapter.test.e2e;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -13,6 +15,8 @@ import xyz.tcheeric.payment.adapter.cash.gateway.ratelimit.CashRateLimiter;
 import xyz.tcheeric.payment.adapter.core.model.repository.CashIntentRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.CashInvoiceRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.CashReceiptRepository;
+import xyz.tcheeric.payment.adapter.core.model.repository.ProcessedStripeWebhookEventRepository;
+import xyz.tcheeric.payment.adapter.core.model.repository.StripePaymentReferenceRepository;
 
 @SpringBootTest(
         classes = E2ETestApplication.class,
@@ -45,6 +49,9 @@ public abstract class BaseE2ETest {
     @Autowired
     protected TestRestTemplate restTemplate;
 
+    @LocalServerPort
+    protected int port;
+
     @Autowired
     protected CashInvoiceRepository invoiceRepository;
 
@@ -57,11 +64,29 @@ public abstract class BaseE2ETest {
     @Autowired
     protected CashRateLimiter rateLimiter;
 
+    @Autowired
+    protected JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    protected StripePaymentReferenceRepository stripePaymentReferenceRepository;
+
+    @Autowired
+    protected ProcessedStripeWebhookEventRepository processedStripeWebhookEventRepository;
+
     protected void cleanDatabase() {
+        processedStripeWebhookEventRepository.deleteAll();
+        stripePaymentReferenceRepository.deleteAll();
+        jdbcTemplate.update("DELETE FROM payment");
+        jdbcTemplate.update("DELETE FROM quote");
         receiptRepository.deleteAll();
         intentRepository.deleteAll();
         invoiceRepository.deleteAll();
         resetRateLimiter();
+    }
+
+    protected void configureGatewayClientBaseUrl() {
+        System.setProperty("gateway.api.base_url", "http://localhost:" + port);
+        System.setProperty("gateway.api.port", String.valueOf(port));
     }
 
     protected void resetRateLimiter() {

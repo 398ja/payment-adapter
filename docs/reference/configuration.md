@@ -66,6 +66,29 @@ Configuration is read from `cash.properties` on the classpath.
 | `cash.subscriber.enabled` | `true` | Enable the Nostr event subscriber. |
 | `cash.subscriber.expiry-check-interval` | `30000` | Interval for checking expired invoices (milliseconds). |
 
+## Stripe Gateway module ([payment-adapter-stripe/payment-adapter-stripe-gateway](../../payment-adapter-stripe/payment-adapter-stripe-gateway))
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `stripe.enabled` | `false` | Enables the Stripe gateway beans in the REST service. |
+| `stripe.secret-key` | *(required when enabled)* | Stripe secret API key used for Checkout Session operations. |
+| `stripe.success-url` | *(required when enabled)* | Redirect URL after successful Checkout completion. |
+| `stripe.cancel-url` | *(required when enabled)* | Redirect URL after Checkout cancellation. |
+| `stripe.default-currency` | `usd` | Default Stripe currency code in lowercase. |
+| `stripe.allowed-currencies` | `usd` | Comma-separated allowlist of supported currencies. |
+| `stripe.checkout-expiry-seconds` | `1800` | Checkout Session expiry in seconds. |
+| `STRIPE_WEBHOOK_TOLERANCE_SECONDS` *(env var)* | `300` | Maximum accepted webhook signature timestamp age, in seconds. Read from the environment variable — the webhook signature verifier is instantiated via `ServiceLoader` (outside the Spring context), so it does **not** bind a Spring property. Paired with `STRIPE_WEBHOOK_SECRET`. |
+| `stripe.min-amount-minor` | `1` | Minimum amount in minor currency units. |
+| `stripe.max-amount-minor` | `2147483647` | Maximum amount in minor currency units. |
+
+## Stripe Connect module ([payment-adapter-stripe/payment-adapter-stripe-connect](../../payment-adapter-stripe/payment-adapter-stripe-connect))
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `stripe.connect.enabled` | `false` | Enables Stripe Connect-specific services. |
+| `stripe.connect.refresh-url` | *(empty)* | Refresh URL used during Connect onboarding. |
+| `stripe.connect.return-url` | *(empty)* | Return URL used during Connect onboarding. |
+
 ## Webhook module ([payment-adapter-webhook](../../payment-adapter-webhook))
 
 | Property | Default | Description |
@@ -83,5 +106,12 @@ Configuration is read from `cash.properties` on the classpath.
 | `mint.webhook.retry.max-attempts` | `3` | Maximum retry attempts on failure. |
 | `mint.webhook.retry.initial-delay-ms` | `1000` | Initial retry delay in milliseconds. |
 | `mint.webhook.retry.multiplier` | `2.0` | Exponential backoff multiplier. |
+
+### Stripe Webhook Runtime
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `STRIPE_WEBHOOK_SECRET` | *(required for Stripe webhook processing)* | Secret used to verify the `Stripe-Signature` header. |
+| `STRIPE_WEBHOOK_TOLERANCE_SECONDS` | `300` | Maximum accepted webhook signature age in seconds. |
 
 Each module reads configuration from its properties file or environment variables. See the guides in [docs](../) for deployment details.

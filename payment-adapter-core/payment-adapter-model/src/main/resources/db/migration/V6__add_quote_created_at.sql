@@ -1,0 +1,27 @@
+-- Spec 041 REQ-MINT-3 — strict NUT-04 quote expiry enforcement.
+--
+-- Adds the `created_at` column to the existing `quote` table so the cashu
+-- mint's MintTask can compute the absolute quote-expiry instant as
+-- `created_at + expiry` and reject mint requests past that instant.
+--
+-- Nullable on purpose:
+--   * Pre-existing rows persisted before this column was added retain NULL,
+--     and Gateway.getCreatedAt(quoteId) returns null for them. The mint
+--     treats null as "skip enforcement" and falls through to existing
+--     permissive behaviour. See:
+--     - payment-adapter-core/payment-adapter-common/src/main/java/
+--       xyz/tcheeric/payment/adapter/core/common/Gateway.java
+--     - GatewayQuote.@PrePersist onCreate() — populates createdAt for
+--       every NEW row.
+--
+-- The `quote` table is managed by Hibernate ddl-auto, NOT by an earlier
+-- Flyway migration (V1–V5 only create the cash/stripe tables). Flyway runs
+-- BEFORE Hibernate, so on a fresh database (CI/test with ddl-auto, or a
+-- clean deploy) the `quote` table does not exist yet when this migration
+-- runs. Guard with ALTER TABLE IF EXISTS (supported by both H2 2.x and
+-- PostgreSQL) so this becomes a safe no-op there — Hibernate then creates
+-- `quote` already carrying `created_at` from the entity field. On an
+-- environment where `quote` predates the column, the ALTER adds it.
+--
+-- Idempotent via IF NOT EXISTS on the column so re-runs are safe.
+ALTER TABLE IF EXISTS quote ADD COLUMN IF NOT EXISTS created_at TIMESTAMP;
