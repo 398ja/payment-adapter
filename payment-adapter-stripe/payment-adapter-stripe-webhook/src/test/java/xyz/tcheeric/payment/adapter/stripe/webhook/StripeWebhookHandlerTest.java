@@ -162,6 +162,67 @@ class StripeWebhookHandlerTest {
         verify(paymentClient).updatePayment(any(GatewayPayment.class));
     }
 
+    // charge.refunded carries both `amount` (original charge) and `amount_refunded`
+    // (the refunded total); the payload must capture the latter for partial refunds.
+    @Test
+    void parsesRefundedAmountFromChargeRefunded() throws Exception {
+        String rawBody = """
+                {
+                  "id":"evt_refund",
+                  "type":"charge.refunded",
+                  "created":1710000000,
+                  "livemode":false,
+                  "data":{"object":{
+                    "id":"ch_123",
+                    "amount":1000,
+                    "amount_refunded":400,
+                    "currency":"usd",
+                    "metadata":{"quote_id":"quote-123"}
+                  }}
+                }
+                """;
+        when(request.getInputStream()).thenReturn(toServletInputStream(rawBody));
+
+        StripeWebhookPayload payload = handler.parsePayload(request);
+
+        assertEquals("charge.refunded", payload.getEventType());
+        assertEquals(1000, payload.getAmountTotal());
+        assertEquals(400, payload.getRefundedAmountMinor());
+    }
+
+    // The persisted refund amount must be amount_refunded, not the original charge.
+    @Test
+    void recordsActualRefundedAmountNotOriginalCharge() throws Exception {
+        StripePaymentReference reference = new StripePaymentReference();
+        reference.setQuoteId("quote-123");
+        reference.setChargeId("ch_123");
+        reference.setCreatedAt(Instant.now());
+        reference.setUpdatedAt(Instant.now());
+
+        when(processedEventRepository.findById("evt_refund")).thenReturn(Optional.empty());
+        when(processedEventRepository.save(any(ProcessedStripeWebhookEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentReferenceRepository.findByChargeId("ch_123")).thenReturn(Optional.of(reference));
+        when(paymentReferenceRepository.save(any(StripePaymentReference.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        StripeWebhookPayload payload = StripeWebhookPayload.builder()
+                .eventId("evt_refund")
+                .eventType("charge.refunded")
+                .eventTimestamp(Instant.now())
+                .rawPayload("{\"id\":\"evt_refund\"}")
+                .chargeId("ch_123")
+                .amountTotal(1000)        // original charge
+                .refundedAmountMinor(400) // partial refund
+                .currency("usd")
+                .build();
+
+        handler.handle(payload);
+
+        org.mockito.ArgumentCaptor<StripePaymentReference> captor =
+                org.mockito.ArgumentCaptor.forClass(StripePaymentReference.class);
+        verify(paymentReferenceRepository).save(captor.capture());
+        assertEquals(400, captor.getValue().getRefundedAmountMinor());
+    }
+
     private static ServletInputStream toServletInputStream(String content) {
         ByteArrayInputStream byteStream = new ByteArrayInputStream(content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         return new ServletInputStream() {

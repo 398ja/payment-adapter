@@ -22,6 +22,8 @@ public class StripeWebhookPayload implements WebhookPayload {
     private String paymentIntentId;
     private String chargeId;
     private Integer amountTotal;
+    /** Refunded total in minor units (Stripe charge {@code amount_refunded}); set on charge.refunded. */
+    private Integer refundedAmountMinor;
     private String currency;
     private boolean livemode;
     private String status;

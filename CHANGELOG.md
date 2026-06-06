@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-06-06
+
+### Fixed
+- **Stripe refunds recorded the original charge amount, not the refunded total.** `handleChargeRefunded` set `refundedAmountMinor` from the charge `amount`; it now parses Stripe's `amount_refunded` field (via a new `StripeWebhookPayload.refundedAmountMinor`), so partial refunds record the actual refunded value. [PR #229 review]
+
+### Documentation
+- README: `stripe.default-currency` is a currency code (e.g. `usd`), not a minor-units amount. [PR #229 review]
+- `docs/reference/configuration.md`: webhook tolerance is read from the `STRIPE_WEBHOOK_TOLERANCE_SECONDS` environment variable (the verifier is instantiated via `ServiceLoader`, outside Spring), not a Spring property. [PR #229 review]
+
 ## [0.13.1] - 2026-06-06
 
 ### Fixed

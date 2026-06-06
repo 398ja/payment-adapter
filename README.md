@@ -231,7 +231,7 @@ Authentication can be configured via `~/.m2/settings.xml` (server id `docker-hub
 | | `stripe.secret-key` | Stripe secret API key. |
 | | `stripe.success-url` | Checkout success redirect URL. |
 | | `stripe.cancel-url` | Checkout cancel redirect URL. |
-| | `stripe.default-currency` | Default Stripe currency in minor units. |
+| | `stripe.default-currency` | Default Stripe currency code (e.g. `usd`). |
 | | `stripe.checkout-expiry-seconds` | Checkout Session expiry. |
 | **payment-adapter-webhook** | `mint.webhook.url` | Cashu-mint webhook endpoint for payment forwarding. |
 | | `mint.webhook.secret` | HMAC secret for webhook signature. |

@@ -77,7 +77,7 @@ Configuration is read from `cash.properties` on the classpath.
 | `stripe.default-currency` | `usd` | Default Stripe currency code in lowercase. |
 | `stripe.allowed-currencies` | `usd` | Comma-separated allowlist of supported currencies. |
 | `stripe.checkout-expiry-seconds` | `1800` | Checkout Session expiry in seconds. |
-| `stripe.webhook-tolerance-seconds` | `300` | Maximum accepted webhook signature timestamp age. |
+| `STRIPE_WEBHOOK_TOLERANCE_SECONDS` *(env var)* | `300` | Maximum accepted webhook signature timestamp age, in seconds. Read from the environment variable — the webhook signature verifier is instantiated via `ServiceLoader` (outside the Spring context), so it does **not** bind a Spring property. Paired with `STRIPE_WEBHOOK_SECRET`. |
 | `stripe.min-amount-minor` | `1` | Minimum amount in minor currency units. |
 | `stripe.max-amount-minor` | `2147483647` | Maximum amount in minor currency units. |
 

@@ -122,6 +122,7 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
                     .paymentIntentId(resolveText(eventObject, "payment_intent"))
                     .chargeId(resolveChargeId(root.path("type").asText(), eventObject))
                     .amountTotal(resolveAmount(eventObject))
+                    .refundedAmountMinor(resolveRefundedAmount(eventObject))
                     .currency(optionalText(eventObject.path("currency")))
                     .livemode(root.path("livemode").asBoolean(false))
                     .status(optionalText(eventObject.path("status")))
@@ -216,7 +217,9 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         StripePaymentReference paymentReference = findPaymentReference(payload);
         paymentReference.setChargeId(defaultIfBlank(payload.getChargeId(), paymentReference.getChargeId()));
         paymentReference.setStripeStatus("refunded");
-        paymentReference.setRefundedAmountMinor(payload.getAmountTotal());
+        // Use amount_refunded (the actual refunded total), not the original charge amount.
+        paymentReference.setRefundedAmountMinor(
+                payload.getRefundedAmountMinor() != null ? payload.getRefundedAmountMinor() : payload.getAmountTotal());
         paymentReference.setLastEventId(payload.getEventId());
         paymentReference.setUpdatedAt(Instant.now());
         paymentReferenceRepository.save(paymentReference);
@@ -393,6 +396,19 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         }
         if (eventObject.hasNonNull("amount")) {
             return eventObject.get("amount").asInt();
+        }
+        return null;
+    }
+
+    /**
+     * Refunded total for charge.refunded events. Stripe's charge object carries
+     * both {@code amount} (the original charge) and {@code amount_refunded} (the
+     * cumulative refunded total). Use the latter so partial refunds record the
+     * actual refunded amount rather than the full charge.
+     */
+    private Integer resolveRefundedAmount(JsonNode eventObject) {
+        if (eventObject.hasNonNull("amount_refunded")) {
+            return eventObject.get("amount_refunded").asInt();
         }
         return null;
     }
