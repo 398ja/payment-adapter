@@ -67,6 +67,16 @@ public class StripeGateway implements Gateway {
         return quoteClient.getByEntityId(quoteId).getRequest();
     }
 
+    // Spec 041 REQ-MINT-3 — expose the persisted quote creation time so callers
+    // can enforce the strict `createdAt + expiry` window. Without this override
+    // Stripe/card quotes fall back to the default null and skip enforcement,
+    // unlike Phoenixd. Mirrors PhoenixdGateway#getCreatedAt.
+    @Override
+    public java.time.Instant getCreatedAt(String quoteId) {
+        GatewayQuote quote = quoteClient.getByEntityId(quoteId);
+        return quote != null ? quote.getCreatedAt() : null;
+    }
+
     @Override
     public boolean checkPaymentStatus(String quoteId) {
         GatewayQuote quote = quoteClient.getByEntityId(quoteId);

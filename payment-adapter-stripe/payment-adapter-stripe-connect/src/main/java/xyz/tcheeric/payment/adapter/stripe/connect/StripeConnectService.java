@@ -143,7 +143,7 @@ public class StripeConnectService {
             markProcessed(eventRecord);
             return new StripeConnectWebhookResponse(event.getId(), "processed");
         } catch (RuntimeException e) {
-            markFailed(event.getId(), e.getMessage());
+            markFailed(event, currentHash, e.getMessage());
             throw e;
         }
     }
@@ -364,13 +364,27 @@ public class StripeConnectService {
         processedEventRepository.save(record);
     }
 
-    private void markFailed(String eventId, String message) {
-        requiresNewTx.executeWithoutResult(status ->
-                processedEventRepository.findById(eventId).ifPresent(record -> {
-                    record.setProcessingStatus(StripeWebhookProcessingStatus.FAILED);
-                    record.setLastError(message);
-                    processedEventRepository.save(record);
-                }));
+    private void markFailed(Event event, String payloadHash, String message) {
+        // Runs in REQUIRES_NEW so the FAILED audit record commits independently
+        // of the outer @Transactional rollback. For a FIRST-TIME failure the
+        // outer transaction's PROCESSING insert is not yet committed and is
+        // invisible here, so findById returns empty — create the record instead
+        // of silently dropping the failure (no audit/retry state otherwise).
+        requiresNewTx.executeWithoutResult(status -> {
+            ProcessedStripeWebhookEvent record = processedEventRepository.findById(event.getId())
+                    .orElseGet(() -> {
+                        ProcessedStripeWebhookEvent created = new ProcessedStripeWebhookEvent();
+                        created.setEventId(event.getId());
+                        created.setEventType(event.getType());
+                        created.setPayloadHash(payloadHash);
+                        created.setLivemode(Boolean.TRUE.equals(event.getLivemode()));
+                        created.setReceivedAt(Instant.now());
+                        return created;
+                    });
+            record.setProcessingStatus(StripeWebhookProcessingStatus.FAILED);
+            record.setLastError(message);
+            processedEventRepository.save(record);
+        });
     }
 
     private String sha256(String payload) {

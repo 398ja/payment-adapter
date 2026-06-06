@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-06-06
+
+### Fixed
+- **V6 Flyway migration crashed on fresh databases.** `V6__add_quote_created_at.sql` did `ALTER TABLE quote …`, but `quote` is created by Hibernate `ddl-auto`, not by an earlier migration — Flyway runs first, so on a fresh DB (CI/tests, clean deploy) the table didn't exist yet (`Table "QUOTE" not found`). Now guarded with `ALTER TABLE IF EXISTS` (H2 2.x + PostgreSQL), making it a safe no-op there while still adding the column on environments where `quote` predates it.
+- **Stripe webhooks always failed (`StripeWebhookHandler` had null repositories).** `WebhookRegistry` discovers handlers via `ServiceLoader`, so Spring never invoked the `@Autowired` setters and every Stripe payment webhook failed `ensureDependencies()`. Added `StripeWebhookHandlerConfiguration` which registers a Spring-wired handler, replacing the ServiceLoader stub.
+- **Stripe/card quotes skipped strict expiry enforcement.** `StripeGateway` persisted `created_at` but didn't override `Gateway.getCreatedAt()`, so callers fell back to `null` and never enforced `createdAt + expiry`. Added the override (mirrors `PhoenixdGateway`).
+- **First-time failing Stripe Connect webhooks left no audit record.** The `@Transactional` `handleWebhook` rolled back the just-inserted PROCESSING row, and the `REQUIRES_NEW` failure handler only did `findById` (couldn't see the uncommitted row), so no FAILED record persisted. `markFailed` now upserts — creating the FAILED record in the new transaction when absent.
+
 ## [0.13.0] - 2026-06-05
 
 ### Added
