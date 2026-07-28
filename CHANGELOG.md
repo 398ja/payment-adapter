@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Updated cashu-lib to 0.21.0 (NUT-11 P2PK secret validation). Validation is fail-closed:
+  a malformed P2PK lock is now rejected at parse time rather than accepted and misbehaving later.
+
 ## [0.13.2] - 2026-06-06
 
 ### Fixed
