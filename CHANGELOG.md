@@ -7,8 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `/actuator/prometheus` no longer returns 404. The Prometheus registry has been
+  on the classpath all along, but `prometheus` was missing from
+  `management.endpoints.web.exposure.include`, so every metric this service
+  recorded was unreachable. Nothing failed, because a service whose metrics
+  cannot be scraped looks exactly like a service that is idle. Confirmed against
+  the running staging container before and after.
+
+### Added
+
+- `ActuatorPrometheusExposureTest`, which both boots the app and asserts the
+  endpoint serves exposition text, and reads the *shipped* configuration from the
+  source tree. Both halves are needed: `src/test/resources/application.properties`
+  shadows the shipped file, so the boot test alone would only prove the test
+  config. Confirmed to fail on the original 404. `ActuatorSharedPortExposureTest`
+  additionally boots with the ports shared, the way production runs, which is
+  the arrangement a separate-port test cannot exercise.
+- Common metric tags `application=payment-adapter` and `env`, matching the labels
+  the mint applies, so one Grafana dashboard can filter across both services.
+
 ### Changed
 
+- `management.server.port` is now configurable via
+  `PAYMENT_ADAPTER_MANAGEMENT_PORT`, defaulting to the API port so existing
+  container healthchecks and probes keep working. Operators should split it in
+  any externally reachable environment, since `/actuator/prometheus` exposes
+  payment volumes and gateway failure counts. `management.server.address` is
+  deliberately not set: Spring Boot refuses to start when it is present while
+  the management and server ports are the same, which is the default.
 - Updated cashu-lib to 0.21.0 (NUT-11 P2PK secret validation). Validation is fail-closed:
   a malformed P2PK lock is now rejected at parse time rather than accepted and misbehaving later.
 
