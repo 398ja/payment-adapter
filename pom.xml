@@ -54,7 +54,7 @@
 
         <!-- Dependency versions -->
         <spring-boot.version>3.5.5</spring-boot.version>
-        <cashu-lib.version>0.21.0</cashu-lib.version>
+        <imani-bom.version>0.1.56</imani-bom.version>
         <postgresql.version>42.7.7</postgresql.version>
         <h2.version>2.2.224</h2.version>
         <lombok.version>1.18.40</lombok.version>
@@ -92,6 +92,14 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- Cashu and Imani module versions are owned by the BOM, not pinned here. -->
+            <dependency>
+                <groupId>xyz.tcheeric</groupId>
+                <artifactId>imani-bom</artifactId>
+                <version>${imani-bom.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <!-- Import Spring Boot BOM -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
@@ -136,17 +144,6 @@
                 <version>${junit-platform.version}</version>
             </dependency>
 
-            <!-- Cashu Library Modules -->
-            <dependency>
-                <groupId>xyz.tcheeric</groupId>
-                <artifactId>cashu-lib-entities</artifactId>
-                <version>${cashu-lib.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>xyz.tcheeric</groupId>
-                <artifactId>cashu-lib-common</artifactId>
-                <version>${cashu-lib.version}</version>
-            </dependency>
 
             <!-- Database Dependencies -->
             <dependency>
