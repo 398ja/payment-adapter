@@ -95,10 +95,20 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
             throw new WebhookProcessingException("Invalid quote direction: " + quote.getDirection());
         }
 
-        // 3. Find the payment
+        // 3. Find the payment.
+        //
+        // A GatewayPayment only exists for money going OUT: PhoenixdGateway.pay() creates it
+        // when the gateway pays an invoice. A RECEIVE quote is money coming IN — someone pays
+        // the invoice we issued — and nothing creates a payment row for it, by design. Demanding
+        // one here made this handler work only for melts, and left every mint webhook failing on
+        // "Payment not found" with the quote sitting PAID (staging 2026-08-29: the mint never
+        // learned of the payment, so issuance failed with funding_required).
+        //
+        // For a RECEIVE quote the quote IS the record of the payment, so it is what gets
+        // validated and forwarded.
         GatewayPayment payment = paymentClient.getByQuoteId(quote.getQuoteId());
         if (payment == null) {
-            throw new WebhookProcessingException("Payment not found for quote: " + quote.getQuoteId());
+            return confirmIncomingPayment(quote, payload);
         }
 
         // 4. Check for duplicate (already confirmed)
@@ -135,22 +145,54 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
         log.info("Payment confirmed: paymentId={}, quoteId={}",
                 payment.getPaymentId(), quote.getQuoteId());
 
-        // Forward payment notification to mint if forwarder is configured
-        if (mintForwarder != null && mintForwarder.isEnabled()) {
-            try {
-                PaymentNotification notification = PaymentNotification.forBolt11(
-                        quote.getQuoteId(),
-                        payload.amountSat(),
-                        payload.paymentHash()
-                );
-                mintForwarder.notifyPaymentReceived(notification);
-            } catch (Exception e) {
-                // Log but don't fail - the payment is still confirmed
-                log.warn("Failed to forward payment to mint: quoteId={}, error={}",
-                        quote.getQuoteId(), e.getMessage());
-            }
-        }
+        forwardToMint(quote.getQuoteId(), payload);
 
         return WebhookResult.success(payment.getPaymentId(), State.CONFIRMED);
     }
+
+    /**
+     * Confirms a payment into a RECEIVE quote, which has no {@link GatewayPayment} of its own.
+     *
+     * <p>Applies the same checks the payment path applies, against the quote: the amount must be
+     * the amount invoiced, and the event must be a payment notification. Then forwards to the
+     * mint, which is the whole point of the call — without it the mint never records the funding
+     * that lets it issue.
+     */
+    private WebhookResult confirmIncomingPayment(GatewayQuote quote, PhoenixWebhookPayload payload)
+            throws WebhookProcessingException {
+
+        if (payload.type() != null && !EVENT_PAYMENT_RECEIVED.equals(payload.type())) {
+            throw new WebhookProcessingException("Unsupported event type: " + payload.type());
+        }
+
+        if (payload.amountSat() != null && quote.getAmount() != null
+                && !payload.amountSat().equals(quote.getAmount())) {
+            throw new WebhookProcessingException("Amount mismatch: expected="
+                    + quote.getAmount() + ", received=" + payload.amountSat());
+        }
+
+        log.info("Incoming payment confirmed: quoteId={} amount={} state={}",
+                quote.getQuoteId(), payload.amountSat(), quote.getState());
+
+        forwardToMint(quote.getQuoteId(), payload);
+
+        return WebhookResult.success(quote.getQuoteId(), State.CONFIRMED);
+    }
+
+    /**
+     * Tells the mint a payment arrived. Best-effort: the payment has happened either way, and
+     * failing the webhook would have phoenixd retry a payment that is already settled.
+     */
+    private void forwardToMint(String quoteId, PhoenixWebhookPayload payload) {
+        if (mintForwarder == null || !mintForwarder.isEnabled()) {
+            return;
+        }
+        try {
+            mintForwarder.notifyPaymentReceived(PaymentNotification.forBolt11(
+                    quoteId, payload.amountSat(), payload.paymentHash()));
+        } catch (Exception e) {
+            log.warn("Failed to forward payment to mint: quoteId={}, error={}", quoteId, e.getMessage());
+        }
+    }
+
 }

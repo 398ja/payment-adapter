@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.14.1] - 2026-08-29
+
+### Fixed
+- **Money arriving into a RECEIVE quote is now reported to the mint.** `PhoenixWebhookHandler`
+  required a `GatewayPayment` row, but that is only created by `PhoenixdGateway.pay()` when the
+  gateway pays an invoice OUT. A mint quote is the opposite direction and has no payment row by
+  design, so every incoming-payment webhook died on "Payment not found" while the quote sat
+  `PAID` — the mint never recorded funding and issuance failed with `funding_required`. For a
+  RECEIVE quote the quote itself is now validated and forwarded.
+
 ## [0.14.0] - 2026-08-29
 
 ### Fixed
