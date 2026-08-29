@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.14.2] - 2026-08-29
+
+### Fixed
+- **A missing payment record is a 404, not a null.** 0.14.1 routed RECEIVE quotes past the
+  payment lookup with a null check, but `PaymentClient.getByQuoteId` uses
+  `RestTemplate.getForEntity`, which throws `HttpClientErrorException.NotFound`. The null branch
+  was therefore unreachable and the webhook still failed. Now caught. The test stubs the throw
+  rather than a null, which is what the real client does.
+
 ## [0.14.1] - 2026-08-29
 
 ### Fixed

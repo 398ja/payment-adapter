@@ -4,6 +4,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpClientErrorException;
 import xyz.tcheeric.payment.adapter.core.client.PaymentClient;
 import xyz.tcheeric.payment.adapter.core.client.QuoteClient;
 import xyz.tcheeric.payment.adapter.core.model.entity.GatewayQuote;
@@ -45,6 +47,18 @@ class PhoenixWebhookHandlerReceiveTest {
         return new PhoenixWebhookHandler(quoteClient, paymentClient, mintForwarder);
     }
 
+
+    /**
+     * A missing payment surfaces as a 404 from the REST client, not as null. Stubbing null here
+     * would test a condition the real client never produces — which is exactly how the first
+     * attempt at this fix passed its tests and still failed on staging.
+     */
+    private void stubNoPaymentRecord() {
+        when(paymentClient.getByQuoteId(QUOTE_ID))
+                .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                        org.springframework.http.HttpHeaders.EMPTY, new byte[0], null));
+    }
+
     private GatewayQuote receiveQuote(Integer amount) {
         GatewayQuote quote = new GatewayQuote();
         quote.setQuoteId(QUOTE_ID);
@@ -65,7 +79,7 @@ class PhoenixWebhookHandlerReceiveTest {
     @DisplayName("forwards to the mint when a RECEIVE quote has no payment record")
     void forwardsIncomingPaymentWithoutAPaymentRecord() throws Exception {
         when(quoteClient.getByInvoiceId(QUOTE_ID)).thenReturn(receiveQuote(AMOUNT_SAT));
-        when(paymentClient.getByQuoteId(QUOTE_ID)).thenReturn(null);
+        stubNoPaymentRecord();
         when(mintForwarder.isEnabled()).thenReturn(true);
 
         var result = handler().handle(payload(AMOUNT_SAT));
@@ -81,7 +95,7 @@ class PhoenixWebhookHandlerReceiveTest {
     @DisplayName("rejects an amount that does not match the quote")
     void rejectsAmountMismatch() {
         when(quoteClient.getByInvoiceId(QUOTE_ID)).thenReturn(receiveQuote(AMOUNT_SAT));
-        when(paymentClient.getByQuoteId(QUOTE_ID)).thenReturn(null);
+        stubNoPaymentRecord();
 
         assertThatThrownBy(() -> handler().handle(payload(AMOUNT_SAT + 1)))
                 .isInstanceOf(WebhookProcessingException.class)
@@ -95,7 +109,7 @@ class PhoenixWebhookHandlerReceiveTest {
     @DisplayName("does not fail the webhook when the mint is unreachable")
     void survivesAFailingForwarder() throws Exception {
         when(quoteClient.getByInvoiceId(QUOTE_ID)).thenReturn(receiveQuote(AMOUNT_SAT));
-        when(paymentClient.getByQuoteId(QUOTE_ID)).thenReturn(null);
+        stubNoPaymentRecord();
         when(mintForwarder.isEnabled()).thenReturn(true);
         Mockito.doThrow(new RuntimeException("mint down"))
                 .when(mintForwarder).notifyPaymentReceived(any());

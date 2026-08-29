@@ -2,6 +2,7 @@ package xyz.tcheeric.payment.adapter.ln.webhook;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.client.HttpClientErrorException;
 import xyz.tcheeric.payment.adapter.core.client.PaymentClient;
 import xyz.tcheeric.payment.adapter.core.client.QuoteClient;
 import xyz.tcheeric.payment.adapter.core.model.entity.GatewayPayment;
@@ -106,7 +107,14 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
         //
         // For a RECEIVE quote the quote IS the record of the payment, so it is what gets
         // validated and forwarded.
-        GatewayPayment payment = paymentClient.getByQuoteId(quote.getQuoteId());
+        // Absence arrives as a 404 from the REST client, not as null, so it has to be caught
+        // rather than tested for.
+        GatewayPayment payment;
+        try {
+            payment = paymentClient.getByQuoteId(quote.getQuoteId());
+        } catch (HttpClientErrorException.NotFound absent) {
+            payment = null;
+        }
         if (payment == null) {
             return confirmIncomingPayment(quote, payload);
         }
