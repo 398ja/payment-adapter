@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.14.0] - 2026-08-29
+
+### Fixed
+- **The phoenixd webhook path is on the app's classpath again.** `payment-adapter-rest`
+  depended only on the Stripe modules, so `PhoenixWebhookHandler` and
+  `MintWebhookForwarder` were not in the image; `@WebServlet("/webhook/phoenixd")` had no
+  `@ServletComponentScan` to register it; and `WebhookRegistry` builds handlers through
+  `ServiceLoader`, which can only use a no-arg constructor, so the registered handler's
+  `mintForwarder` was always null and the forward was skipped silently. Payments therefore
+  never reached the mint and voucher issuance failed with `funding_required`.
+- Removed a cyclic dependency: `payment-adapter-ln-phoenixd` declared a dependency on
+  `payment-adapter-rest` that it never imported.
+
+### Changed
+- phoenixd-java 0.2.0 -> 0.3.0, phoenixd-mock 0.1.4 -> 0.3.0.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),

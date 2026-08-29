@@ -229,3 +229,12 @@ jcmd <pid> Thread.dump_to_file -format=json threads.json
 
 - Follow Diátaxis framework (tutorial, how-to, reference, explanation)
 - Place docs under `docs/<section>` and link from `docs/README.md`
+
+## Active Technologies
+- Java 21 (records, virtual threads enabled project-wide) + Spring Boot (Spring Data JPA, Spring Data REST, Spring Web), Lombok, Jackson; JDK `HttpClient` / Spring `RestClient` for outbound calls to MTN; BouncyCastle (already a project dependency) for secret encryption (002-mtn-momo-collections)
+- PostgreSQL in production, H2 in tests (Spring Data JPA); new tables `mtn_merchant_connection`, `mtn_payment_reference`, `processed_mtn_webhook_event` (002-mtn-momo-collections)
+- Java 21 (virtual threads enabled project-wide) + Spring Boot (Spring Data JPA, Spring Data REST, Spring Web), Lombok, Jackson; Spring `RestClient` (JDK HttpClient) for outbound Orange calls; BouncyCastle (existing) for secret encryption (003-orange-money-collections)
+- PostgreSQL (prod), H2 (tests); new tables `merchant_orange_connection`, `orange_payment_reference`, `processed_orange_webhook_event` (003-orange-money-collections)
+
+## Recent Changes
+- 002-mtn-momo-collections: Added Java 21 (records, virtual threads enabled project-wide) + Spring Boot (Spring Data JPA, Spring Data REST, Spring Web), Lombok, Jackson; JDK `HttpClient` / Spring `RestClient` for outbound calls to MTN; BouncyCastle (already a project dependency) for secret encryption

@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
+import org.springframework.boot.web.servlet.ServletComponentScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
@@ -17,6 +18,11 @@ import org.springframework.core.env.PropertySource;
 
 
 @SpringBootApplication(scanBasePackages = "xyz.tcheeric.payment.adapter")
+// Payment providers deliver over plain servlets, not @RestControllers: WebhookServlet is
+// declared with @WebServlet("/webhook/phoenixd"). Component scanning does not see servlet
+// annotations, so without this the endpoint simply does not exist and every notification
+// 404s silently — which is how payments stopped reaching the mint at all.
+@ServletComponentScan("xyz.tcheeric.payment.adapter")
 @EntityScan("xyz.tcheeric.payment.adapter.core.model.entity")
 @EnableJpaRepositories(basePackages = "xyz.tcheeric.payment.adapter.core")
 @Slf4j
