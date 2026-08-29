@@ -57,11 +57,6 @@
         </dependency>
         <dependency>
             <groupId>xyz.tcheeric</groupId>
-            <artifactId>payment-adapter-rest</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>xyz.tcheeric</groupId>
             <artifactId>payment-adapter-client</artifactId>
             <version>${project.version}</version>
         </dependency>
