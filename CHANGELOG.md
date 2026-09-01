@@ -1,11 +1,79 @@
 # Changelog
 
+## [0.14.2] - 2026-08-29
+
+### Fixed
+- **A missing payment record is a 404, not a null.** 0.14.1 routed RECEIVE quotes past the
+  payment lookup with a null check, but `PaymentClient.getByQuoteId` uses
+  `RestTemplate.getForEntity`, which throws `HttpClientErrorException.NotFound`. The null branch
+  was therefore unreachable and the webhook still failed. Now caught. The test stubs the throw
+  rather than a null, which is what the real client does.
+
+## [0.14.1] - 2026-08-29
+
+### Fixed
+- **Money arriving into a RECEIVE quote is now reported to the mint.** `PhoenixWebhookHandler`
+  required a `GatewayPayment` row, but that is only created by `PhoenixdGateway.pay()` when the
+  gateway pays an invoice OUT. A mint quote is the opposite direction and has no payment row by
+  design, so every incoming-payment webhook died on "Payment not found" while the quote sat
+  `PAID` — the mint never recorded funding and issuance failed with `funding_required`. For a
+  RECEIVE quote the quote itself is now validated and forwarded.
+
+## [0.14.0] - 2026-08-29
+
+### Fixed
+- **The phoenixd webhook path is on the app's classpath again.** `payment-adapter-rest`
+  depended only on the Stripe modules, so `PhoenixWebhookHandler` and
+  `MintWebhookForwarder` were not in the image; `@WebServlet("/webhook/phoenixd")` had no
+  `@ServletComponentScan` to register it; and `WebhookRegistry` builds handlers through
+  `ServiceLoader`, which can only use a no-arg constructor, so the registered handler's
+  `mintForwarder` was always null and the forward was skipped silently. Payments therefore
+  never reached the mint and voucher issuance failed with `funding_required`.
+- Removed a cyclic dependency: `payment-adapter-ln-phoenixd` declared a dependency on
+  `payment-adapter-rest` that it never imported.
+
+### Changed
+- phoenixd-java 0.2.0 -> 0.3.0, phoenixd-mock 0.1.4 -> 0.3.0.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Fixed
+
+- `/actuator/prometheus` no longer returns 404. The Prometheus registry has been
+  on the classpath all along, but `prometheus` was missing from
+  `management.endpoints.web.exposure.include`, so every metric this service
+  recorded was unreachable. Nothing failed, because a service whose metrics
+  cannot be scraped looks exactly like a service that is idle. Confirmed against
+  the running staging container before and after.
+
+### Added
+
+- `ActuatorPrometheusExposureTest`, which both boots the app and asserts the
+  endpoint serves exposition text, and reads the *shipped* configuration from the
+  source tree. Both halves are needed: `src/test/resources/application.properties`
+  shadows the shipped file, so the boot test alone would only prove the test
+  config. Confirmed to fail on the original 404. `ActuatorSharedPortExposureTest`
+  additionally boots with the ports shared, the way production runs, which is
+  the arrangement a separate-port test cannot exercise.
+- Common metric tags `application=payment-adapter` and `env`, matching the labels
+  the mint applies, so one Grafana dashboard can filter across both services.
+
+### Changed
+
+- `management.server.port` is now configurable via
+  `PAYMENT_ADAPTER_MANAGEMENT_PORT`, defaulting to the API port so existing
+  container healthchecks and probes keep working. Operators should split it in
+  any externally reachable environment, since `/actuator/prometheus` exposes
+  payment volumes and gateway failure counts. `management.server.address` is
+  deliberately not set: Spring Boot refuses to start when it is present while
+  the management and server ports are the same, which is the default.
+- Updated cashu-lib to 0.21.0 (NUT-11 P2PK secret validation). Validation is fail-closed:
+  a malformed P2PK lock is now rejected at parse time rather than accepted and misbehaving later.
 
 ## [0.13.2] - 2026-06-06
 

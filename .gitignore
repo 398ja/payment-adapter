@@ -54,3 +54,4 @@ build/
 /payment-adapter-stripe/payment-adapter-stripe-gateway/logs/
 
 /payment-adapter-stripe/payment-adapter-stripe-connect/logs/
+/specs/

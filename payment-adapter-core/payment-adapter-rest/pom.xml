@@ -5,12 +5,12 @@
     <parent>
         <groupId>xyz.tcheeric</groupId>
         <artifactId>payment-adapter-core</artifactId>
-        <version>0.13.2</version>
+        <version>0.14.2</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <groupId>xyz.tcheeric</groupId>
     <artifactId>payment-adapter-rest</artifactId>
-    <version>0.13.2</version>
+    <version>0.14.2</version>
     <name>payment-adapter-rest</name>
     <description>A simple JPA application to manage quotes and invoices</description>
     <url/>
@@ -88,6 +88,28 @@
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>payment-adapter-stripe-connect</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!--
+            Lightning support. PhoenixdGateway serves BOLT11/BOLT12/ON_CHAIN, which is
+            disjoint from StripeGateway's CREDIT_CARD, and Gateway.supports(method)
+            selects between them — so adding this does not contend with Stripe.
+
+            ln-webhook contributes PhoenixWebhookHandler, discovered by WebhookRegistry
+            through META-INF/services. It is what turns a phoenixd payment notification
+            into the call to MintWebhookForwarder that the mint needs in order to record
+            a funding row. Without it on the classpath the servlet has no handler for
+            "phoenixd" and payments are never reported to the mint, which fails issuance
+            with funding_required.
+        -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-ln-phoenixd</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-ln-webhook</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
