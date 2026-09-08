@@ -25,6 +25,7 @@ import xyz.tcheeric.payment.adapter.core.model.repository.ProcessedStripeWebhook
 import xyz.tcheeric.payment.adapter.core.model.repository.StripePaymentReferenceRepository;
 import xyz.tcheeric.payment.adapter.stripe.webhook.service.DefaultStripeWebhookSignatureVerifier;
 import xyz.tcheeric.payment.adapter.stripe.webhook.service.StripeWebhookSignatureVerifier;
+import xyz.tcheeric.payment.adapter.stripe.webhook.spi.StripePurchaseListener;
 import xyz.tcheeric.payment.adapter.webhook.exception.WebhookDuplicateException;
 import xyz.tcheeric.payment.adapter.webhook.exception.WebhookParseException;
 import xyz.tcheeric.payment.adapter.webhook.exception.WebhookProcessingException;
@@ -43,6 +44,18 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
     private QuoteClient quoteClient;
     private PaymentClient paymentClient;
     private StripeWebhookSignatureVerifier signatureVerifier;
+
+    /**
+     * What to do when a coupon purchase is paid, or null in a deployment that
+     * sells no coupons.
+     *
+     * <p>Optional injection, like the repositories above, because this module
+     * loads via ServiceLoader SPI before Spring exists. Null is a legitimate
+     * configuration — a mint-only deployment never sees a direct charge — but
+     * it is NOT a licence to drop a purchase that does arrive; see
+     * {@link #handlePaidPurchase}.
+     */
+    private StripePurchaseListener purchaseListener;
 
     /**
      * No-arg constructor required by ServiceLoader SPI.
@@ -69,6 +82,11 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         this.quoteClient = quoteClient;
         this.paymentClient = paymentClient;
         this.signatureVerifier = signatureVerifier;
+    }
+
+    @Autowired(required = false)
+    public void setPurchaseListener(StripePurchaseListener purchaseListener) {
+        this.purchaseListener = purchaseListener;
     }
 
     @Autowired(required = false)
@@ -127,6 +145,10 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
                     .livemode(root.path("livemode").asBoolean(false))
                     .status(optionalText(eventObject.path("status")))
                     .paymentStatus(optionalText(eventObject.path("payment_status")))
+                    // Top-level, not inside data.object: Stripe puts the account
+                    // on the event because it describes whose event it is.
+                    .connectedAccountId(optionalText(root.path("account")))
+                    .metadata(readMetadata(eventObject.path("metadata")))
                     .build();
         } catch (IOException e) {
             throw new WebhookParseException("Failed to parse Stripe webhook payload", e);
@@ -166,6 +188,14 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
 
     private WebhookResult handleSuccessfulCheckout(StripeWebhookPayload payload,
                                                    ProcessedStripeWebhookEvent eventRecord) throws WebhookProcessingException {
+        // A DIRECT charge is a stall selling a coupon, and this service has no
+        // GatewayQuote for it — findPaymentReference below would throw before
+        // any consequence ran. Branch first, on the account Stripe puts on the
+        // event.
+        if (isPurchase(payload)) {
+            return handlePaidPurchase(payload, eventRecord);
+        }
+
         StripePaymentReference paymentReference = findPaymentReference(payload);
         String quoteId = resolveQuoteId(payload, paymentReference);
 
@@ -282,6 +312,91 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         eventRecord.setProcessingStatus(StripeWebhookProcessingStatus.FAILED);
         eventRecord.setLastError(StringUtils.abbreviate(errorMessage, 1024));
         processedEventRepository.save(eventRecord);
+    }
+
+    /**
+     * Is this a stall selling a coupon, rather than this service selling a mint
+     * quote?
+     *
+     * <p>The account is the discriminator, and it is a reliable one: a purchase
+     * is always a direct charge (see the gateway module's
+     * {@code createPurchaseSession}), and a mint quote is always a platform
+     * charge, so only a purchase carries an account on its event.
+     */
+    private boolean isPurchase(StripeWebhookPayload payload) {
+        return StringUtils.isNotBlank(payload.getConnectedAccountId());
+    }
+
+    /**
+     * A stall's coupon was paid for. Hand it on, and record nothing here.
+     *
+     * <p>This service's job ends at "the money moved". Issuance belongs to a
+     * listener, because minting needs custody of Nostr issuing keys and a
+     * payments adapter should not acquire that.
+     *
+     * <p><b>No listener is a refusal, not a shrug.</b> A purchase reaching a
+     * deployment that cannot act on it means a customer has paid and nobody
+     * recorded the debt. Failing the event keeps it unprocessed, so Stripe
+     * retries and the payment stays visible as unhandled rather than being
+     * marked done and forgotten.
+     */
+    private WebhookResult handlePaidPurchase(StripeWebhookPayload payload,
+                                             ProcessedStripeWebhookEvent eventRecord) throws WebhookProcessingException {
+        if (!"paid".equalsIgnoreCase(payload.getPaymentStatus())
+                && "checkout.session.completed".equals(payload.getEventType())) {
+            // Same deferral the mint path makes: an unpaid completed session is
+            // an async method still in flight, and issuing against it would be
+            // giving a coupon away before the money exists.
+            log.info("Purchase checkout completed with payment_status='{}' on account={}; deferring to async_payment_succeeded",
+                    payload.getPaymentStatus(), payload.getConnectedAccountId());
+            markProcessed(eventRecord);
+            return new WebhookResult(true, null, State.PENDING,
+                    Map.of("eventType", payload.getEventType(), "purchase", true, "deferred", true));
+        }
+
+        if (purchaseListener == null) {
+            throw new WebhookProcessingException(
+                    "Paid coupon purchase on account " + payload.getConnectedAccountId()
+                            + " but no StripePurchaseListener is configured; refusing to mark it processed");
+        }
+
+        try {
+            purchaseListener.onPurchasePaid(new StripePurchaseListener.PaidPurchase(
+                    payload.getEventId(),
+                    payload.getCheckoutSessionId(),
+                    payload.getPaymentIntentId(),
+                    payload.getConnectedAccountId(),
+                    payload.getAmountTotal() == null ? null : payload.getAmountTotal().longValue(),
+                    payload.getCurrency(),
+                    payload.getMetadata() == null ? Map.of() : payload.getMetadata(),
+                    payload.isLivemode()));
+        } catch (Exception e) {
+            // Deliberately not marked processed. The obligation was not
+            // recorded, so the customer has paid for nothing until Stripe
+            // retries — losing that quietly is the one outcome ADR 0010 rules
+            // out.
+            throw new WebhookProcessingException(
+                    "Purchase listener refused event " + payload.getEventId(), e);
+        }
+
+        markProcessed(eventRecord);
+        return new WebhookResult(true, payload.getPaymentIntentId(), State.PAID,
+                Map.of("eventType", payload.getEventType(), "purchase", true));
+    }
+
+    /** Session metadata, as a plain map. Empty rather than null when absent. */
+    private Map<String, String> readMetadata(JsonNode metadata) {
+        if (metadata == null || !metadata.isObject()) {
+            return Map.of();
+        }
+        Map<String, String> values = new java.util.LinkedHashMap<>();
+        metadata.fields().forEachRemaining(entry -> {
+            String value = optionalText(entry.getValue());
+            if (value != null) {
+                values.put(entry.getKey(), value);
+            }
+        });
+        return Map.copyOf(values);
     }
 
     private StripePaymentReference findPaymentReference(StripeWebhookPayload payload) throws WebhookProcessingException {
