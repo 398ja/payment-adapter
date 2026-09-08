@@ -83,21 +83,37 @@ rather than being passed around.
   platform charge, and it stays one. So the correction added a path rather than
   changing any existing behaviour, which is why it could land ahead of the
   feature that needs it.
-- **The webhook must resolve the account.** A direct charge arrives with the
-  connected account's id, and the handler currently resolves only a
-  `GatewayQuote`.
+- **The webhook resolves the account, and branches on it.** A direct charge
+  arrives carrying the connected account's id at the top level of the event,
+  which turns out to be a reliable discriminator rather than a hint: a purchase
+  is always a direct charge and a mint quote always a platform one, so only a
+  purchase carries an account. The handler branches on it before the mint
+  lookup, because a purchase has no `GatewayQuote` and `findPaymentReference`
+  would have thrown before any consequence could run.
 
 ## The consequence of payment is not the mint's alone
 
-`StripeWebhookHandler` hard-wires a successful payment to settling a mint quote
+`StripeWebhookHandler` hard-wired a successful payment to settling a mint quote
 through `QuoteClient` and `PaymentClient`. A coupon purchase is a different
-consequence of the same event, and there is no seam for one:
-`GatewayWebhookForwarder` exists but only the cash gateway uses it.
+consequence of the same event, and there was no seam for one.
 
-**A forwarder-shaped extension point is added, and issuance hangs off it rather
-than living here.** This service says a purchase was paid; what follows is
-somebody else's business. Coupon issuance requires custody of Nostr issuing
-keys, and a payments adapter is the wrong place to acquire that.
+**`StripePurchaseListener` is that seam, and issuance hangs off it rather than
+living here.** This service says a purchase was paid; what follows is somebody
+else's business. Coupon issuance requires custody of Nostr issuing keys, and a
+payments adapter is the wrong place to acquire that.
+
+**A missing listener is a refusal, not a shrug.** A purchase reaching a
+deployment that cannot act on it means a customer has paid and nobody recorded
+the debt. Marking that processed would lose it silently, which is the one
+outcome the paid-means-owed contract rules out, so the event fails and Stripe
+keeps retrying. A listener that throws gets the same treatment for the same
+reason.
+
+The listener contract asks for three things, and each exists because of a way
+this can go wrong: record the obligation durably before returning, be idempotent
+because Stripe delivers more than once and a coupon cannot be un-minted, and do
+not mint inline because a webhook that waits on a slow gateway is one Stripe
+times out and retries.
 
 `ProcessedStripeWebhookEvent` already gives replay idempotency, and it applies to
 the new consequence unchanged: Stripe retries, and a coupon cannot be un-minted.
