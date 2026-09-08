@@ -5,11 +5,11 @@ connected account**, with `Stripe-Account` set and the platform's cut expressed
 as `application_fee_amount`. The connected account is merchant of record, the
 funds land there, and no money passes through a platform balance.
 
-## This is a correction, not a new feature
+## This was a correction, and it has landed
 
-`StripeSdkCheckoutClient` builds its `RequestOptions` from the platform secret
-key alone. There is no `setStripeAccount(...)` and no `application_fee_amount`,
-so every session it creates today charges **the platform account**. That is the
+`StripeSdkCheckoutClient` built its `RequestOptions` from the platform secret
+key alone. There was no `setStripeAccount(...)` and no `application_fee_amount`,
+so every session it created charged **the platform account**. That is the
 right shape for the flow it was written for — settling a `GatewayQuote` against
 the mint — and the wrong shape for a stall selling a coupon.
 
@@ -17,13 +17,34 @@ The difference is not a fee-routing detail. With a platform charge, the platform
 holds the funds and is merchant of record. That makes Imani a holder of customer
 money, which is the position the whole no-float design exists to avoid, and it is
 the difference between sitting outside the FCA safeguarding perimeter and sitting
-inside it. Building coupon purchase on the current path would ship precisely the
-float position the design rules out.
+inside it. Building coupon purchase on the old path would have shipped precisely
+the float position the design rules out.
 
-**So the funds-flow correction lands first, on its own**, before anything is
-built on top of it. It changes where money goes for every caller of the Stripe
-gateway, which is too large a consequence to arrive as a side effect of a
-coupon feature.
+**The correction landed on its own**, before anything is built on top of it,
+because it changes where money goes and that is too large a consequence to
+arrive as a side effect of a coupon feature.
+
+**Implemented as `createPurchaseSession`**, a separate entry point rather than
+an extra argument on the mint path. The two answer different questions about who
+is selling, and keeping them apart means no caller drifts from one to the other
+by leaving an argument null. The mint-quote path is untouched and still charges
+the platform, which is correct: Imani sells its own product there.
+
+Two tests hold both halves — a purchase must be a direct charge, and a mint
+quote must stay a platform one — and were verified by nulling the account and
+watching the first fail.
+
+Refusals are placed where the caller can still see them, rather than surfacing
+from inside the Stripe SDK after a customer has committed: a purchase with no
+connected account, a fee at or above the amount, a negative fee, and a currency
+the deployment disallows. Caller metadata cannot overwrite `quote_id`, which the
+settlement path reads.
+
+**Retrieve needed the same treatment.** A direct-charge session lives on the
+connected account and is invisible from the platform, so retrieving it without
+`Stripe-Account` answers "no such session". `retrieveCheckoutSession` gained an
+account-aware overload; the existing single-argument form stays correct for
+every platform charge.
 
 ## No stall ever hands over a Stripe key
 
@@ -57,10 +78,11 @@ rather than being passed around.
   high-risk classification. Good for Imani's risk position, and a real thing to
   tell a stall before they sign up, because a reserve claws back part of the
   same pitch.
-- **Existing callers must be classified.** Every current use of
-  `StripeCheckoutRequest` is either a platform charge that should stay one, or a
-  charge that was always meant to be the merchant's. That list has to be made
-  explicitly rather than assumed.
+- **Existing callers were classified, and there was exactly one.**
+  `StripeGateway.createMintQuote` is the only production caller, it is a
+  platform charge, and it stays one. So the correction added a path rather than
+  changing any existing behaviour, which is why it could land ahead of the
+  feature that needs it.
 - **The webhook must resolve the account.** A direct charge arrives with the
   connected account's id, and the handler currently resolves only a
   `GatewayQuote`.
