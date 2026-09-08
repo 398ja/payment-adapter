@@ -38,6 +38,15 @@
             <groupId>org.springframework</groupId>
             <artifactId>spring-context</artifactId>
         </dependency>
+        <!--
+            Signing NIP-98 for the gateway's fulfilment check, which sits behind
+            the authenticated /api/v1/atomic prefix. Only an identity is needed:
+            this service asks one question and issues nothing.
+        -->
+        <dependency>
+            <groupId>xyz.tcheeric</groupId>
+            <artifactId>nostr-java-id</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

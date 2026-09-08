@@ -71,6 +71,10 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
         row.setCurrency(purchase.currency());
         row.setLivemode(purchase.livemode());
         row.setStatus(StripePurchase.Status.OWED);
+        // Minted HERE, before any work happens, so a later discharge can be
+        // checked against it rather than believed. An id the issuer chose at
+        // delivery time would verify only that the issuer did something.
+        row.setPaymentRequestId(newPaymentRequestId());
         row.setAttempts(0);
         row.setCreatedAt(Instant.now());
         row.setUpdatedAt(Instant.now());
@@ -90,6 +94,20 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
      * malformed collapse to the same answer deliberately: both mean "no DM
      * recipient", and the claim path serves both.
      */
+    /**
+     * An id the gateway's fulfilment check can be asked about.
+     *
+     * <p>128 bits from a secure source. The gateway treats possession of one as
+     * evidence of having created it or been shown it, so guessability is the
+     * whole security property — it refuses anything shorter than 16 characters
+     * for exactly that reason.
+     */
+    private static String newPaymentRequestId() {
+        byte[] bytes = new byte[16];
+        new java.security.SecureRandom().nextBytes(bytes);
+        return java.util.HexFormat.of().formatHex(bytes);
+    }
+
     private static String normalisePubkey(String raw) {
         if (raw == null) {
             return null;

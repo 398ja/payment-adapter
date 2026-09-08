@@ -89,6 +89,23 @@ public class StripePurchase {
     @Column(name = "checkout_session_id", nullable = false)
     private String checkoutSessionId;
 
+    /**
+     * The id a discharge is verified against.
+     *
+     * <p>Generated here, when the debt is recorded, and stamped by the issuer
+     * onto the send it makes. {@code gateway-core} can then answer whether a
+     * COMPLETED send answered it, which turns a discharge from the issuer's
+     * word into something checkable — {@code imani-woo} ADR 0009's
+     * "fulfilment is confirmed, not asserted".
+     *
+     * <p>Minted by the party owed an answer, BEFORE the work happens, so it
+     * cannot be chosen afterwards to fit whatever occurred. An id the issuer
+     * generated at delivery time would verify only that the issuer did
+     * something, which is what it already claims.
+     */
+    @Column(name = "payment_request_id", unique = true)
+    private String paymentRequestId;
+
     @Column(name = "payment_intent_id")
     private String paymentIntentId;
 
