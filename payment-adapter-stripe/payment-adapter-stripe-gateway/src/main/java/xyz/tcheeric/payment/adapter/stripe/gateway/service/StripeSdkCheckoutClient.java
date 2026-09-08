@@ -27,7 +27,10 @@ public class StripeSdkCheckoutClient implements StripeCheckoutClient {
      * on it: Imani would hold the funds and be merchant of record.
      */
     private RequestOptions buildRequestOptions(StripeCheckoutRequest checkoutRequest) {
-        RequestOptions.RequestOptionsBuilder builder = RequestOptions.builder()
+        // properties.requestOptions() carries the api-base when one is set, so a
+        // developer running against stripe-mock does not have SOME calls quietly
+        // reach real Stripe. See StripeGatewayProperties#requestOptions.
+        RequestOptions.RequestOptionsBuilder builder = properties.requestOptions()
                 .setApiKey(properties.getSecretKey())
                 .setIdempotencyKey(checkoutRequest.getIdempotencyKey());
         if (checkoutRequest.isDirectCharge()) {
@@ -98,7 +101,7 @@ public class StripeSdkCheckoutClient implements StripeCheckoutClient {
     @Override
     public StripeCheckoutSession retrieveCheckoutSession(String sessionId, String connectedAccountId) {
         try {
-            RequestOptions.RequestOptionsBuilder builder = RequestOptions.builder()
+            RequestOptions.RequestOptionsBuilder builder = properties.requestOptions()
                     .setApiKey(properties.getSecretKey());
             if (connectedAccountId != null && !connectedAccountId.isBlank()) {
                 builder.setStripeAccount(connectedAccountId);

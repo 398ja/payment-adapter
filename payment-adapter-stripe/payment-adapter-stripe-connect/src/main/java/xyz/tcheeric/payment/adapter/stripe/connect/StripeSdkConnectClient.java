@@ -1,6 +1,8 @@
 package xyz.tcheeric.payment.adapter.stripe.connect;
 
 import com.stripe.exception.StripeException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.stripe.model.Account;
 import com.stripe.model.AccountLink;
 import com.stripe.model.Event;
@@ -16,6 +18,8 @@ import xyz.tcheeric.payment.adapter.stripe.connect.exception.StripeConnectExcept
 import xyz.tcheeric.payment.adapter.stripe.gateway.config.StripeGatewayProperties;
 
 public class StripeSdkConnectClient implements StripeConnectClient {
+
+    private static final Logger log = LoggerFactory.getLogger(StripeSdkConnectClient.class);
 
     private final StripeGatewayProperties gatewayProperties;
 
@@ -34,6 +38,16 @@ public class StripeSdkConnectClient implements StripeConnectClient {
             }
             return toSnapshot(Account.create(builder.build(), requestOptions()));
         } catch (StripeException e) {
+            // Logged HERE because the exception's message never reaches anyone:
+            // the REST layer answers a fixed "Failed to create Stripe connected
+            // account" and the cause is dropped. Debugging a genuine 401 from
+            // the API meant reproducing the call by hand with wget — the service
+            // knew exactly what was wrong and said none of it.
+            //
+            // Stripe's own code and message are the whole diagnosis: an
+            // authentication failure, a disabled capability and an unreachable
+            // host are three different afternoons.
+            logStripeFailure("create_connected_account", e);
             throw StripeConnectException.apiError("Failed to create Stripe connected account", e);
         }
     }
@@ -46,6 +60,7 @@ public class StripeSdkConnectClient implements StripeConnectClient {
             if (e.getStatusCode() != null && e.getStatusCode() == 404) {
                 throw StripeConnectException.accountNotFound(stripeAccountId, e);
             }
+            logStripeFailure("retrieve_account", e);
             throw StripeConnectException.apiError("Failed to retrieve Stripe account: " + stripeAccountId, e);
         }
     }
@@ -62,6 +77,7 @@ public class StripeSdkConnectClient implements StripeConnectClient {
             AccountLink link = AccountLink.create(params, requestOptions());
             return link.getUrl();
         } catch (StripeException e) {
+            logStripeFailure("create_onboarding_link", e);
             throw new StripeConnectException(
                     StripeConnectExceptionCode.ONBOARDING_LINK_FAILED,
                     "Failed to create Stripe onboarding link",
@@ -81,8 +97,48 @@ public class StripeSdkConnectClient implements StripeConnectClient {
         }
     }
 
+    /**
+     * The per-call options every Stripe request here is made with.
+     *
+     * <p>Carries the api-base when one is configured, which is what lets the
+     * Connect flows run against {@code stripe-mock} with no Stripe account. The
+     * SDK's default is Stripe itself, so an unset property behaves exactly as
+     * before.
+     *
+     * <p>Built through {@code StripeGatewayProperties#requestOptions()} rather
+     * than RequestOptions.builder() directly, so this client cannot be the one
+     * that forgets the api-base while its neighbours honour it. Set per-request
+     * rather than via the global {@code Stripe.overrideApiBase}, which would
+     * apply to every Stripe call in the JVM including other components'.
+     *
+     * <p>The override cannot name a non-local host: {@code StripeGatewayProperties}
+     * refuses to start otherwise. Pointing production at a fake would make every
+     * charge and payout appear to succeed while no money moved, and there is no
+     * natural alarm for that.
+     */
+    /**
+     * What Stripe actually said, at WARN.
+     *
+     * <p>Every catch block here throws an exception whose message is a fixed
+     * sentence, and the REST layer surfaces only that. Stripe's own code, message
+     * and status — the entire diagnosis — went nowhere. A key the API rejected
+     * and a host that could not be reached produced identical output.
+     *
+     * <p>Includes the api-base, because "which Stripe is this talking to?" is the
+     * first question when the answer is surprising and the only clue that a
+     * developer is pointed at a mock. The API KEY is never logged.
+     */
+    private void logStripeFailure(String operation, StripeException e) {
+        log.warn("stripe_connect_failed operation={} status={} code={} api_base={} message={}",
+                operation,
+                e.getStatusCode(),
+                e.getCode(),
+                gatewayProperties.isApiBaseOverridden() ? gatewayProperties.getApiBase() : "stripe",
+                e.getMessage());
+    }
+
     private RequestOptions requestOptions() {
-        return RequestOptions.builder()
+        return gatewayProperties.requestOptions()
                 .setApiKey(gatewayProperties.getSecretKey())
                 .build();
     }
