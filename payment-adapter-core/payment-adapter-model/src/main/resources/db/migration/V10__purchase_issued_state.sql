@@ -1,0 +1,14 @@
+-- Nothing to alter: `status` is a VARCHAR carrying the enum's name, so the new
+-- ISSUED value needs no schema change.
+--
+-- This migration exists to record WHY the value was added, because the bug it
+-- fixes is invisible in the schema.
+--
+-- A purchase whose coupon had been minted but not confirmed was left OWED. The
+-- issuer's queue is "everything OWED", so the next pass read it as unminted and
+-- minted again. One payment, one row, and a new coupon on every wake - a
+-- printer, not a retry.
+--
+-- ISSUED means value exists. It is not in the mintable queue, and the only way
+-- out is a confirmed discharge of the coupon that already exists.
+SELECT 1;

@@ -60,8 +60,23 @@ public class StripePurchase {
 
     /** What still has to happen to this purchase. */
     public enum Status {
-        /** Paid, undelivered. The customer is owed a coupon. */
+        /** Paid, and nothing minted yet. The only state safe to mint from. */
         OWED,
+
+        /**
+         * A coupon EXISTS for this purchase and the debt is not closed.
+         *
+         * <p>The state that stops one payment becoming many coupons. Delivery
+         * failed, or the discharge could not be confirmed, and both leave value
+         * already created. Left OWED, the next pass would read it as unminted
+         * and mint again — one row, unbounded coupons, on a loop that runs
+         * every time the worker wakes.
+         *
+         * <p>Nothing automatic leaves this state. Closing it means confirming
+         * the coupon that already exists reached the buyer, which is a
+         * discharge; minting another one is never the answer.
+         */
+        ISSUED,
         /** A coupon was issued and reached the buyer. */
         DISCHARGED,
         /**
@@ -109,9 +124,21 @@ public class StripePurchase {
     @Column(name = "payment_intent_id")
     private String paymentIntentId;
 
-    /** The stall that was paid, and that owes the coupon. */
+    /** The stall's Stripe account, which was paid. */
     @Column(name = "connected_account_id", nullable = false)
     private String connectedAccountId;
+
+    /**
+     * The stall's NOSTR pubkey, which is a different thing entirely.
+     *
+     * <p>Both identify the same stall and neither substitutes for the other: an
+     * {@code acct_…} addresses money, and a pubkey addresses issuance. The
+     * issuer looks up a stall's credential by pubkey, so a row carrying only
+     * the Stripe id would find no credential and fall back to manual issuance
+     * for every card sale — the feature silently doing nothing.
+     */
+    @Column(name = "stall_pubkey")
+    private String stallPubkey;
 
     /**
      * Who the coupon is for, as a Nostr pubkey, or null when the buyer had no

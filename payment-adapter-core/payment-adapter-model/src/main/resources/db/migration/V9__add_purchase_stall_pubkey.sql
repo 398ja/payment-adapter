@@ -1,0 +1,11 @@
+-- The stall's Nostr pubkey, alongside its Stripe account id.
+--
+-- These identify the same stall and neither substitutes for the other: an
+-- acct_... addresses money and a pubkey addresses issuance. The issuer looks up
+-- a credential by pubkey, so without this it would find none and fall back to
+-- manual issuance for every card sale - the feature silently doing nothing.
+--
+-- Nullable: rows written before this column existed have no pubkey, and there is
+-- no way to derive one. They fall back to manual issuance, which is the correct
+-- behaviour for a debt whose stall cannot be identified for issuance.
+ALTER TABLE stripe_purchase ADD COLUMN stall_pubkey VARCHAR(64);

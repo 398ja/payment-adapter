@@ -35,8 +35,18 @@ import xyz.tcheeric.payment.adapter.stripe.gateway.service.StripeCheckoutService
  * nothing else. A caller can make sessions for a stall that already agreed to
  * accept cards, and each one is an invitation to give that stall money.
  */
+/*
+ * Conditional on Stripe being enabled, exactly as StripeGatewayConfig is.
+ *
+ * Without this the controller is created unconditionally and asks for a
+ * StripeCheckoutService that only exists when stripe.enabled=true, so the whole
+ * application context fails to start on any deployment with Stripe off. A
+ * purchase endpoint that cannot work should be absent, not fatal.
+ */
 @Slf4j
 @RestController
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+        prefix = "stripe", name = "enabled", havingValue = "true")
 @RequestMapping("/api/v1/checkout")
 @RequiredArgsConstructor
 public class PurchaseCheckoutController {
@@ -44,10 +54,44 @@ public class PurchaseCheckoutController {
     private final ConnectedStripeAccountRepository accounts;
     private final StripeCheckoutService checkout;
 
+    /**
+     * The most a single card purchase may be.
+     *
+     * <p>A bound here rather than only in {@code StripeCheckoutService}, whose
+     * {@code maxAmountMinor} defaults to {@code Integer.MAX_VALUE} — no bound at
+     * all. This endpoint is PUBLIC and unauthenticated, so without a ceiling
+     * anyone could create sessions for arbitrary sums against a real stall.
+     * That is not a theft, since paying one funds the stall, but it is a
+     * plausible way to embarrass a merchant or trip their fraud controls.
+     *
+     * <p>Configurable, because "the most anyone would put on one voucher"
+     * differs by market, and 1,000,000 minor units is a starting point rather
+     * than a truth.
+     */
+    @org.springframework.beans.factory.annotation.Value("${purchase.max-amount-minor:1000000}")
+    private long maxAmountMinor;
+
     @PostMapping("/purchase")
     public ResponseEntity<?> start(@RequestBody PurchaseRequest request) {
         if (request == null || request.stallPubkey() == null || request.amountMinor() == null) {
             return ResponseEntity.badRequest().body(error("a stall and an amount are required"));
+        }
+
+        // Checked before anything else touches Stripe. A negative or zero
+        // amount is nonsense a customer cannot have meant, and an enormous one
+        // is refused here rather than by a card network later.
+        if (request.amountMinor() <= 0) {
+            return ResponseEntity.badRequest().body(error("the amount must be more than zero"));
+        }
+        if (request.amountMinor() > maxAmountMinor) {
+            return ResponseEntity.badRequest().body(error("that amount is too large for one voucher"));
+        }
+
+        // A pubkey shaped like a pubkey. Not an authorisation check — the
+        // lookup below is — but it keeps a malformed value out of a database
+        // query and out of the logs.
+        if (!request.stallPubkey().trim().toLowerCase().matches("^[0-9a-f]{64}$")) {
+            return ResponseEntity.badRequest().body(error("that is not a stall address"));
         }
 
         Optional<ConnectedStripeAccount> found =
@@ -83,7 +127,10 @@ public class PurchaseCheckoutController {
         try {
             StripeCheckoutSession session = checkout.createPurchaseSession(
                     quoteId,
-                    request.amountMinor(),
+                    // Safe by the ceiling checked above, which is far below
+                    // Integer.MAX_VALUE. The narrowing is explicit so a future
+                    // change to that ceiling has to think about it.
+                    Math.toIntExact(request.amountMinor()),
                     "Voucher",
                     currency,
                     account.getStripeAccountId(),
@@ -134,7 +181,7 @@ public class PurchaseCheckoutController {
      * @param amountMinor the face value, in the stall's own currency
      * @param buyerPubkey where to deliver, or null for a claim link
      */
-    public record PurchaseRequest(String stallPubkey, Integer amountMinor, String buyerPubkey) {
+    public record PurchaseRequest(String stallPubkey, Long amountMinor, String buyerPubkey) {
     }
 
     /**

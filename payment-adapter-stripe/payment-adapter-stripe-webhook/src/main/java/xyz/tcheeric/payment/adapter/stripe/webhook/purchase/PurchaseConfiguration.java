@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccountRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseRepository;
 import xyz.tcheeric.payment.adapter.stripe.webhook.spi.StripePurchaseListener;
 
@@ -73,8 +74,9 @@ public class PurchaseConfiguration {
      * event rather than marking it processed.
      */
     @Bean
-    public StripePurchaseListener stripePurchaseListener(StripePurchaseRepository purchases) {
-        return new RecordingPurchaseListener(purchases);
+    public StripePurchaseListener stripePurchaseListener(
+            StripePurchaseRepository purchases, ConnectedStripeAccountRepository accounts) {
+        return new RecordingPurchaseListener(purchases, accounts);
     }
 
     /**

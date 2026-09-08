@@ -69,6 +69,10 @@ public class PurchaseDischargeService {
             return Result.ALREADY_DISCHARGED;
         }
 
+        // An ISSUED purchase can still be discharged: the coupon exists and
+        // this is the call that confirms it reached the buyer. Only minting
+        // again is forbidden, and that decision lives in the OWED queue.
+
         GatewayFulfilmentClient.Answer answer = fulfilment.check(purchase.getPaymentRequestId());
 
         if (answer.fulfilment() == Fulfilment.UNKNOWN) {
@@ -125,16 +129,33 @@ public class PurchaseDischargeService {
      * only change is that somebody can see this debt is struggling.
      */
     @Transactional
-    public void recordFailure(String eventId, String reason, boolean permanent) {
+    public void recordFailure(String eventId, String reason, boolean permanent, String voucherId) {
         purchases.findByEventId(eventId).ifPresent(purchase -> {
             if (purchase.getStatus() == StripePurchase.Status.DISCHARGED) {
                 return;
             }
             purchase.setAttempts(purchase.getAttempts() + 1);
             purchase.setLastFailure(reason == null ? null : reason.substring(0, Math.min(500, reason.length())));
-            // BLOCKED is not "given up on". It is "retrying cannot help", which
-            // is a different thing and needs a person rather than a timer.
-            purchase.setStatus(permanent ? StripePurchase.Status.BLOCKED : StripePurchase.Status.OWED);
+
+            if (voucherId != null && !voucherId.isBlank()) {
+                /*
+                 * A coupon EXISTS. This must leave the mintable queue.
+                 *
+                 * Left OWED it would be read as unminted on the next pass and
+                 * minted again — one payment producing a coupon every time the
+                 * worker wakes. The voucher id is kept because it is the only
+                 * handle on value that was already created.
+                 */
+                purchase.setVoucherId(voucherId);
+                purchase.setStatus(StripePurchase.Status.ISSUED);
+            } else {
+                // BLOCKED is not "given up on". It is "retrying cannot help",
+                // which is a different thing and needs a person, not a timer.
+                purchase.setStatus(permanent
+                        ? StripePurchase.Status.BLOCKED
+                        : StripePurchase.Status.OWED);
+            }
+
             purchase.setUpdatedAt(Instant.now());
             purchases.save(purchase);
         });

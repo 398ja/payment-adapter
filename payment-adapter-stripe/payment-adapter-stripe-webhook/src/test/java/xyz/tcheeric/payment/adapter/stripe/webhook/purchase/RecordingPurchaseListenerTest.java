@@ -8,7 +8,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAccount;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripePurchase;
+import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccountRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseRepository;
 import xyz.tcheeric.payment.adapter.stripe.webhook.spi.StripePurchaseListener;
 
@@ -33,13 +35,49 @@ class RecordingPurchaseListenerTest {
     private static final String BUYER = "a".repeat(64);
     private static final String ACCOUNT = "acct_1MerchantXyz";
 
+    private static final String STALL = "b".repeat(64);
+
     @Mock private StripePurchaseRepository purchases;
+    @Mock private ConnectedStripeAccountRepository accounts;
 
     private RecordingPurchaseListener listener;
 
     @BeforeEach
     void setUp() {
-        listener = new RecordingPurchaseListener(purchases);
+        listener = new RecordingPurchaseListener(purchases, accounts);
+        ConnectedStripeAccount account = new ConnectedStripeAccount();
+        account.setMerchantPubkey(STALL);
+        account.setStripeAccountId(ACCOUNT);
+        org.mockito.Mockito.lenient()
+                .when(accounts.findByStripeAccountId(ACCOUNT))
+                .thenReturn(Optional.of(account));
+    }
+
+    @Test
+    void resolvesTheStallPubkeyRatherThanLeavingTheStripeId() {
+        // An acct_… addresses money; a pubkey addresses issuance. A row
+        // carrying only the first finds no credential, so every card sale
+        // would fall back to manual issuance and the feature would silently do
+        // nothing.
+        when(purchases.findByEventId("evt_1")).thenReturn(Optional.empty());
+
+        listener.onPurchasePaid(paid(Map.of()));
+
+        assertEquals(STALL, captureSaved().getStallPubkey());
+    }
+
+    @Test
+    void recordsTheDebtEvenWhenTheStallIsUnknownToUs() {
+        // Connect delivers events for accounts we may have lost track of. The
+        // debt still exists; it just cannot be issued automatically.
+        when(purchases.findByEventId("evt_1")).thenReturn(Optional.empty());
+        when(accounts.findByStripeAccountId(ACCOUNT)).thenReturn(Optional.empty());
+
+        listener.onPurchasePaid(paid(Map.of()));
+
+        StripePurchase saved = captureSaved();
+        assertNull(saved.getStallPubkey());
+        assertEquals(StripePurchase.Status.OWED, saved.getStatus(), "still owed");
     }
 
     private StripePurchaseListener.PaidPurchase paid(Map<String, String> metadata) {

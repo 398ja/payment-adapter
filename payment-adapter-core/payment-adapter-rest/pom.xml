@@ -91,6 +91,21 @@
             <version>${project.version}</version>
         </dependency>
         <!--
+            The Stripe webhook handler AND everything the coupon purchase flow
+            lives in.
+
+            Not here originally, which meant none of it shipped: this is the
+            only Spring Boot application and the only jib image, so a module it
+            does not depend on is compiled, tested, and then left on the floor.
+            Every purchase endpoint answered 404 in a deployment while passing
+            its tests in CI.
+        -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-stripe-webhook</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!--
             Lightning support. PhoenixdGateway serves BOLT11/BOLT12/ON_CHAIN, which is
             disjoint from StripeGateway's CREDIT_CARD, and Gateway.supports(method)
             selects between them — so adding this does not contend with Stripe.

@@ -133,11 +133,11 @@ class PurchaseControllerTest {
     @Test
     void acceptsAFailureReportWithoutClosingAnything() {
         ResponseEntity<Void> result = controller.failure("evt_1",
-                new PurchaseController.FailureRequest("gateway down", false));
+                new PurchaseController.FailureRequest("gateway down", false, null));
 
         // 202, not 200: the report is accepted and nothing was resolved.
         assertEquals(HttpStatus.ACCEPTED, result.getStatusCode());
-        verify(discharges).recordFailure("evt_1", "gateway down", false);
+        verify(discharges).recordFailure("evt_1", "gateway down", false, null);
     }
 
     @Test

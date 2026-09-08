@@ -121,7 +121,7 @@ class PurchaseDischargeServiceTest {
 
     @Test
     void recordsAFailureWithoutClosingAnything() {
-        service.recordFailure(EVENT, "the gateway was unreachable", false);
+        service.recordFailure(EVENT, "the gateway was unreachable", false, null);
 
         assertEquals(StripePurchase.Status.OWED, owed.getStatus());
         assertEquals(1, owed.getAttempts());
@@ -132,16 +132,40 @@ class PurchaseDischargeServiceTest {
     void blocksWhenRetryingCannotHelp() {
         // A burnt credential. Not "given up on": a different state, needing a
         // person rather than a timer.
-        service.recordFailure(EVENT, "the stall no longer authorises this issuer", true);
+        service.recordFailure(EVENT, "the stall no longer authorises this issuer", true, null);
 
         assertEquals(StripePurchase.Status.BLOCKED, owed.getStatus());
+    }
+
+    @Test
+    void leavesTheMintableQueueOnceACouponExists() {
+        // The coupon printer, and the test that stops it coming back.
+        //
+        // A failure that names a voucher is value already created. Left OWED
+        // the next pass reads it as unminted and mints again - one payment, a
+        // coupon on every wake of the worker.
+        service.recordFailure(EVENT, "issued but delivery failed", false, "voucher-1");
+
+        assertEquals(StripePurchase.Status.ISSUED, owed.getStatus());
+        assertEquals("voucher-1", owed.getVoucherId(), "the handle on value that exists");
+    }
+
+    @Test
+    void anIssuedPurchaseCanStillBeDischarged() {
+        // ISSUED is not terminal. The coupon exists and this is the call that
+        // confirms it reached the buyer; only MINTING again is forbidden.
+        owed.setStatus(StripePurchase.Status.ISSUED);
+        gatewaySays(Fulfilment.FULFILLED, STALL);
+
+        assertEquals(PurchaseDischargeService.Result.DISCHARGED,
+                service.discharge(EVENT, "voucher-1", STALL));
     }
 
     @Test
     void neverReopensADischargedPurchase() {
         owed.setStatus(StripePurchase.Status.DISCHARGED);
 
-        service.recordFailure(EVENT, "late failure report", true);
+        service.recordFailure(EVENT, "late failure report", true, null);
 
         assertEquals(StripePurchase.Status.DISCHARGED, owed.getStatus());
     }

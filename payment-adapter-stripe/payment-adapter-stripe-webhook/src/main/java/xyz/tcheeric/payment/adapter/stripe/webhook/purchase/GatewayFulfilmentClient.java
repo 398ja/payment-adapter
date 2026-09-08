@@ -46,6 +46,9 @@ public class GatewayFulfilmentClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /** NIP-98's kind for an HTTP authorization event. */
+    private static final int KIND_HTTP_AUTH = 27235;
+
     private final String baseUrl;
     private final Identity identity;
     private final HttpClient http;
@@ -141,22 +144,46 @@ public class GatewayFulfilmentClient {
         long now = System.currentTimeMillis() / 1000L;
         String pubkey = identity.getPublicKey().toString();
 
-        // Built by hand rather than through the event builders: the id is a
-        // hash over a canonical array, and doing it here keeps the wire format
-        // visible at the point it matters.
-        String tags = "[[\"u\",\"" + url + "\"],[\"method\",\"" + method + "\"]]";
-        String serialised = "[0,\"" + pubkey + "\"," + now + ",27235," + tags + ",\"\"]";
+        /*
+         * Serialised by Jackson, NOT by string concatenation.
+         *
+         * The first version built this JSON by hand. A payment request id or a
+         * base URL containing a quote or a backslash would have escaped the
+         * string it was in, and the consequences run from a malformed event the
+         * gateway rejects to a forged extra tag inside a signed event. Neither
+         * is acceptable when the whole point of the event is to be trusted.
+         *
+         * NIP-01's id is a hash over an array with EXACTLY this shape and
+         * order: [0, pubkey, created_at, kind, tags, content]. Jackson escapes
+         * the values and preserves the order, which is all the canonical form
+         * requires here.
+         */
+        com.fasterxml.jackson.databind.node.ArrayNode tags = MAPPER.createArrayNode();
+        tags.add(MAPPER.createArrayNode().add("u").add(url));
+        tags.add(MAPPER.createArrayNode().add("method").add(method));
+
+        com.fasterxml.jackson.databind.node.ArrayNode canonical = MAPPER.createArrayNode();
+        canonical.add(0);
+        canonical.add(pubkey);
+        canonical.add(now);
+        canonical.add(KIND_HTTP_AUTH);
+        canonical.add(tags);
+        canonical.add("");
+
         byte[] id = MessageDigest.getInstance("SHA-256")
-                .digest(serialised.getBytes(StandardCharsets.UTF_8));
-        String idHex = HexFormat.of().formatHex(id);
+                .digest(MAPPER.writeValueAsBytes(canonical));
 
-        String signature = identity.sign(new EventId(id)).toString();
-
-        String event = "{\"id\":\"" + idHex + "\",\"pubkey\":\"" + pubkey + "\",\"created_at\":" + now
-                + ",\"kind\":27235,\"tags\":" + tags + ",\"content\":\"\",\"sig\":\"" + signature + "\"}";
+        com.fasterxml.jackson.databind.node.ObjectNode event = MAPPER.createObjectNode();
+        event.put("id", HexFormat.of().formatHex(id));
+        event.put("pubkey", pubkey);
+        event.put("created_at", now);
+        event.put("kind", KIND_HTTP_AUTH);
+        event.set("tags", tags);
+        event.put("content", "");
+        event.put("sig", identity.sign(new EventId(id)).toString());
 
         return "Nostr " + Base64.getEncoder()
-                .encodeToString(event.getBytes(StandardCharsets.UTF_8));
+                .encodeToString(MAPPER.writeValueAsBytes(event));
     }
 
     /**

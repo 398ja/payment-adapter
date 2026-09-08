@@ -116,7 +116,11 @@ public class PurchaseController {
             @RequestBody FailureRequest request) {
         discharges.recordFailure(eventId,
                 request == null ? null : request.reason(),
-                request != null && request.permanent());
+                request != null && request.permanent(),
+                // A failure that names a coupon is value that already exists,
+                // and the debt must leave the mintable queue or the next pass
+                // mints another one.
+                request == null ? null : request.voucherId());
         return ResponseEntity.accepted().build();
     }
 
@@ -136,7 +140,12 @@ public class PurchaseController {
     public record OwedPurchase(
             String eventId,
             String paymentRequestId,
-            String connectedAccountId,
+            /**
+             * The stall's NOSTR pubkey, which is what a credential is keyed by.
+             * Null when we cannot identify the stall, which the issuer treats
+             * as "issue by hand" rather than guessing.
+             */
+            String stallPubkey,
             String recipientPubkey,
             Long amountMinor,
             String currency,
@@ -147,7 +156,12 @@ public class PurchaseController {
             return new OwedPurchase(
                     purchase.getEventId(),
                     purchase.getPaymentRequestId(),
-                    purchase.getConnectedAccountId(),
+                    // NOT connectedAccountId. An acct_… addresses money and a
+                    // pubkey addresses issuance, and the issuer needs the
+                    // second. It is also deliberately the only stall identifier
+                    // exposed: the issuer has no business with the Stripe
+                    // account that funded the coupon.
+                    purchase.getStallPubkey(),
                     purchase.getRecipientPubkey(),
                     purchase.getAmountMinor(),
                     purchase.getCurrency(),
@@ -164,9 +178,14 @@ public class PurchaseController {
     }
 
     /**
+    /**
      * @param reason    what went wrong, for whoever reads the row later
      * @param permanent true when retrying cannot help, e.g. a burnt credential
+     * @param voucherId the coupon that WAS minted, when one was. Its presence
+     *                  is what tells this service the debt must stop being
+     *                  mintable, so omitting it after a successful mint is how
+     *                  one payment becomes many coupons.
      */
-    public record FailureRequest(String reason, boolean permanent) {
+    public record FailureRequest(String reason, boolean permanent, String voucherId) {
     }
 }

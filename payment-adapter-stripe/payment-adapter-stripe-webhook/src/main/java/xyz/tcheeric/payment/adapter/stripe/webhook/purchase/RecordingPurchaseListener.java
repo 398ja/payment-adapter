@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripePurchase;
+import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccountRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseRepository;
 import xyz.tcheeric.payment.adapter.stripe.webhook.spi.StripePurchaseListener;
 
@@ -44,6 +45,17 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
     private final StripePurchaseRepository purchases;
 
     /**
+     * Where a Stripe account id becomes the stall's Nostr pubkey.
+     *
+     * <p>Resolved HERE, while recording, rather than left for the issuer to
+     * work out. The issuer holds no Stripe knowledge by design, and giving it
+     * an {@code acct_…} to look a credential up by would find nothing: it
+     * would fall back to manual issuance for every card sale and the feature
+     * would silently do nothing.
+     */
+    private final ConnectedStripeAccountRepository accounts;
+
+    /**
      * {@inheritDoc}
      *
      * <p>Transactional, because "recorded" has to mean committed. A row written
@@ -66,6 +78,12 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
         row.setCheckoutSessionId(purchase.checkoutSessionId());
         row.setPaymentIntentId(purchase.paymentIntentId());
         row.setConnectedAccountId(purchase.connectedAccountId());
+        // Null when the account is unknown to us, which is a real possibility:
+        // Connect delivers events for accounts we may have lost track of. The
+        // debt is still recorded, and falls back to manual issuance.
+        row.setStallPubkey(accounts.findByStripeAccountId(purchase.connectedAccountId())
+                .map(account -> account.getMerchantPubkey())
+                .orElse(null));
         row.setRecipientPubkey(normalisePubkey(purchase.metadata().get(BUYER_PUBKEY)));
         row.setAmountMinor(purchase.amountMinor());
         row.setCurrency(purchase.currency());
