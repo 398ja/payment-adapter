@@ -30,6 +30,12 @@
             <artifactId>payment-adapter-model</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Creating the Checkout Session a purchase starts with. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-stripe-gateway</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.stripe</groupId>
             <artifactId>stripe-java</artifactId>
