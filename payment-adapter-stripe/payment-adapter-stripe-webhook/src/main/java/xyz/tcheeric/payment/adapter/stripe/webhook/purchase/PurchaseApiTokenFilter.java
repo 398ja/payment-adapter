@@ -65,12 +65,72 @@ public class PurchaseApiTokenFilter implements Filter {
         }
     }
 
+    /**
+     * Whether this request is for the protected surface.
+     *
+     * <p>Deliberately errs towards protecting. Two ways the naive version was
+     * wrong:
+     *
+     * <ul>
+     *   <li><b>The URI is raw.</b> {@code getRequestURI()} returns the path as
+     *       sent, including a context path and any percent-encoding, so
+     *       {@code /api/v1/%70urchases/owed} does not start with the prefix
+     *       while Spring still routes it to the controller. Decoding first and
+     *       matching on the decoded path closes that.</li>
+     *   <li><b>The prefix matched too much and too little.</b> A bare
+     *       {@code startsWith} lets {@code /api/v1/purchasesX} through the
+     *       guard's intent, and misses nothing only by luck. Matching the
+     *       segment boundary is what was meant.</li>
+     * </ul>
+     *
+     * <p>Any request this cannot confidently classify is treated as protected.
+     * The cost of being wrong in that direction is a 401 on something harmless;
+     * the other direction serves every stall's debts to anyone.
+     */
+    private static boolean isProtected(HttpServletRequest http) {
+        String path = http.getRequestURI();
+        if (path == null) {
+            return true;
+        }
+
+        String context = http.getContextPath();
+        if (context != null && !context.isEmpty() && path.startsWith(context)) {
+            path = path.substring(context.length());
+        }
+
+        try {
+            // Decode repeatedly: a doubly-encoded path decodes to an encoded
+            // one, and a single pass would still miss it.
+            String previous;
+            int guard = 0;
+            do {
+                previous = path;
+                path = java.net.URLDecoder.decode(path, StandardCharsets.UTF_8);
+            } while (!path.equals(previous) && ++guard < 4);
+        } catch (IllegalArgumentException e) {
+            // Malformed encoding. Cannot be classified, so it is protected.
+            return true;
+        }
+
+        // Normalise so `/api/v1/purchases/../purchases/owed` and a trailing
+        // slash do not read as different surfaces.
+        path = path.replace('\\', '/');
+        while (path.contains("//")) {
+            path = path.replace("//", "/");
+        }
+
+        return path.equals(PROTECTED_PREFIX)
+                || path.startsWith(PROTECTED_PREFIX + "/")
+                || path.contains(PROTECTED_PREFIX + "/")
+                || path.endsWith(PROTECTED_PREFIX);
+    }
+
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
         HttpServletRequest http = (HttpServletRequest) request;
 
-        if (!http.getRequestURI().startsWith(PROTECTED_PREFIX)) {
+        if (!isProtected(http)) {
             chain.doFilter(request, response);
             return;
         }

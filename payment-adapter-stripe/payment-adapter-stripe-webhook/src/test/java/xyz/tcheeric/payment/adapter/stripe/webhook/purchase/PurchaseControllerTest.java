@@ -181,6 +181,58 @@ class PurchaseControllerTest {
     }
 
     @Test
+    void theFilterIsNotFooledByEncodingOrContextPaths() throws Exception {
+        // The guard reads the RAW uri, which carries percent-encoding and any
+        // context path. A request Spring routes to the controller by a path the
+        // naive startsWith did not recognise would have skipped the token
+        // entirely - reading every stall's outstanding sales unauthenticated.
+        PurchaseApiTokenFilter filter = new PurchaseApiTokenFilter(TOKEN);
+        when(request.getHeader("Authorization")).thenReturn(null);
+
+        String[] disguises = {
+            "/api/v1/%70urchases/owed",       // encoded 'p'
+            "/api/v1/%2570urchases/owed",     // doubly encoded
+            "/api/v1//purchases/owed",        // doubled slash
+            "/api/v1/purchases",              // bare, no trailing slash
+        };
+
+        for (String uri : disguises) {
+            when(request.getRequestURI()).thenReturn(uri);
+            filter.doFilter(request, response, chain);
+        }
+
+        verify(response, org.mockito.Mockito.times(disguises.length))
+                .sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        verify(chain, never()).doFilter(any(), any());
+    }
+
+    @Test
+    void theFilterProtectsBehindAContextPath() throws Exception {
+        // Deployed under a context path the uri is prefixed, and the guard
+        // would not recognise its own surface.
+        when(request.getRequestURI()).thenReturn("/adapter/api/v1/purchases/owed");
+        when(request.getContextPath()).thenReturn("/adapter");
+        when(request.getHeader("Authorization")).thenReturn(null);
+
+        new PurchaseApiTokenFilter(TOKEN).doFilter(request, response, chain);
+
+        verify(response).sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        verify(chain, never()).doFilter(any(), any());
+    }
+
+    @Test
+    void theFilterRefusesRatherThanGuessesOnMalformedEncoding() throws Exception {
+        // Cannot be classified, so it is protected. A 401 on something harmless
+        // costs a retry; the other direction serves debts to anyone.
+        when(request.getRequestURI()).thenReturn("/api/v1/purchases/%zz");
+        when(request.getHeader("Authorization")).thenReturn(null);
+
+        new PurchaseApiTokenFilter(TOKEN).doFilter(request, response, chain);
+
+        verify(response).sendError(HttpServletResponse.SC_UNAUTHORIZED);
+    }
+
+    @Test
     void theFilterLeavesTheWebhookAlone() throws Exception {
         // The webhook authenticates by Stripe signature and holds no bearer
         // token. Guarding it here would break the thing that feeds purchases.

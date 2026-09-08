@@ -90,7 +90,19 @@ public class PurchaseConfiguration {
     public FilterRegistrationBean<PurchaseApiTokenFilter> purchaseApiTokenFilter() {
         FilterRegistrationBean<PurchaseApiTokenFilter> registration = new FilterRegistrationBean<>();
         registration.setFilter(new PurchaseApiTokenFilter(apiToken));
-        registration.addUrlPatterns(PurchaseApiTokenFilter.PROTECTED_PREFIX + "/*");
+        /*
+         * Registered on EVERYTHING, and the filter decides.
+         *
+         * Registering on `/api/v1/purchases/*` looked tighter and was weaker:
+         * the container matches that pattern against the decoded servlet path,
+         * so a request the container routes to the controller by a path the
+         * pattern does not match never reaches the filter at all. A filter that
+         * is not invoked cannot refuse anything.
+         *
+         * Matching every request and returning early for the rest costs one
+         * string comparison and removes a whole class of bypass.
+         */
+        registration.addUrlPatterns("/*");
         return registration;
     }
 }
