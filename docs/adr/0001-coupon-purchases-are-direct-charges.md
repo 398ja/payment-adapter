@@ -25,6 +25,27 @@ built on top of it. It changes where money goes for every caller of the Stripe
 gateway, which is too large a consequence to arrive as a side effect of a
 coupon feature.
 
+## No stall ever hands over a Stripe key
+
+Worth stating because the opposite is the obvious reading of "the stall's own
+Stripe account". Acting on a connected account needs the **platform** key plus
+the account's **id**; `acct_...` is an identifier, not a credential. So there is
+no per-stall secret, and nowhere to put one:
+`MerchantStripeAccount` stores an account id, four status booleans, a default
+currency and outstanding requirements, and the only `secretKey` in the Stripe
+stack is `StripeGatewayProperties.secretKey`, which is Imani's own.
+
+The alternative — a stall pastes their Stripe secret key into settings — was
+rejected. It would make Imani custodian of full-access keys for every stall,
+which is a far larger prize than one platform key and forfeits the revocability
+Connect gives: a stall disconnects, and Imani's ability to act on their account
+ends with no secret to rotate.
+
+The honest cost: the platform key can act on **every** connected account, so a
+breach of it is a breach across all stalls. Inherent to Connect, unchanged by
+this decision, and the reason the key stays in one service with a narrow surface
+rather than being passed around.
+
 ## Consequences
 
 - **Disputes and refunds land on the stall**, because they are merchant of
