@@ -2,7 +2,6 @@ package xyz.tcheeric.payment.adapter.stripe.connect;
 
 import com.stripe.model.Account;
 import org.junit.jupiter.api.Test;
-import xyz.tcheeric.payment.adapter.stripe.gateway.config.StripeGatewayProperties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -11,9 +10,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <h2>The lie this closes</h2>
  *
- * <p>The snapshot used to copy Stripe's {@code charges_enabled} through
- * verbatim. Express accounts are granted {@code transfers} by default, and
- * transfers ALONE set that flag — so a real connected account looked like this:
+ * <p>Snapshots used to copy Stripe's {@code charges_enabled} through verbatim.
+ * Express accounts are granted {@code transfers} by default, and transfers
+ * ALONE set that flag — so a real connected account looked like this:
  *
  * <pre>
  * charges_enabled: true   payouts_enabled: true   details_submitted: true
@@ -33,13 +32,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Requesting the capability at creation ({@link StripeAccountCapabilitiesTest})
  * fixes new accounts. This fixes what we SAY about the accounts that already
  * exist without it, which no amount of correct creation code can reach.
+ *
+ * @see StripeAccountSnapshotConsistencyTest for the proof that BOTH snapshot
+ *     builders use this rule — the first version of this fix corrected only one
  */
 class StripeAccountChargesEnabledTest {
 
     /** THE BUG, exactly as observed live on acct_1UDZ7BQ0Rz45vDTA. */
     @Test
     void transfersOnlyAccountCannotTakeCards() {
-        assertThat(snapshot(true, "active", null).chargesEnabled())
+        assertThat(CardChargeCapability.canTakeCards(account(true, "active", null)))
                 .as("transfers alone set Stripe's flag; it cannot pay for a coupon")
                 .isFalse();
     }
@@ -47,7 +49,7 @@ class StripeAccountChargesEnabledTest {
     /** The account we actually want: chargeable, and card_payments granted. */
     @Test
     void activeCardPaymentsCanTakeCards() {
-        assertThat(snapshot(true, "active", "active").chargesEnabled()).isTrue();
+        assertThat(CardChargeCapability.canTakeCards(account(true, "active", "active"))).isTrue();
     }
 
     /**
@@ -57,8 +59,8 @@ class StripeAccountChargesEnabledTest {
      */
     @Test
     void pendingCardPaymentsIsNotYetReady() {
-        assertThat(snapshot(true, "active", "pending").chargesEnabled()).isFalse();
-        assertThat(snapshot(true, "active", "inactive").chargesEnabled()).isFalse();
+        assertThat(CardChargeCapability.canTakeCards(account(true, "active", "pending"))).isFalse();
+        assertThat(CardChargeCapability.canTakeCards(account(true, "active", "inactive"))).isFalse();
     }
 
     /**
@@ -68,7 +70,7 @@ class StripeAccountChargesEnabledTest {
      */
     @Test
     void stripeSayingNoStillWins() {
-        assertThat(snapshot(false, "active", "active").chargesEnabled()).isFalse();
+        assertThat(CardChargeCapability.canTakeCards(account(false, "active", "active"))).isFalse();
     }
 
     /** No capabilities object at all must not throw, and must not be ready. */
@@ -76,23 +78,16 @@ class StripeAccountChargesEnabledTest {
     void missingCapabilitiesIsNotReady() {
         Account account = new Account();
         account.setChargesEnabled(true);
-        assertThat(client().toSnapshot(account).chargesEnabled()).isFalse();
+        assertThat(CardChargeCapability.canTakeCards(account)).isFalse();
     }
 
-    /**
-     * The other fields keep reporting Stripe verbatim. Only the card question is
-     * narrowed, because {@code payoutsEnabled} and {@code detailsSubmitted} are
-     * used to explain onboarding progress and would become misleading in the
-     * opposite direction if they were forced false.
-     */
+    /** Nor may a null account, which a malformed webhook payload could produce. */
     @Test
-    void otherFieldsAreUntouched() {
-        StripeAccountSnapshot snapshot = snapshot(true, "active", null);
-        assertThat(snapshot.payoutsEnabled()).isTrue();
-        assertThat(snapshot.detailsSubmitted()).isTrue();
+    void nullAccountIsNotReady() {
+        assertThat(CardChargeCapability.canTakeCards(null)).isFalse();
     }
 
-    private StripeAccountSnapshot snapshot(boolean chargesEnabled, String transfers, String cardPayments) {
+    static Account account(boolean chargesEnabled, String transfers, String cardPayments) {
         Account account = new Account();
         account.setChargesEnabled(chargesEnabled);
         account.setPayoutsEnabled(true);
@@ -101,10 +96,6 @@ class StripeAccountChargesEnabledTest {
         capabilities.setTransfers(transfers);
         capabilities.setCardPayments(cardPayments);
         account.setCapabilities(capabilities);
-        return client().toSnapshot(account);
-    }
-
-    private StripeSdkConnectClient client() {
-        return new StripeSdkConnectClient(new StripeGatewayProperties());
+        return account;
     }
 }

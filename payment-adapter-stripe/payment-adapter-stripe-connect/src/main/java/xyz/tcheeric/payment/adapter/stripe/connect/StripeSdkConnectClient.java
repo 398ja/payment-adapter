@@ -55,37 +55,37 @@ public class StripeSdkConnectClient implements StripeConnectClient {
      * asks for nothing.
      */
     AccountCreateParams accountCreateParams(String merchantPubkey, String country) {
-            AccountCreateParams.Builder builder = AccountCreateParams.builder()
-                    .setType(AccountCreateParams.Type.EXPRESS)
-                    // CARD_PAYMENTS IS THE WHOLE POINT OF THIS ACCOUNT, and it
-                    // has to be asked for. Stripe requests no capability by
-                    // default, so an Express account created without this comes
-                    // back with `card_payments: unrequested` and Express's own
-                    // default `transfers: active` — which is enough to make
-                    // `charges_enabled` TRUE.
-                    //
-                    // That flag is the trap. The wallet reads it, shows the
-                    // stall as ready, publishes acceptsCards, and every shopper
-                    // gets a Buy button. The direct charge then fails inside
-                    // Stripe's own hosted checkout, at confirm, with a 400 —
-                    // after the buyer has typed their card. Nothing on our side
-                    // logs anything, because nothing on our side is called.
-                    //
-                    // Transfers alone cannot take a card. Requesting both is
-                    // what makes `charges_enabled` mean what every caller here
-                    // already assumes it means.
-                    .setCapabilities(AccountCreateParams.Capabilities.builder()
-                            .setCardPayments(AccountCreateParams.Capabilities.CardPayments.builder()
-                                    .setRequested(true)
-                                    .build())
-                            .setTransfers(AccountCreateParams.Capabilities.Transfers.builder()
-                                    .setRequested(true)
-                                    .build())
-                            .build())
-                    .putMetadata("merchant_pubkey", merchantPubkey);
-            if (country != null && !country.isBlank()) {
-                builder.setCountry(country.toUpperCase(Locale.ROOT));
-            }
+        AccountCreateParams.Builder builder = AccountCreateParams.builder()
+                .setType(AccountCreateParams.Type.EXPRESS)
+                // CARD_PAYMENTS IS THE WHOLE POINT OF THIS ACCOUNT, and it has
+                // to be asked for. Stripe requests no capability by default, so
+                // an Express account created without this comes back with
+                // `card_payments: unrequested` and Express's own default
+                // `transfers: active` — which is enough to make
+                // `charges_enabled` TRUE.
+                //
+                // That flag is the trap. The wallet reads it, shows the stall
+                // as ready, publishes acceptsCards, and every shopper gets a
+                // Buy button. The direct charge then fails inside Stripe's own
+                // hosted checkout, at confirm, with a 400 — after the buyer has
+                // typed their card. Nothing on our side logs anything, because
+                // nothing on our side is called.
+                //
+                // Transfers alone cannot take a card. Requesting both is what
+                // makes `charges_enabled` mean what every caller here already
+                // assumes it means.
+                .setCapabilities(AccountCreateParams.Capabilities.builder()
+                        .setCardPayments(AccountCreateParams.Capabilities.CardPayments.builder()
+                                .setRequested(true)
+                                .build())
+                        .setTransfers(AccountCreateParams.Capabilities.Transfers.builder()
+                                .setRequested(true)
+                                .build())
+                        .build())
+                .putMetadata("merchant_pubkey", merchantPubkey);
+        if (country != null && !country.isBlank()) {
+            builder.setCountry(country.toUpperCase(Locale.ROOT));
+        }
         return builder.build();
     }
 
@@ -224,7 +224,7 @@ public class StripeSdkConnectClient implements StripeConnectClient {
                 account.getMetadata() == null ? null : account.getMetadata().get("merchant_pubkey"),
                 account.getId(),
                 detailsSubmitted && currentlyDue.isEmpty(),
-                cardChargesEnabled(account),
+                CardChargeCapability.canTakeCards(account),
                 Boolean.TRUE.equals(account.getPayoutsEnabled()),
                 detailsSubmitted,
                 normalizeCurrency(account.getDefaultCurrency()),
@@ -235,35 +235,6 @@ public class StripeSdkConnectClient implements StripeConnectClient {
         );
     }
 
-    /**
-     * Whether this account can take A CARD, which is the only charge this
-     * platform ever makes.
-     *
-     * <p>NOT the same as Stripe's {@code charges_enabled}, and the difference
-     * shipped a bug. Express grants {@code transfers} by default, and transfers
-     * alone are enough to set that flag — so an account with
-     * {@code card_payments: unrequested} reported {@code charges_enabled: true},
-     * {@code payouts_enabled: true}, {@code details_submitted: true} and no
-     * outstanding requirements. Nothing anywhere looked wrong.
-     *
-     * <p>Every consumer of this field treats it as "can sell today": the wallet
-     * shows the stall as connected, the merchant mirror republishes
-     * {@code acceptsCards}, and shoppers get a Buy button. The truth only
-     * surfaced in Stripe's hosted checkout, as a 400 at confirm, in front of a
-     * buyer who had already entered their card.
-     *
-     * <p>Kept as a narrowing of Stripe's flag rather than a replacement: an
-     * account must still be chargeable AND hold the capability. Requesting the
-     * capability at creation is the fix; this is what stops the same lie being
-     * told by the accounts that already exist without it.
-     */
-    private boolean cardChargesEnabled(Account account) {
-        if (!Boolean.TRUE.equals(account.getChargesEnabled())) {
-            return false;
-        }
-        Account.Capabilities capabilities = account.getCapabilities();
-        return capabilities != null && "active".equals(capabilities.getCardPayments());
-    }
 
     private String normalizeCurrency(String currency) {
         return currency == null ? null : currency.toLowerCase(Locale.ROOT);
