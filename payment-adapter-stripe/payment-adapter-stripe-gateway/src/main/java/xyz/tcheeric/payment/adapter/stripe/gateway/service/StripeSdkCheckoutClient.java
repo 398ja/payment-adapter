@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import xyz.tcheeric.payment.adapter.stripe.gateway.config.StripeGatewayProperties;
 import xyz.tcheeric.payment.adapter.stripe.gateway.exception.StripeCheckoutCreationException;
 import xyz.tcheeric.payment.adapter.stripe.gateway.exception.StripeGatewayException;
+import xyz.tcheeric.payment.adapter.stripe.gateway.exception.StripeValidationException;
 import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripeCheckoutRequest;
 import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripeCheckoutSession;
 
@@ -17,30 +18,67 @@ public class StripeSdkCheckoutClient implements StripeCheckoutClient {
 
     private final StripeGatewayProperties properties;
 
-    private RequestOptions buildRequestOptions() {
-        return RequestOptions.builder()
+    /**
+     * Request options for one checkout, on the right account.
+     *
+     * <p>The platform key always signs; {@code Stripe-Account} decides whose
+     * money it is. Without it every session charges the PLATFORM, which is the
+     * shape this client had and the reason a coupon purchase could not be built
+     * on it: Imani would hold the funds and be merchant of record.
+     */
+    private RequestOptions buildRequestOptions(StripeCheckoutRequest checkoutRequest) {
+        // properties.requestOptions() carries the api-base when one is set, so a
+        // developer running against stripe-mock does not have SOME calls quietly
+        // reach real Stripe. See StripeGatewayProperties#requestOptions.
+        RequestOptions.RequestOptionsBuilder builder = properties.requestOptions()
                 .setApiKey(properties.getSecretKey())
-                .build();
+                .setIdempotencyKey(checkoutRequest.getIdempotencyKey());
+        if (checkoutRequest.isDirectCharge()) {
+            builder.setStripeAccount(checkoutRequest.getConnectedAccountId());
+        }
+        return builder.build();
     }
 
     @Override
     public StripeCheckoutSession createCheckoutSession(StripeCheckoutRequest checkoutRequest) {
         try {
-            SessionCreateParams params = SessionCreateParams.builder()
+            SessionCreateParams.Builder params = SessionCreateParams.builder()
                     .setMode(SessionCreateParams.Mode.PAYMENT)
                     .setSuccessUrl(properties.getSuccessUrl())
                     .setCancelUrl(properties.getCancelUrl())
                     .setExpiresAt(expirationEpochSeconds())
                     .setClientReferenceId(checkoutRequest.getQuoteId())
                     .putMetadata("quote_id", checkoutRequest.getQuoteId())
-                    .addLineItem(buildLineItem(checkoutRequest))
-                    .build();
+                    .addLineItem(buildLineItem(checkoutRequest));
 
-            RequestOptions requestOptions = buildRequestOptions().toBuilder()
-                    .setIdempotencyKey(checkoutRequest.getIdempotencyKey())
-                    .build();
+            // Caller-supplied metadata rides the session and comes back on the
+            // webhook, which is how a purchase names its buyer without a second
+            // lookup. Added after `quote_id` so a caller cannot overwrite the
+            // one field the settlement path reads.
+            if (checkoutRequest.getMetadata() != null) {
+                checkoutRequest.getMetadata().forEach((key, value) -> {
+                    if (!"quote_id".equals(key)) {
+                        params.putMetadata(key, value);
+                    }
+                });
+            }
 
-            return toCheckoutSession(Session.create(params, requestOptions));
+            // Only on a direct charge. Stripe rejects an application fee on a
+            // session that names no connected account, so asking for one
+            // without the other is a caller bug rather than a Stripe error to
+            // surface from deep inside the SDK.
+            if (checkoutRequest.getApplicationFeeMinor() != null) {
+                if (!checkoutRequest.isDirectCharge()) {
+                    throw new StripeValidationException(
+                            "Stripe applicationFeeMinor requires a connectedAccountId");
+                }
+                params.setPaymentIntentData(
+                        SessionCreateParams.PaymentIntentData.builder()
+                                .setApplicationFeeAmount(checkoutRequest.getApplicationFeeMinor())
+                                .build());
+            }
+
+            return toCheckoutSession(Session.create(params.build(), buildRequestOptions(checkoutRequest)));
         } catch (StripeException e) {
             throw new StripeCheckoutCreationException(checkoutRequest.getQuoteId(), checkoutRequest.getCurrency(), e);
         }
@@ -48,8 +86,27 @@ public class StripeSdkCheckoutClient implements StripeCheckoutClient {
 
     @Override
     public StripeCheckoutSession retrieveCheckoutSession(String sessionId) {
+        return retrieveCheckoutSession(sessionId, null);
+    }
+
+    /**
+     * Read a session back, from the account that owns it.
+     *
+     * <p>A session created on a connected account is NOT visible from the
+     * platform account: retrieving it without {@code Stripe-Account} answers
+     * "no such checkout session". So a caller holding a direct-charge session
+     * has to say whose it is, and the single-argument form remains correct for
+     * every platform charge.
+     */
+    @Override
+    public StripeCheckoutSession retrieveCheckoutSession(String sessionId, String connectedAccountId) {
         try {
-            return toCheckoutSession(Session.retrieve(sessionId, buildRequestOptions()));
+            RequestOptions.RequestOptionsBuilder builder = properties.requestOptions()
+                    .setApiKey(properties.getSecretKey());
+            if (connectedAccountId != null && !connectedAccountId.isBlank()) {
+                builder.setStripeAccount(connectedAccountId);
+            }
+            return toCheckoutSession(Session.retrieve(sessionId, builder.build()));
         } catch (StripeException e) {
             throw new StripeGatewayException("Failed to retrieve Stripe checkout session: " + sessionId, e);
         }

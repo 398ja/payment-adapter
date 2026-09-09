@@ -226,7 +226,13 @@ public class StripeConnectService {
                 account.getMetadata() == null ? null : account.getMetadata().get("merchant_pubkey"),
                 account.getId(),
                 detailsSubmitted && requirementsDue.isEmpty(),
-                Boolean.TRUE.equals(account.getChargesEnabled()),
+                // The same rule the API path uses, and it MUST be the same one.
+                // This snapshot is built from the `account.updated` webhook and
+                // goes straight into the database via saveSnapshot, so a raw
+                // `charges_enabled` here would overwrite a correct false with
+                // the old lie — on the event most likely to arrive right after
+                // onboarding. See CardChargeCapability for what the lie was.
+                CardChargeCapability.canTakeCards(account),
                 Boolean.TRUE.equals(account.getPayoutsEnabled()),
                 detailsSubmitted,
                 account.getDefaultCurrency(),

@@ -5,7 +5,7 @@
     <parent>
         <groupId>xyz.tcheeric</groupId>
         <artifactId>payment-adapter-stripe</artifactId>
-        <version>0.14.2</version>
+        <version>0.15.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -30,6 +30,12 @@
             <artifactId>payment-adapter-model</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Creating the Checkout Session a purchase starts with. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-stripe-gateway</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.stripe</groupId>
             <artifactId>stripe-java</artifactId>
@@ -37,6 +43,15 @@
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-context</artifactId>
+        </dependency>
+        <!--
+            Signing NIP-98 for the gateway's fulfilment check, which sits behind
+            the authenticated /api/v1/atomic prefix. Only an identity is needed:
+            this service asks one question and issues nothing.
+        -->
+        <dependency>
+            <groupId>xyz.tcheeric</groupId>
+            <artifactId>nostr-java-id</artifactId>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>

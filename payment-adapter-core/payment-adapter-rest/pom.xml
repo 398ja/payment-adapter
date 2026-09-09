@@ -5,12 +5,12 @@
     <parent>
         <groupId>xyz.tcheeric</groupId>
         <artifactId>payment-adapter-core</artifactId>
-        <version>0.14.2</version>
+        <version>0.15.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <groupId>xyz.tcheeric</groupId>
     <artifactId>payment-adapter-rest</artifactId>
-    <version>0.14.2</version>
+    <version>0.15.0</version>
     <name>payment-adapter-rest</name>
     <description>A simple JPA application to manage quotes and invoices</description>
     <url/>
@@ -88,6 +88,21 @@
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>payment-adapter-stripe-connect</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!--
+            The Stripe webhook handler AND everything the coupon purchase flow
+            lives in.
+
+            Not here originally, which meant none of it shipped: this is the
+            only Spring Boot application and the only jib image, so a module it
+            does not depend on is compiled, tested, and then left on the floor.
+            Every purchase endpoint answered 404 in a deployment while passing
+            its tests in CI.
+        -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-stripe-webhook</artifactId>
             <version>${project.version}</version>
         </dependency>
         <!--
