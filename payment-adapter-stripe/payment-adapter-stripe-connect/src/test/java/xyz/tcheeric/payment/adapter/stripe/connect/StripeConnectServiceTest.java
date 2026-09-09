@@ -135,6 +135,80 @@ class StripeConnectServiceTest {
         assertThat(response.requirementsDue()).containsExactly("individual.verification.document");
     }
 
+    /**
+     * A stored account id the current key cannot use must be REPLACED, not
+     * mourned.
+     *
+     * <p>This recovery already existed and had no test, which is how nobody
+     * noticed it never ran for the case that actually happens. Switching Stripe
+     * keys — mock to real, or one sandbox to another — leaves account ids in the
+     * database that the new key has no access to, and the screen answered
+     * "Failed to retrieve Stripe account: acct_..." forever with no way forward
+     * from the UI. The only fix was editing the database by hand.
+     *
+     * <p>The service is right; the mapping upstream was wrong. Stripe answers
+     * 403 `account_invalid` rather than 404 for an account it will not confirm
+     * exists, and only 404 was treated as recoverable. See
+     * StripeSdkConnectClient#isMissingOrInaccessible.
+     */
+    @Test
+    void createOrResumeReplacesAnAccountThisKeyCannotAccess() {
+        ConnectedStripeAccount existing = existingAccount();
+        StripeAccountSnapshot fresh = new StripeAccountSnapshot(
+                "merchant-123",
+                "acct_new",
+                false,
+                false,
+                false,
+                false,
+                "usd",
+                List.of("external_account"),
+                null,
+                "US",
+                "merchant@example.com");
+
+        when(accountRepository.findByMerchantPubkey("merchant-123"))
+                .thenReturn(Optional.of(existing))
+                .thenReturn(Optional.empty());
+        when(stripeConnectClient.retrieveAccount("acct_123"))
+                .thenThrow(StripeConnectException.accountNotFound("acct_123", null));
+        when(stripeConnectClient.createConnectedAccount(eq("merchant-123"), any())).thenReturn(fresh);
+        when(stripeConnectClient.createOnboardingLink(eq("acct_new"), any(), any()))
+                .thenReturn("https://connect.stripe.test/fresh");
+        when(accountRepository.save(any(ConnectedStripeAccount.class))).thenAnswer(i -> i.getArgument(0));
+
+        StripeConnectAccountResponse response = service.createOrResume("merchant-123", null, null);
+
+        // The stale row must GO. Left behind, the next call finds it again and
+        // the stall is stuck in the same loop.
+        verify(accountRepository).delete(existing);
+        assertThat(response.stripeAccountId()).isEqualTo("acct_new");
+        assertThat(response.onboardingUrl()).isEqualTo("https://connect.stripe.test/fresh");
+    }
+
+    /**
+     * Every OTHER failure must keep the account.
+     *
+     * <p>The counterweight to the test above, and the reason the 403 check is
+     * narrowed to `account_invalid` rather than any forbidden response. A
+     * transient outage, a rate limit or a revoked key must not be answered by
+     * abandoning a live connected account and silently opening a new one — the
+     * merchant's real account, with its payouts, would be orphaned by a blip.
+     */
+    @Test
+    void createOrResumeKeepsTheAccountWhenStripeFailsForAnotherReason() {
+        ConnectedStripeAccount existing = existingAccount();
+
+        when(accountRepository.findByMerchantPubkey("merchant-123")).thenReturn(Optional.of(existing));
+        when(stripeConnectClient.retrieveAccount("acct_123"))
+                .thenThrow(StripeConnectException.apiError("Stripe is having a bad day", null));
+
+        assertThrows(StripeConnectException.class, () -> service.createOrResume("merchant-123", null, null));
+
+        verify(accountRepository, never()).delete(any(ConnectedStripeAccount.class));
+        verify(stripeConnectClient, never()).createConnectedAccount(any(), any());
+    }
+
     @Test
     void createOrResumeRejectsOwnershipMismatch() {
         StripeAccountSnapshot snapshot = new StripeAccountSnapshot(

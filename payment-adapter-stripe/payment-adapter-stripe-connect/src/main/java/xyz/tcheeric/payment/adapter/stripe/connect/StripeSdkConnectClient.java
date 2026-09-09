@@ -57,12 +57,47 @@ public class StripeSdkConnectClient implements StripeConnectClient {
         try {
             return toSnapshot(Account.retrieve(stripeAccountId, requestOptions()));
         } catch (StripeException e) {
-            if (e.getStatusCode() != null && e.getStatusCode() == 404) {
+            logStripeFailure("retrieve_account", e);
+            // 404 is the obvious "gone". 403 with `account_invalid` is the SAME
+            // SITUATION seen through Stripe's privacy rules: it will not confirm
+            // whether an account it cannot show you exists at all, so a stored id
+            // this key has no access to comes back as forbidden rather than
+            // missing. Stripe's own message says "(or that account does not
+            // exist)".
+            //
+            // Treating only 404 as recoverable left a stall permanently broken
+            // after switching Stripe keys: StripeConnectService already deletes
+            // the row and creates a fresh account for ACCOUNT_NOT_FOUND, and that
+            // recovery simply never ran. Found by pointing a real sandbox key at
+            // a database holding stripe-mock's account ids — every call answered
+            // "Failed to retrieve Stripe account: acct_..." forever, with no way
+            // forward from the UI.
+            //
+            // The two cases deserve the same answer because the useful question
+            // is not "does it exist somewhere?" but "can this key act on it?" —
+            // and if it cannot, the stored id is useless either way.
+            if (isMissingOrInaccessible(e)) {
                 throw StripeConnectException.accountNotFound(stripeAccountId, e);
             }
-            logStripeFailure("retrieve_account", e);
             throw StripeConnectException.apiError("Failed to retrieve Stripe account: " + stripeAccountId, e);
         }
+    }
+
+    /**
+     * Whether Stripe is saying "that account is not yours to use".
+     *
+     * <p>Deliberately narrow on the 403: `account_invalid` is specifically an
+     * unknown-or-inaccessible connected account, whereas a bare 403 could be a
+     * revoked key or a permissions problem — recreating an account in response
+     * to THOSE would be wrong, quietly abandoning a real account that is merely
+     * temporarily unreachable.
+     */
+    private static boolean isMissingOrInaccessible(StripeException e) {
+        Integer status = e.getStatusCode();
+        if (status != null && status == 404) {
+            return true;
+        }
+        return status != null && status == 403 && "account_invalid".equals(e.getCode());
     }
 
     @Override
