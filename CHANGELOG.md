@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.15.0] - 2026-09-09
+
+Card purchases: a shopper buys a coupon from a stall, paying the stall directly.
+
+### Added
+- **Coupon purchases as direct charges on the stall's connected account.** The
+  platform key signs and `Stripe-Account` decides whose money it is, so the stall
+  is merchant of record and Imani never holds the funds. No stall hands over a
+  Stripe key (ADR).
+- **A purchase API that refuses before the card form.** `POST /api/v1/checkout/purchase`
+  answers "this stall does not take card payments", "cannot accept card payments yet"
+  or "has no currency configured" rather than letting a customer discover it at Stripe.
+  Public and unauthenticated, so it carries an amount ceiling.
+- **A paid purchase is recorded as a debt the issuer works off**, and discharged only
+  when the gateway confirms issuance. A failure leaves a recoverable debt rather than
+  a lost sale.
+- **The card flows run against `stripe-mock`** with no Stripe account at all, behind a
+  boot guard that refuses any api-base not naming a known local mock.
+
+### Fixed
+- **Connected accounts now ask Stripe for `card_payments`.** Accounts were created with
+  a type and a country and no capabilities, and Stripe requests none by default. Express
+  grants `transfers` on its own, and transfers ALONE set `charges_enabled` — so an
+  account reporting `charges_enabled: true`, `payouts_enabled: true`,
+  `details_submitted: true` and no requirements due could not accept a card. Every
+  signal said ready. The refusal arrived as a 400 inside Stripe's hosted checkout,
+  after a buyer had typed their card, with nothing logged here because nothing here
+  was called.
+- **`chargesEnabled` now means "can take a card today".** Narrowed to require an active
+  `card_payments` capability, in BOTH snapshot paths — the API client and the
+  `account.updated` webhook, the latter of which writes straight to the database and
+  would otherwise have restored the old lie on the event most likely to follow
+  onboarding. The rule lives once, in `CardChargeCapability`, and a test fails the
+  build if any other production file reads `charges_enabled` raw.
+- **The service refuses to start with Connect on and the gateway off.** Only
+  `stripe.connect.enabled` set meant a stall could connect, publish `acceptsCards`, and
+  every shopper hit a controller that was never registered. A 404 reached a customer
+  and the stall had no way to see it.
+- **A stored account id the current key cannot use is recovered from.** Real Stripe
+  answers 403 `account_invalid`, not 404, so the existing recovery never ran and
+  switching keys left every stall permanently broken with no route forward from the UI.
+- **Two ways past the purchase API's only guard are closed.** The filter read the raw
+  request URI and was registered on the protected prefix; both were weaker than they
+  looked.
+
 ## [0.14.2] - 2026-08-29
 
 ### Fixed
