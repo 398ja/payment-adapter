@@ -202,3 +202,37 @@
 2026-09-09T10:21:32.185+01 DEBUG x.t.p.a.c.client.AbstractBaseClient - Resolved gateway API base URL: http://localhost:8080
 2026-09-09T10:21:32.185+01 WARN  x.t.p.a.webhook.core.WebhookRegistry - Replaced existing handler for payment type: phoenixd
 2026-09-09T10:21:32.185+01 INFO  x.t.p.a.l.w.PhoenixWebhookHandlerConfiguration - phoenixd_webhook_handler registered_with_mint_forwarder enabled=false
+2026-09-11T18:41:44.890+01 INFO  x.t.p.a.l.w.PhoenixWebhookHandler - Processing phoenixd webhook: externalId=e32c04c5-10ee-4ee9-aab0-d6bfccc3812d, type=payment_received
+2026-09-11T18:41:44.944+01 INFO  x.t.p.a.l.w.PhoenixWebhookHandler - Processing phoenixd webhook: externalId=e32c04c5-10ee-4ee9-aab0-d6bfccc3812d, type=payment_received
+2026-09-11T18:41:44.945+01 INFO  x.t.p.a.l.w.PhoenixWebhookHandler - Incoming payment confirmed: quoteId=e32c04c5-10ee-4ee9-aab0-d6bfccc3812d amount=30 state=PAID
+2026-09-11T18:41:44.947+01 WARN  x.t.p.a.l.w.PhoenixWebhookHandler - Failed to forward payment to mint: quoteId=e32c04c5-10ee-4ee9-aab0-d6bfccc3812d, error=mint down
+2026-09-11T18:41:44.957+01 INFO  x.t.p.a.l.w.PhoenixWebhookHandler - Processing phoenixd webhook: externalId=e32c04c5-10ee-4ee9-aab0-d6bfccc3812d, type=payment_received
+2026-09-11T18:41:44.959+01 INFO  x.t.p.a.l.w.PhoenixWebhookHandler - Incoming payment confirmed: quoteId=e32c04c5-10ee-4ee9-aab0-d6bfccc3812d amount=30 state=PAID
+2026-09-11T18:41:45.184+01 DEBUG x.t.p.a.c.client.GatewayClientConfig - Resolved gateway client base URL: http://localhost:8080 (port=8080)
+2026-09-11T18:41:45.184+01 DEBUG x.t.p.a.c.client.AbstractBaseClient - Resolved gateway API base URL: http://localhost:8080
+2026-09-11T18:41:45.186+01 DEBUG x.t.p.a.c.client.GatewayClientConfig - Resolved gateway client base URL: http://localhost:8080 (port=8080)
+2026-09-11T18:41:45.186+01 DEBUG x.t.p.a.c.client.AbstractBaseClient - Resolved gateway API base URL: http://localhost:8080
+2026-09-11T18:41:45.188+01 DEBUG x.t.p.a.c.client.GatewayClientConfig - Resolved gateway client base URL: http://localhost:8080 (port=8080)
+2026-09-11T18:41:45.188+01 DEBUG x.t.p.a.c.client.AbstractBaseClient - Resolved gateway API base URL: http://localhost:8080
+2026-09-11T18:41:45.190+01 DEBUG x.t.p.a.c.client.GatewayClientConfig - Resolved gateway client base URL: http://localhost:8080 (port=8080)
+2026-09-11T18:41:45.190+01 DEBUG x.t.p.a.c.client.AbstractBaseClient - Resolved gateway API base URL: http://localhost:8080
+2026-09-11T18:41:45.190+01 INFO  x.t.p.a.webhook.core.WebhookRegistry - Registered webhook handler: type=phoenixd, class=xyz.tcheeric.payment.adapter.ln.webhook.PhoenixWebhookHandler
+2026-09-11T18:41:45.190+01 INFO  x.t.p.a.webhook.core.WebhookRegistry - Loaded 1 webhook handlers via ServiceLoader
+2026-09-11T18:41:45.190+01 WARN  x.t.p.a.webhook.core.WebhookRegistry - Replaced existing handler for payment type: phoenixd
+2026-09-11T18:41:45.190+01 INFO  x.t.p.a.l.w.PhoenixWebhookHandlerConfiguration - phoenixd_webhook_handler registered_with_mint_forwarder enabled=true
+2026-09-11T18:41:45.196+01 DEBUG x.t.p.a.c.client.GatewayClientConfig - Resolved gateway client base URL: http://localhost:8080 (port=8080)
+2026-09-11T18:41:45.197+01 DEBUG x.t.p.a.c.client.AbstractBaseClient - Resolved gateway API base URL: http://localhost:8080
+2026-09-11T18:41:45.199+01 DEBUG x.t.p.a.c.client.GatewayClientConfig - Resolved gateway client base URL: http://localhost:8080 (port=8080)
+2026-09-11T18:41:45.199+01 DEBUG x.t.p.a.c.client.AbstractBaseClient - Resolved gateway API base URL: http://localhost:8080
+2026-09-11T18:41:45.205+01 DEBUG x.t.p.a.c.client.GatewayClientConfig - Resolved gateway client base URL: http://localhost:8080 (port=8080)
+2026-09-11T18:41:45.206+01 DEBUG x.t.p.a.c.client.AbstractBaseClient - Resolved gateway API base URL: http://localhost:8080
+2026-09-11T18:41:45.208+01 DEBUG x.t.p.a.c.client.GatewayClientConfig - Resolved gateway client base URL: http://localhost:8080 (port=8080)
+2026-09-11T18:41:45.208+01 DEBUG x.t.p.a.c.client.AbstractBaseClient - Resolved gateway API base URL: http://localhost:8080
+2026-09-11T18:41:45.208+01 WARN  x.t.p.a.webhook.core.WebhookRegistry - Replaced existing handler for payment type: phoenixd
+2026-09-11T18:41:45.208+01 INFO  x.t.p.a.l.w.PhoenixWebhookHandlerConfiguration - phoenixd_webhook_handler registered_with_mint_forwarder enabled=false
+2026-09-11T18:41:45.210+01 DEBUG x.t.p.a.c.client.GatewayClientConfig - Resolved gateway client base URL: http://localhost:8080 (port=8080)
+2026-09-11T18:41:45.210+01 DEBUG x.t.p.a.c.client.AbstractBaseClient - Resolved gateway API base URL: http://localhost:8080
+2026-09-11T18:41:45.212+01 DEBUG x.t.p.a.c.client.GatewayClientConfig - Resolved gateway client base URL: http://localhost:8080 (port=8080)
+2026-09-11T18:41:45.212+01 DEBUG x.t.p.a.c.client.AbstractBaseClient - Resolved gateway API base URL: http://localhost:8080
+2026-09-11T18:41:45.212+01 WARN  x.t.p.a.webhook.core.WebhookRegistry - Replaced existing handler for payment type: phoenixd
+2026-09-11T18:41:45.212+01 INFO  x.t.p.a.l.w.PhoenixWebhookHandlerConfiguration - phoenixd_webhook_handler registered_with_mint_forwarder enabled=false
