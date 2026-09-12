@@ -54,11 +54,16 @@
 
         <!-- Dependency versions -->
         <spring-boot.version>3.5.5</spring-boot.version>
-        <imani-bom.version>0.1.73</imani-bom.version>
+        <imani-bom.version>0.1.75</imani-bom.version>
         <postgresql.version>42.7.7</postgresql.version>
         <h2.version>2.2.224</h2.version>
         <lombok.version>1.18.40</lombok.version>
-        <logback.version>1.5.18</logback.version>
+        <!-- Deliberately NOT set: Spring Boot (via imani-bom) versions
+             logback, and versions BOTH halves of the pair together. Pinning
+             logback-classic here while logback-core came from Boot split them
+             (1.5.18 against 1.5.34) and every Spring context load threw
+             NoSuchMethodError: LoggerContext.initCollisionMaps().
+        <logback.version>1.5.18</logback.version> -->
         <testcontainers.version>1.20.4</testcontainers.version>
         <awaitility.version>4.2.2</awaitility.version>
         <wiremock.version>3.9.1</wiremock.version>
@@ -165,12 +170,8 @@
                 <scope>provided</scope>
             </dependency>
 
-            <!-- Logging Dependencies -->
-            <dependency>
-                <groupId>ch.qos.logback</groupId>
-                <artifactId>logback-classic</artifactId>
-                <version>${logback.version}</version>
-            </dependency>
+            <!-- Logging: logback-classic/-core are versioned together by the
+                 Spring Boot import; see the logback.version note above. -->
 
             <!-- External Tool Dependencies -->
             <dependency>
