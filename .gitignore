@@ -55,3 +55,4 @@ build/
 
 /payment-adapter-stripe/payment-adapter-stripe-connect/logs/
 /specs/
+/payment-adapter-ln/payment-adapter-ln-webhook/logs/
