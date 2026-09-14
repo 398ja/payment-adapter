@@ -87,6 +87,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Inherits dependency versions from `imani-bom` 0.1.77 (was 0.1.76), which carries the
+  2026-09-13 AppSec remediation: `imani-security` 0.2.0, `imani-gateway-api` 0.8.0 and
+  wallet-lib 0.2.0. See `imani-docs/security/appsec-2026-09-13/` for the register of findings.
+
 ### Fixed
 
 - `/actuator/prometheus` no longer returns 404. The Prometheus registry has been
