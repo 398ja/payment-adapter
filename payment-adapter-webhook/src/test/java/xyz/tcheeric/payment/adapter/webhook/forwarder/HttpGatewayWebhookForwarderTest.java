@@ -100,4 +100,36 @@ class HttpGatewayWebhookForwarderTest {
         assertEquals(expected, signature,
                 "signature must cover <timestamp>.<body>, which is what gateway-core verifies");
     }
+
+    /**
+     * The timestamp is the current time, not merely a well-formed integer.
+     *
+     * <p>Both validators refuse a timestamp outside a tolerance window, so a constant would be
+     * rejected in production exactly as a missing one is. Asserting only {@code [0-9]+} does not
+     * catch that: hardcoding the value to "0" passes a digits-only check and fails against a real
+     * validator. Pinning the clock is what makes the assertion meaningful.
+     */
+    @Test
+    void notifyPaymentConfirmed_shouldSendTheCurrentTimeAsTheTimestamp() {
+        java.time.Instant pinned = java.time.Instant.ofEpochSecond(1_700_000_000L);
+        HttpGatewayWebhookForwarder pinnedForwarder =
+                new HttpGatewayWebhookForwarder(java.time.Clock.fixed(pinned, java.time.ZoneOffset.UTC));
+        copyConfigurationTo(pinnedForwarder);
+        stubFor(post(urlEqualTo("/internal/webhook/payment")).willReturn(aResponse().withStatus(200)));
+
+        pinnedForwarder.notifyPaymentConfirmed(
+                PaymentNotification.forBolt11("quote123", 1000, "preimage456"));
+
+        verify(postRequestedFor(urlEqualTo("/internal/webhook/payment"))
+                .withHeader("X-Webhook-Timestamp", equalTo("1700000000")));
+    }
+
+    /** Copies the reflection-set configuration onto another forwarder instance. */
+    private void copyConfigurationTo(HttpGatewayWebhookForwarder target) {
+        for (String field : new String[] {"enabled", "gatewayWebhookUrl", "webhookSecret",
+                "timeoutMs", "maxRetryAttempts", "initialDelayMs", "retryMultiplier"}) {
+            ReflectionTestUtils.setField(target, field,
+                    ReflectionTestUtils.getField(forwarder, field));
+        }
+    }
 }
