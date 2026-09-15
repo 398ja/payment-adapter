@@ -14,6 +14,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.concurrent.TimeUnit;
@@ -58,7 +59,15 @@ public class HttpMintWebhookForwarder implements MintWebhookForwarder {
 
     private final HttpClient httpClient;
 
+    /** Source of the webhook timestamp. Injectable so a test can pin it. */
+    private final Clock clock;
+
     public HttpMintWebhookForwarder() {
+        this(Clock.systemUTC());
+    }
+
+    HttpMintWebhookForwarder(Clock clock) {
+        this.clock = clock;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(5000))
                 .build();
@@ -125,10 +134,21 @@ public class HttpMintWebhookForwarder implements MintWebhookForwarder {
                 .timeout(Duration.ofMillis(timeoutMs))
                 .POST(HttpRequest.BodyPublishers.ofString(payload));
 
-        // Add signature if secret is configured
+        // Sign the timestamp together with the body, and send the timestamp alongside.
+        //
+        // The mint has required X-Webhook-Timestamp since cashu-mint b43a45ab and rejects a
+        // webhook without one: "Webhook timestamp missing and require-timestamp=true" -> 401.
+        // Until this change the adapter sent only X-Webhook-Signature, so every payment
+        // notification was refused and vouchers stayed UNFUNDED however many times we retried.
+        //
+        // The timestamp MUST be inside the signed material. Sending it as a bare header would
+        // let anyone replay a captured request by editing it, which is the attack the mint's
+        // window is there to stop. The signed form is "<unix-seconds>.<body>".
         if (webhookSecret != null && !webhookSecret.isBlank()) {
-            String signature = computeSignature(payload);
+            String timestamp = Long.toString(clock.instant().getEpochSecond());
+            String signature = computeSignature(timestamp + "." + payload);
             requestBuilder.header("X-Webhook-Signature", signature);
+            requestBuilder.header("X-Webhook-Timestamp", timestamp);
         }
 
         HttpRequest request = requestBuilder.build();

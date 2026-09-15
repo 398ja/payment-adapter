@@ -141,6 +141,63 @@ class HttpMintWebhookForwarderTest {
                 .withHeader("X-Webhook-Signature", matching(".+")));
     }
 
+    /**
+     * The mint requires X-Webhook-Timestamp and refuses the webhook without it.
+     *
+     * <p>Until this was fixed the adapter sent only the signature, so every payment
+     * notification came back 401 "Invalid signature" and vouchers stayed UNFUNDED however many
+     * times the forwarder retried. The mint's log named the cause exactly: "Webhook timestamp
+     * missing and cashu.mint.webhook.require-timestamp=true".
+     */
+    @Test
+    void notifyPaymentReceived_shouldSendTheTimestampHeaderTheMintRequires() {
+        ReflectionTestUtils.setField(forwarder, "webhookSecret", "mysecret");
+        stubFor(post(urlEqualTo("/webhook/payment")).willReturn(aResponse().withStatus(200)));
+
+        forwarder.notifyPaymentReceived(
+                PaymentNotification.forBolt11("quote123", 1000, "preimage456"));
+
+        verify(postRequestedFor(urlEqualTo("/webhook/payment"))
+                .withHeader("X-Webhook-Timestamp", matching("[0-9]+")));
+    }
+
+    /**
+     * The signature covers "&lt;timestamp&gt;.&lt;body&gt;", not the body alone.
+     *
+     * <p>This is the half that is easy to get wrong and impossible to see from a passing
+     * header assertion: sending the timestamp as a bare header, with the MAC still computed
+     * over the body only, would satisfy the test above and still be rejected by the mint --
+     * and would leave the replay window the timestamp exists to close, since an attacker could
+     * edit the header without invalidating the signature.
+     *
+     * <p>Recomputed here with the mint's own construction rather than the adapter's, so the two
+     * cannot drift into agreeing with each other while both being wrong.
+     */
+    @Test
+    void notifyPaymentReceived_shouldSignTheTimestampTogetherWithTheBody() throws Exception {
+        String secret = "mysecret";
+        ReflectionTestUtils.setField(forwarder, "webhookSecret", secret);
+        stubFor(post(urlEqualTo("/webhook/payment")).willReturn(aResponse().withStatus(200)));
+
+        forwarder.notifyPaymentReceived(
+                PaymentNotification.forBolt11("quote123", 1000, "preimage456"));
+
+        com.github.tomakehurst.wiremock.http.Request sent =
+                findAll(postRequestedFor(urlEqualTo("/webhook/payment"))).get(0);
+        String timestamp = sent.getHeader("X-Webhook-Timestamp");
+        String signature = sent.getHeader("X-Webhook-Signature");
+
+        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+        mac.init(new javax.crypto.spec.SecretKeySpec(
+                secret.getBytes(java.nio.charset.StandardCharsets.UTF_8), "HmacSHA256"));
+        String expected = java.util.Base64.getEncoder().encodeToString(
+                mac.doFinal((timestamp + "." + sent.getBodyAsString())
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+        assertEquals(expected, signature,
+                "signature must cover <timestamp>.<body>, which is what the mint verifies");
+    }
+
     @Test
     void isEnabled_shouldReturnConfiguredValue() {
         // Given
