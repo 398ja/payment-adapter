@@ -134,22 +134,9 @@ public class HttpMintWebhookForwarder implements MintWebhookForwarder {
                 .timeout(Duration.ofMillis(timeoutMs))
                 .POST(HttpRequest.BodyPublishers.ofString(payload));
 
-        // Sign the timestamp together with the body, and send the timestamp alongside.
-        //
-        // The mint has required X-Webhook-Timestamp since cashu-mint b43a45ab and rejects a
-        // webhook without one: "Webhook timestamp missing and require-timestamp=true" -> 401.
-        // Until this change the adapter sent only X-Webhook-Signature, so every payment
-        // notification was refused and vouchers stayed UNFUNDED however many times we retried.
-        //
-        // The timestamp MUST be inside the signed material. Sending it as a bare header would
-        // let anyone replay a captured request by editing it, which is the attack the mint's
-        // window is there to stop. The signed form is "<unix-seconds>.<body>".
-        if (webhookSecret != null && !webhookSecret.isBlank()) {
-            String timestamp = Long.toString(clock.instant().getEpochSecond());
-            String signature = computeSignature(timestamp + "." + payload);
-            requestBuilder.header("X-Webhook-Signature", signature);
-            requestBuilder.header("X-Webhook-Timestamp", timestamp);
-        }
+        // One implementation of the signed-webhook contract for both forwarders; see
+        // SignedWebhookHeaders for why it is not inlined here.
+        SignedWebhookHeaders.apply(requestBuilder, payload, webhookSecret, clock);
 
         HttpRequest request = requestBuilder.build();
 
@@ -170,17 +157,4 @@ public class HttpMintWebhookForwarder implements MintWebhookForwarder {
         return MAPPER.writeValueAsString(notification);
     }
 
-    private String computeSignature(String payload) {
-        try {
-            Mac mac = Mac.getInstance("HmacSHA256");
-            SecretKeySpec secretKeySpec = new SecretKeySpec(
-                    webhookSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-            mac.init(secretKeySpec);
-            byte[] hash = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
-            return Base64.getEncoder().encodeToString(hash);
-        } catch (Exception e) {
-            log.error("Failed to compute webhook signature", e);
-            throw new RuntimeException("Failed to compute signature", e);
-        }
-    }
 }

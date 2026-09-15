@@ -137,18 +137,9 @@ public class HttpGatewayWebhookForwarder implements GatewayWebhookForwarder {
                 .timeout(Duration.ofMillis(timeoutMs))
                 .POST(HttpRequest.BodyPublishers.ofString(payload));
 
-        // Same contract as the mint forwarder: gateway-core's PaymentWebhookValidator requires
-        // X-Webhook-Timestamp unconditionally and verifies the MAC over "<unix-seconds>.<body>".
-        // Sending the signature alone is refused with reason=missing_timestamp.
-        //
-        // The timestamp is inside the signed material. As a bare header it could be edited and
-        // the request replayed, which is what the validator's window exists to prevent.
-        if (webhookSecret != null && !webhookSecret.isBlank()) {
-            String timestamp = Long.toString(clock.instant().getEpochSecond());
-            String signature = computeSignature(timestamp + "." + payload);
-            requestBuilder.header("X-Webhook-Signature", signature);
-            requestBuilder.header("X-Webhook-Timestamp", timestamp);
-        }
+        // One implementation of the signed-webhook contract for both forwarders; see
+        // SignedWebhookHeaders for why it is not inlined here.
+        SignedWebhookHeaders.apply(requestBuilder, payload, webhookSecret, clock);
 
         HttpRequest request = requestBuilder.build();
 
@@ -165,17 +156,4 @@ public class HttpGatewayWebhookForwarder implements GatewayWebhookForwarder {
         return false;
     }
 
-    private String computeSignature(String payload) {
-        try {
-            Mac mac = Mac.getInstance("HmacSHA256");
-            SecretKeySpec secretKeySpec = new SecretKeySpec(
-                    webhookSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-            mac.init(secretKeySpec);
-            byte[] hash = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
-            return Base64.getEncoder().encodeToString(hash);
-        } catch (Exception e) {
-            log.error("Failed to compute webhook signature", e);
-            throw new RuntimeException("Failed to compute signature", e);
-        }
-    }
 }
