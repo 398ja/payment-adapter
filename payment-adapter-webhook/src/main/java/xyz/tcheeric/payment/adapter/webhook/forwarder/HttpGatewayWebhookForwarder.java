@@ -14,6 +14,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.concurrent.TimeUnit;
@@ -61,7 +62,15 @@ public class HttpGatewayWebhookForwarder implements GatewayWebhookForwarder {
 
     private final HttpClient httpClient;
 
+    /** Source of the webhook timestamp. Injectable so a test can pin it. */
+    private final Clock clock;
+
     public HttpGatewayWebhookForwarder() {
+        this(Clock.systemUTC());
+    }
+
+    HttpGatewayWebhookForwarder(Clock clock) {
+        this.clock = clock;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(5000))
                 .build();
@@ -128,10 +137,9 @@ public class HttpGatewayWebhookForwarder implements GatewayWebhookForwarder {
                 .timeout(Duration.ofMillis(timeoutMs))
                 .POST(HttpRequest.BodyPublishers.ofString(payload));
 
-        if (webhookSecret != null && !webhookSecret.isBlank()) {
-            String signature = computeSignature(payload);
-            requestBuilder.header("X-Webhook-Signature", signature);
-        }
+        // One implementation of the signed-webhook contract for both forwarders; see
+        // SignedWebhookHeaders for why it is not inlined here.
+        SignedWebhookHeaders.apply(requestBuilder, payload, webhookSecret, clock);
 
         HttpRequest request = requestBuilder.build();
 
@@ -148,17 +156,4 @@ public class HttpGatewayWebhookForwarder implements GatewayWebhookForwarder {
         return false;
     }
 
-    private String computeSignature(String payload) {
-        try {
-            Mac mac = Mac.getInstance("HmacSHA256");
-            SecretKeySpec secretKeySpec = new SecretKeySpec(
-                    webhookSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-            mac.init(secretKeySpec);
-            byte[] hash = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
-            return Base64.getEncoder().encodeToString(hash);
-        } catch (Exception e) {
-            log.error("Failed to compute webhook signature", e);
-            throw new RuntimeException("Failed to compute signature", e);
-        }
-    }
 }
