@@ -14,6 +14,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.concurrent.TimeUnit;
@@ -61,7 +62,15 @@ public class HttpGatewayWebhookForwarder implements GatewayWebhookForwarder {
 
     private final HttpClient httpClient;
 
+    /** Source of the webhook timestamp. Injectable so a test can pin it. */
+    private final Clock clock;
+
     public HttpGatewayWebhookForwarder() {
+        this(Clock.systemUTC());
+    }
+
+    HttpGatewayWebhookForwarder(Clock clock) {
+        this.clock = clock;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(5000))
                 .build();
@@ -128,9 +137,17 @@ public class HttpGatewayWebhookForwarder implements GatewayWebhookForwarder {
                 .timeout(Duration.ofMillis(timeoutMs))
                 .POST(HttpRequest.BodyPublishers.ofString(payload));
 
+        // Same contract as the mint forwarder: gateway-core's PaymentWebhookValidator requires
+        // X-Webhook-Timestamp unconditionally and verifies the MAC over "<unix-seconds>.<body>".
+        // Sending the signature alone is refused with reason=missing_timestamp.
+        //
+        // The timestamp is inside the signed material. As a bare header it could be edited and
+        // the request replayed, which is what the validator's window exists to prevent.
         if (webhookSecret != null && !webhookSecret.isBlank()) {
-            String signature = computeSignature(payload);
+            String timestamp = Long.toString(clock.instant().getEpochSecond());
+            String signature = computeSignature(timestamp + "." + payload);
             requestBuilder.header("X-Webhook-Signature", signature);
+            requestBuilder.header("X-Webhook-Timestamp", timestamp);
         }
 
         HttpRequest request = requestBuilder.build();
