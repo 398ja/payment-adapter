@@ -18,6 +18,24 @@
 --     seven known stranded payments; leaving them NULL keeps them visible. The sweep's grace
 --     period is what stops it re-delivering the entire historical table on first run.
 --
+-- ON EXISTING DEPLOYMENTS, READ THIS BEFORE ENABLING THE SWEEP.
+--
+-- Leaving every historical row NULL means the gauge reads the whole PAID backlog, not the
+-- stranded part of it. Measured on staging: 218 PAID quotes, of which the mint demonstrably
+-- received 130 — so the gauge would report 218 and the sweep, if enabled, would re-deliver 130
+-- payments that already arrived. The mint answers those `duplicate` and nothing is double-spent,
+-- but an alert that opens at 218 when 7 are wrong is an alert nobody will read twice.
+--
+-- The honest back-fill is a cross-service reconciliation, not a SQL default: for each PAID
+-- quote, stamp mint_notified_at if and only if cashu_mint.webhook_event holds an `accepted`
+-- row for that quote_id. That is a one-off operator step against two databases, which is why
+-- it is not attempted here — a migration in this repo cannot see the mint's tables, and
+-- guessing in either direction is worse than doing nothing.
+--
+-- Until it is run: `mint.webhook.reconcile.enabled` stays false (its default), and the gauge
+-- should be read as "PAID rows with no forward recorded since V11", which on a fresh
+-- deployment is exactly right and on an existing one is an upper bound.
+--
 -- The `quote` table is managed by Hibernate ddl-auto, not by an earlier Flyway migration,
 -- and Flyway runs first — so on a fresh database this is a no-op and Hibernate creates the
 -- table already carrying the column. Same guard as V6 for the same reason.
@@ -25,8 +43,9 @@
 -- Idempotent via IF NOT EXISTS so re-runs are safe.
 ALTER TABLE IF EXISTS quote ADD COLUMN IF NOT EXISTS mint_notified_at TIMESTAMP;
 
--- The sweep and the gauge both ask the same question: which PAID quotes have no forward
--- recorded? Without this they scan the whole table every minute, and `quote` grows without
--- bound (4374 PENDING rows on staging already).
-CREATE INDEX IF NOT EXISTS idx_quote_paid_unforwarded
-    ON quote (state, mint_notified_at);
+-- The supporting index is declared on the entity's @Table(indexes = ...) rather than here.
+-- Flyway runs BEFORE Hibernate, so on a fresh database `quote` does not exist yet and a
+-- CREATE INDEX at this point fails with "Table QUOTE not found" — H2 has no
+-- CREATE INDEX ... ON IF EXISTS. Declaring it on the entity gets it created with the table on
+-- a fresh database and added by ddl-auto on an existing one, which covers both cases without
+-- a guard that H2 does not offer.

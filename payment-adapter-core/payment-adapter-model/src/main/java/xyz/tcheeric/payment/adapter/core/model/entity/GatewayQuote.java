@@ -30,7 +30,13 @@ import java.time.Instant;
 @Data
 @Entity(name = "quote")
 @Table(indexes = {
-        @Index(name = "idx_gatewayquote_quote_id", columnList = "quote_id")
+        @Index(name = "idx_gatewayquote_quote_id", columnList = "quote_id"),
+        // 398ja/cashu-mint#462 — the sweep and the gauge both ask "which PAID quotes have no
+        // forward recorded?" every minute, and this table grows without bound (4374 PENDING
+        // rows on staging already). Declared here rather than in V11 because Flyway runs before
+        // Hibernate, so on a fresh database the table does not exist yet and H2 offers no
+        // CREATE INDEX ... ON IF EXISTS.
+        @Index(name = "idx_quote_paid_unforwarded", columnList = "state, mint_notified_at")
 })
 @NoArgsConstructor
 public class GatewayQuote implements GatewayEntity {
