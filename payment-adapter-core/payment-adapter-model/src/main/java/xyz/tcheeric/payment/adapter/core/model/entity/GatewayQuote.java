@@ -71,6 +71,25 @@ public class GatewayQuote implements GatewayEntity {
     @Column(name = "created_at")
     private Instant createdAt;
 
+    /**
+     * When the mint was successfully told this quote was paid, or {@code null} if it never was
+     * (issue 398ja/cashu-mint#462).
+     *
+     * <p>Forwarding used to be best-effort and left no trace: the forwarder retried three times,
+     * logged an error and returned a boolean the caller discarded. A settled payment the mint
+     * never heard about was therefore indistinguishable from one it did, and seven such quotes
+     * accumulated on staging — one of them a mint quote still reading {@code UNPAID} while the
+     * adapter held the customer's money.
+     *
+     * <p>{@code null} on a {@code PAID} quote is the whole signal: money taken, mint not told.
+     * It is what {@code PaidQuoteForwardReconciler} sweeps and what
+     * {@code payment_adapter_paid_unforwarded} counts. Nullable by necessity — every row that
+     * predates this column has an unknown forwarding state, and the grace period keeps those
+     * out of the sweep's reach rather than pretending to know.
+     */
+    @Column(name = "mint_notified_at")
+    private Instant mintNotifiedAt;
+
     @PrePersist
     void onCreate() {
         if (this.createdAt == null) {

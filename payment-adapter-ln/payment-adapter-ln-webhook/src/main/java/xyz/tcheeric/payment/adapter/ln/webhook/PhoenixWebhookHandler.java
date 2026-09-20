@@ -17,6 +17,8 @@ import xyz.tcheeric.payment.adapter.webhook.forwarder.PaymentNotification;
 import xyz.tcheeric.payment.adapter.webhook.spi.WebhookHandler;
 import xyz.tcheeric.payment.adapter.webhook.spi.WebhookResult;
 
+import java.time.Instant;
+
 /**
  * Webhook handler for Phoenixd Lightning node webhooks.
  * Processes payment_received events from phoenixd.
@@ -153,7 +155,7 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
         log.info("Payment confirmed: paymentId={}, quoteId={}",
                 payment.getPaymentId(), quote.getQuoteId());
 
-        forwardToMint(quote.getQuoteId(), payload);
+        forwardToMint(quote, payload);
 
         return WebhookResult.success(payment.getPaymentId(), State.CONFIRMED);
     }
@@ -182,24 +184,67 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
         log.info("Incoming payment confirmed: quoteId={} amount={} state={}",
                 quote.getQuoteId(), payload.amountSat(), quote.getState());
 
-        forwardToMint(quote.getQuoteId(), payload);
+        forwardToMint(quote, payload);
 
         return WebhookResult.success(quote.getQuoteId(), State.CONFIRMED);
     }
 
     /**
-     * Tells the mint a payment arrived. Best-effort: the payment has happened either way, and
-     * failing the webhook would have phoenixd retry a payment that is already settled.
+     * Tells the mint a payment arrived, and records whether it worked.
+     *
+     * <p>Still best-effort towards phoenixd, and deliberately so: the payment has settled either
+     * way, and failing this webhook would have phoenixd retry a payment that is already done.
+     *
+     * <p>What changed (398ja/cashu-mint#462) is that "best-effort" no longer means "and then
+     * forget". The forwarder already retried three times and returned a boolean saying whether
+     * the mint heard; that boolean was discarded, so a payment the mint never learned about was
+     * indistinguishable from one it did. Seven such quotes accumulated on staging — money taken,
+     * nothing issued, no row anywhere recording the gap.
+     *
+     * <p>A successful forward is now stamped on the quote. A failed one leaves
+     * {@code mintNotifiedAt} null, which is what {@code PaidQuoteForwardReconciler} re-delivers
+     * and {@code payment_adapter_paid_unforwarded} counts. The mint's webhook is idempotent on
+     * {@code (provider, provider_event_id)}, so a later re-delivery of something that did arrive
+     * is classified {@code duplicate} and costs nothing.
      */
-    private void forwardToMint(String quoteId, PhoenixWebhookPayload payload) {
+    private void forwardToMint(GatewayQuote quote, PhoenixWebhookPayload payload) {
+        String quoteId = quote.getQuoteId();
         if (mintForwarder == null || !mintForwarder.isEnabled()) {
             return;
         }
         try {
-            mintForwarder.notifyPaymentReceived(PaymentNotification.forBolt11(
+            boolean delivered = mintForwarder.notifyPaymentReceived(PaymentNotification.forBolt11(
                     quoteId, payload.amountSat(), payload.paymentHash()));
-        } catch (Exception e) {
-            log.warn("Failed to forward payment to mint: quoteId={}, error={}", quoteId, e.getMessage());
+            if (delivered) {
+                recordMintNotified(quote);
+            } else {
+                // The forwarder has already exhausted its retries and logged why. This line is
+                // the one that says the money is now stranded until something sweeps it.
+                log.error("[alert] mint_not_notified quote_id={} amount={} — payment settled and "
+                                + "the mint was not told; left for PaidQuoteForwardReconciler",
+                        quoteId, payload.amountSat());
+            }
+        } catch (RuntimeException e) {
+            log.error("[alert] mint_not_notified quote_id={} — payment settled, forward threw; "
+                    + "left for PaidQuoteForwardReconciler", quoteId, e);
+        }
+    }
+
+    /**
+     * Stamps the quote as forwarded.
+     *
+     * <p>A failure here is logged rather than thrown: the mint already has the payment, so the
+     * worst case is that the reconciler re-delivers it later and the mint answers
+     * {@code duplicate}. Losing the webhook response over a bookkeeping write would be the more
+     * expensive mistake.
+     */
+    private void recordMintNotified(GatewayQuote quote) {
+        try {
+            quote.setMintNotifiedAt(Instant.now());
+            quoteClient.updateQuote(quote);
+        } catch (RuntimeException e) {
+            log.warn("mint_notified_stamp_failed quote_id={} — the mint HAS the payment; a later "
+                    + "sweep may re-deliver it and be answered duplicate", quote.getQuoteId(), e);
         }
     }
 

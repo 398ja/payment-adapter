@@ -118,4 +118,90 @@ class PhoenixWebhookHandlerReceiveTest {
 
         assertThat(result.newState()).isEqualTo(State.CONFIRMED);
     }
+
+    /**
+     * A delivered payment is stamped, so the sweep knows to leave it alone
+     * (398ja/cashu-mint#462).
+     */
+    @Test
+    @DisplayName("stamps the quote when the mint acknowledges the payment")
+    void recordsASuccessfulForward() throws Exception {
+        GatewayQuote quote = receiveQuote(AMOUNT_SAT);
+        when(quoteClient.getByInvoiceId(QUOTE_ID)).thenReturn(quote);
+        stubNoPaymentRecord();
+        when(mintForwarder.isEnabled()).thenReturn(true);
+        when(mintForwarder.notifyPaymentReceived(any())).thenReturn(true);
+
+        handler().handle(payload(AMOUNT_SAT));
+
+        ArgumentCaptor<GatewayQuote> saved = ArgumentCaptor.forClass(GatewayQuote.class);
+        verify(quoteClient).updateQuote(saved.capture());
+        assertThat(saved.getValue().getMintNotifiedAt())
+                .as("a delivered payment must be stamped, or the sweep re-delivers it forever")
+                .isNotNull();
+    }
+
+    /**
+     * The defect itself. The forwarder exhausts its retries and returns false; that boolean used
+     * to be discarded, leaving the quote PAID with no record anywhere that the mint was never
+     * told. Seven payments reached staging in exactly this state.
+     *
+     * <p>{@code mintNotifiedAt} must stay null so the sweep and the gauge can both see it.
+     */
+    @Test
+    @DisplayName("leaves the quote unstamped when the mint never acknowledges - issue #462")
+    void doesNotRecordAForwardThatFailed() throws Exception {
+        GatewayQuote quote = receiveQuote(AMOUNT_SAT);
+        when(quoteClient.getByInvoiceId(QUOTE_ID)).thenReturn(quote);
+        stubNoPaymentRecord();
+        when(mintForwarder.isEnabled()).thenReturn(true);
+        // Three retries exhausted inside the forwarder, then false.
+        when(mintForwarder.notifyPaymentReceived(any())).thenReturn(false);
+
+        var result = handler().handle(payload(AMOUNT_SAT));
+
+        // phoenixd is still told the webhook succeeded: the payment HAS settled, and failing
+        // here would have it retry a completed payment.
+        assertThat(result.newState()).isEqualTo(State.CONFIRMED);
+        assertThat(quote.getMintNotifiedAt())
+                .as("an undelivered payment must stay visible to the sweep and the gauge")
+                .isNull();
+        verify(quoteClient, never()).updateQuote(any());
+    }
+
+    /** A forward that throws is as undelivered as one that returns false. */
+    @Test
+    @DisplayName("leaves the quote unstamped when the forward throws")
+    void doesNotRecordAForwardThatThrew() throws Exception {
+        GatewayQuote quote = receiveQuote(AMOUNT_SAT);
+        when(quoteClient.getByInvoiceId(QUOTE_ID)).thenReturn(quote);
+        stubNoPaymentRecord();
+        when(mintForwarder.isEnabled()).thenReturn(true);
+        Mockito.doThrow(new RuntimeException("connection reset"))
+                .when(mintForwarder).notifyPaymentReceived(any());
+
+        handler().handle(payload(AMOUNT_SAT));
+
+        assertThat(quote.getMintNotifiedAt()).isNull();
+        verify(quoteClient, never()).updateQuote(any());
+    }
+
+    /**
+     * The stamp is bookkeeping; the mint already has the payment. Losing the webhook response
+     * over a failed write would be the more expensive mistake, so the handler swallows it and
+     * accepts that the sweep may re-deliver and be answered {@code duplicate}.
+     */
+    @Test
+    @DisplayName("a failed stamp does not fail the webhook")
+    void survivesAFailingStamp() throws Exception {
+        when(quoteClient.getByInvoiceId(QUOTE_ID)).thenReturn(receiveQuote(AMOUNT_SAT));
+        stubNoPaymentRecord();
+        when(mintForwarder.isEnabled()).thenReturn(true);
+        when(mintForwarder.notifyPaymentReceived(any())).thenReturn(true);
+        Mockito.doThrow(new RuntimeException("db down")).when(quoteClient).updateQuote(any());
+
+        var result = handler().handle(payload(AMOUNT_SAT));
+
+        assertThat(result.newState()).isEqualTo(State.CONFIRMED);
+    }
 }
