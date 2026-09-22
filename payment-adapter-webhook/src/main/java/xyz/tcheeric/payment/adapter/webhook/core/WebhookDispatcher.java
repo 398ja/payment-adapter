@@ -99,21 +99,39 @@ public class WebhookDispatcher {
      * is an ERROR nobody reads.
      */
     private void updatePaymentState(WebhookResult result) {
+        final GatewayPayment payment;
         try {
-            GatewayPayment payment = paymentClient.getByPaymentId(result.paymentId());
-            if (payment != null) {
-                payment.setState(result.newState());
-                payment.setConfirmedDate(Instant.now());
-                paymentClient.updatePayment(payment);
-                log.debug("Updated payment state: paymentId={}, newState={}",
-                        result.paymentId(), result.newState());
-            } else {
-                log.debug("No payment row to update: paymentId={}", result.paymentId());
-            }
+            payment = paymentClient.getByPaymentId(result.paymentId());
         } catch (HttpClientErrorException.NotFound e) {
+            // Absent row: normal, and the reason this catch exists at all.
             log.debug("No payment row to update: paymentId={}", result.paymentId());
+            return;
         } catch (Exception e) {
-            log.error("Failed to update payment state: paymentId={}", result.paymentId(), e);
+            log.error("Failed to look up payment: paymentId={}", result.paymentId(), e);
+            return;
+        }
+
+        if (payment == null) {
+            log.debug("No payment row to update: paymentId={}", result.paymentId());
+            return;
+        }
+
+        // The write is deliberately OUTSIDE the NotFound catch above.
+        //
+        // Both calls used to share one try block, so a 404 from updatePayment — a row deleted
+        // between the read and the write, or a client pointed at the wrong path — was logged
+        // at debug and discarded, indistinguishable from the absent-row case that is normal.
+        // A failed read means there is nothing to do; a failed WRITE means a state transition
+        // was lost. Quietening the first must not quieten the second.
+        try {
+            payment.setState(result.newState());
+            payment.setConfirmedDate(Instant.now());
+            paymentClient.updatePayment(payment);
+            log.debug("Updated payment state: paymentId={}, newState={}",
+                    result.paymentId(), result.newState());
+        } catch (Exception e) {
+            log.error("Failed to update payment state: paymentId={} newState={}",
+                    result.paymentId(), result.newState(), e);
         }
     }
 }
