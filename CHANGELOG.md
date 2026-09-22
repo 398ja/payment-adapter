@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.16.1] - 2026-09-22
+
+### Security
+
+- **BouncyCastle 1.84 -> 1.85 for CVE-2026-8763 (CRITICAL)**, via `imani-bom` 0.1.98. X.509
+  Name Constraints can be bypassed with a trailing dot in an `rfc822Name` or URI, so a
+  certificate can assert a name the constraint exists to forbid.
+
+- **A real-looking credential removed from test resources.** `phoenixd.password` held a
+  64-hex value here and in cashu-mint's history via a since-deleted copy of the same file.
+  Staging runs `phoenixd-mock`, so there is most likely nothing behind it — and "most likely"
+  is the problem, because neither a reader nor a scanner can tell a dead credential from a
+  live one.
+
+  Replaced with an obvious placeholder rather than allowlisted: allowlisting would teach the
+  scanner to ignore exactly the shape a real leak takes. The value remains in git history in
+  both repositories; if phoenixd is ever pointed at a real node, this password must not be
+  the one used.
+
+### Fixed
+
+- **Quietening the absent-row case had also quietened failed writes.** 0.16.0 stopped every
+  webhook logging a stack trace for an empty `payment` table, which was right — three of
+  those had to be ruled out before the real defect in cashu-mint#462 could be seen — but the
+  `NotFound` catch covered both the lookup *and* the update.
+
+  So a 404 from the **write** — a row deleted between the read and the write, or a client
+  pointed at a stale path — was logged at debug and discarded, making a lost state transition
+  indistinguishable from a row that was never there. A failed read means there is nothing to
+  do; a failed write means a payment state transition was dropped.
+
+  Now split: `NotFound` on the lookup returns quietly, anything else on the lookup is an
+  error, and the write has its own catch that always logs at ERROR with the state it was
+  trying to set.
+
+### Changed
+
+- `imani-bom` 0.1.81 -> 0.1.98.
+
 ## [0.16.0] - 2026-09-22
 
 Settled payments the mint was never told about (398ja/cashu-mint#462).
