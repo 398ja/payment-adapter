@@ -9,7 +9,6 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>payment-adapter-model</artifactId>
-    <version>0.16.1</version>
     <name>payment-adapter-model</name>
     <description>Demo project for Spring Boot</description>
     <url/>

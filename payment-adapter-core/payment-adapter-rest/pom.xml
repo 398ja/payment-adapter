@@ -10,7 +10,6 @@
     </parent>
     <groupId>xyz.tcheeric</groupId>
     <artifactId>payment-adapter-rest</artifactId>
-    <version>0.16.1</version>
     <name>payment-adapter-rest</name>
     <description>A simple JPA application to manage quotes and invoices</description>
     <url/>

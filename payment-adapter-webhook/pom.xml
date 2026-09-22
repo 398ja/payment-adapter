@@ -10,7 +10,6 @@
 
     <groupId>xyz.tcheeric</groupId>
     <artifactId>payment-adapter-webhook</artifactId>
-    <version>0.16.1</version>
     <name>payment-adapter-webhook</name>
     <packaging>jar</packaging>
 
