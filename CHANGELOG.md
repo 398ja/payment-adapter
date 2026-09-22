@@ -31,6 +31,11 @@ Settled payments the mint was never told about (398ja/cashu-mint#462).
   logged a stack trace at ERROR for a normal condition. Three fired during this
   investigation and had to be ruled out before the real defect was visible.
 
+- **The sweep's settings had no property bindings**, only `@Value` defaults, so an
+  operator could not enable it without changing code. A flag that cannot be reached from
+  the environment is not a flag. `mint.webhook.reconcile.*` now binds
+  `MINT_WEBHOOK_RECONCILE_*`, and still defaults to off.
+
 ### Added
 
 - **`quote.mint_notified_at`** (`V11`). NULL on a `PAID` quote now means precisely "money
