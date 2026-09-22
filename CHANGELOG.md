@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.16.0] - 2026-09-22
+
+Settled payments the mint was never told about (398ja/cashu-mint#462).
+
+### Fixed
+
+- **A forward to the mint could fail and leave no trace.** `HttpMintWebhookForwarder`
+  retries three times and then returns `false`; `PhoenixWebhookHandler.forwardToMint`
+  discarded that boolean. A payment the mint never heard about looked exactly like one it
+  did — the quote sat `PAID`, the customer's money was taken, and the only record was a
+  log line.
+
+  Measured on staging: 240 quotes `PAID`, 152 `accepted` webhook events in the mint, and
+  **7 quotes the mint has a row for and no webhook at all** — 460 sat, oldest three weeks.
+  One of them is a `mint_quote` still reading `UNPAID` while the adapter holds the money.
+
+### Added
+
+- **`quote.mint_notified_at`** (`V11`). NULL on a `PAID` quote now means precisely "money
+  taken, mint not told". Nothing on either side recorded the forward before, so nothing
+  could reconcile it.
+- **`PaidQuoteForwardReconciler`** — a sweep that re-delivers settled payments past a grace
+  period. Safe to retry: the mint's webhook is idempotent on
+  `(provider, provider_event_id)`, so a payment that did arrive is classified `duplicate`
+  and nothing is double-funded.
+- **`payment_adapter_paid_unforwarded`** — the gauge has to live here, because the adapter
+  is the only side that knows a payment happened. A mint-side gauge cannot express this,
+  which is exactly why cashu-mint#459's gauge reads zero while these sit stranded.
+
+### Notes for operators
+
+- **The sweep is disabled by default** (`mint.webhook.reconcile.enabled=false`).
+  Re-delivering payments taken weeks ago mints value against them, including one whose mint
+  quote still reads `UNPAID`. That is an operator's decision, not a side effect of deploying.
+- **Run the cross-service back-fill before enabling it, or before trusting the gauge.**
+  Historical rows are deliberately left NULL, so on an existing deployment the gauge reads
+  the whole `PAID` backlog rather than the stranded part of it. The honest back-fill stamps
+  `mint_notified_at` for each `PAID` quote that has an `accepted` row in
+  `cashu_mint.webhook_event`. A migration here cannot see the mint's tables, so it is a
+  one-off operator step across two databases.
+
 ## [0.15.0] - 2026-09-09
 
 Card purchases: a shopper buys a coupon from a stall, paying the stall directly.
