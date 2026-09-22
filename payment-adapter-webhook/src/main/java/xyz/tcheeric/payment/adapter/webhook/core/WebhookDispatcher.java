@@ -1,5 +1,6 @@
 package xyz.tcheeric.payment.adapter.webhook.core;
 
+import org.springframework.web.client.HttpClientErrorException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -85,6 +86,17 @@ public class WebhookDispatcher {
 
     /**
      * Updates the payment state after successful webhook processing.
+     *
+     * <p>A missing {@code payment} row is NOT an error here. Spring Data REST answers 404
+     * for an empty {@code Optional}, so {@code getByPaymentId} throws rather than returning
+     * null, and the null branch below is unreachable in practice. On a deployment that does
+     * not populate the {@code payment} table at all — staging is one, with zero rows — that
+     * made every single webhook log a stack trace at ERROR for a condition that is normal
+     * and harmless. The quote's own state is advanced elsewhere and does not depend on this.
+     *
+     * <p>That noise is not free: three of these fired during the #462 investigation and had
+     * to be ruled out before the real defect could be seen. An ERROR that is always present
+     * is an ERROR nobody reads.
      */
     private void updatePaymentState(WebhookResult result) {
         try {
@@ -96,8 +108,10 @@ public class WebhookDispatcher {
                 log.debug("Updated payment state: paymentId={}, newState={}",
                         result.paymentId(), result.newState());
             } else {
-                log.warn("Payment not found for update: paymentId={}", result.paymentId());
+                log.debug("No payment row to update: paymentId={}", result.paymentId());
             }
+        } catch (HttpClientErrorException.NotFound e) {
+            log.debug("No payment row to update: paymentId={}", result.paymentId());
         } catch (Exception e) {
             log.error("Failed to update payment state: paymentId={}", result.paymentId(), e);
         }
