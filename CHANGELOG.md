@@ -16,6 +16,21 @@ Settled payments the mint was never told about (398ja/cashu-mint#462).
   **7 quotes the mint has a row for and no webhook at all** — 460 sat, oldest three weeks.
   One of them is a `mint_quote` still reading `UNPAID` while the adapter holds the money.
 
+- **No `@Scheduled` method in this application ever ran.** `@EnableScheduling` was declared
+  only on `CashGatewayConfig`, an unrelated config in another module, so scheduling here
+  existed as a side effect of that bean happening to load. It is now on the application.
+
+  The failure is the quiet kind: a `@Scheduled` bean still constructs and still registers
+  its gauge, so `payment_adapter_paid_unforwarded` published a confident `0.0` while the
+  database held 88. A missing series would have been noticed; a zero reads as "no money
+  stranded" and is strictly worse than publishing nothing.
+
+- **A missing `payment` row is no longer logged as an error.** Spring Data REST answers 404
+  for an empty `Optional`, so `getByPaymentId` throws rather than returning null. On a
+  deployment that does not populate that table — staging has zero rows — every webhook
+  logged a stack trace at ERROR for a normal condition. Three fired during this
+  investigation and had to be ruled out before the real defect was visible.
+
 ### Added
 
 - **`quote.mint_notified_at`** (`V11`). NULL on a `PAID` quote now means precisely "money

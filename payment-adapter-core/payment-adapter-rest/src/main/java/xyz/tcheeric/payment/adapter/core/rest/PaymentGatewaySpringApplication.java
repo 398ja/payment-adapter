@@ -12,6 +12,7 @@ import org.springframework.boot.web.servlet.ServletComponentScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.core.env.PropertySource;
@@ -25,6 +26,13 @@ import org.springframework.core.env.PropertySource;
 @ServletComponentScan("xyz.tcheeric.payment.adapter")
 @EntityScan("xyz.tcheeric.payment.adapter.core.model.entity")
 @EnableJpaRepositories(basePackages = "xyz.tcheeric.payment.adapter.core")
+// Without this NO @Scheduled method in this application runs. It was previously declared
+// only on CashGatewayConfig, so scheduling existed at all only as a side effect of that
+// unrelated config being loaded — and the failure it produced is the quiet kind: a @Scheduled
+// bean still constructs, still registers its gauge, and simply never ticks. The
+// paid-unforwarded gauge published a confident 0.0 while the database held 88, which is worse
+// than publishing nothing, because a zero reads as "no money stranded".
+@EnableScheduling
 @Slf4j
 public class PaymentGatewaySpringApplication {
 
