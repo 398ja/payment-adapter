@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 import xyz.tcheeric.payment.adapter.core.model.entity.GatewayEntity;
 import xyz.tcheeric.payment.adapter.core.model.entity.GatewayPayment;
@@ -19,8 +20,27 @@ import xyz.tcheeric.payment.adapter.core.model.entity.GatewayQuote;
 @Slf4j
 public abstract class AbstractBaseClient<T extends GatewayEntity> {
 
+    /**
+     * PATCH-capable on purpose.
+     *
+     * <p>The default {@code new RestTemplate()} uses {@code SimpleClientHttpRequestFactory},
+     * built on {@code HttpURLConnection}, which rejects PATCH before anything reaches the
+     * network:
+     *
+     * <pre>java.net.ProtocolException: Invalid HTTP method: PATCH</pre>
+     *
+     * <p>That mattered for #245, where a full-object PUT used to stamp one bookkeeping field
+     * silently reverted a quote's {@code state} from PAID to PENDING and cost three real sales.
+     * The fix is a targeted partial update, and a targeted partial update needs PATCH to work.
+     *
+     * <p>{@code JdkClientHttpRequestFactory} is Spring's wrapper over {@code java.net.http},
+     * which supports arbitrary methods. Chosen over Apache HttpClient because it needs no new
+     * dependency — verified that this module's classpath carries no httpclient at all, so the
+     * usual advice to "just add HttpComponents" would have meant a new artifact in every
+     * consumer.
+     */
     @Getter
-    protected final RestTemplate restTemplate = new RestTemplate();
+    protected final RestTemplate restTemplate = new RestTemplate(new JdkClientHttpRequestFactory());
     private final String entity;
     private final Class<T> entityClass;
     private final String baseUrl;

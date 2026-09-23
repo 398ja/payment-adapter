@@ -15,9 +15,13 @@ import xyz.tcheeric.payment.adapter.webhook.exception.WebhookProcessingException
 import xyz.tcheeric.payment.adapter.webhook.forwarder.MintWebhookForwarder;
 import xyz.tcheeric.payment.adapter.webhook.forwarder.PaymentNotification;
 
+import java.time.Instant;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -134,11 +138,15 @@ class PhoenixWebhookHandlerReceiveTest {
 
         handler().handle(payload(AMOUNT_SAT));
 
-        ArgumentCaptor<GatewayQuote> saved = ArgumentCaptor.forClass(GatewayQuote.class);
-        verify(quoteClient).updateQuote(saved.capture());
-        assertThat(saved.getValue().getMintNotifiedAt())
+        ArgumentCaptor<Instant> stampedAt = ArgumentCaptor.forClass(Instant.class);
+        verify(quoteClient).stampMintNotified(eq(quote.getId()), stampedAt.capture());
+        assertThat(stampedAt.getValue())
                 .as("a delivered payment must be stamped, or the sweep re-delivers it forever")
                 .isNotNull();
+
+        // The point of #245: the stamp must not be able to write `state` at all. A full-object
+        // PUT here reverted a concurrently-PAID quote to PENDING and cost three real sales.
+        verify(quoteClient, never()).updateQuote(any());
     }
 
     /**
@@ -166,7 +174,7 @@ class PhoenixWebhookHandlerReceiveTest {
         assertThat(quote.getMintNotifiedAt())
                 .as("an undelivered payment must stay visible to the sweep and the gauge")
                 .isNull();
-        verify(quoteClient, never()).updateQuote(any());
+        verify(quoteClient, never()).stampMintNotified(anyLong(), any());
     }
 
     /** A forward that throws is as undelivered as one that returns false. */
@@ -183,7 +191,7 @@ class PhoenixWebhookHandlerReceiveTest {
         handler().handle(payload(AMOUNT_SAT));
 
         assertThat(quote.getMintNotifiedAt()).isNull();
-        verify(quoteClient, never()).updateQuote(any());
+        verify(quoteClient, never()).stampMintNotified(anyLong(), any());
     }
 
     /**
@@ -198,7 +206,8 @@ class PhoenixWebhookHandlerReceiveTest {
         stubNoPaymentRecord();
         when(mintForwarder.isEnabled()).thenReturn(true);
         when(mintForwarder.notifyPaymentReceived(any())).thenReturn(true);
-        Mockito.doThrow(new RuntimeException("db down")).when(quoteClient).updateQuote(any());
+        Mockito.doThrow(new RuntimeException("db down"))
+                .when(quoteClient).stampMintNotified(anyLong(), any());
 
         var result = handler().handle(payload(AMOUNT_SAT));
 

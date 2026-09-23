@@ -237,11 +237,30 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
      * worst case is that the reconciler re-delivers it later and the mint answers
      * {@code duplicate}. Losing the webhook response over a bookkeeping write would be the more
      * expensive mistake.
+     *
+     * <p><strong>Stamps ONE field, and that is the whole point (#245).</strong> This used to call
+     * {@code quoteClient.updateQuote(quote)}, which PUTs the entire object — including the
+     * {@code state} this handler read back at the top of {@code handle} and has held ever since.
+     * phoenixd marks the invoice paid in that window, so the PUT wrote back the stale
+     * {@code PENDING} and silently reverted a settled payment. The mint then answered "Invoice
+     * not paid" and three real staging sales died at the finalisation poll on 2026-09-23.
+     *
+     * <p>It was a race, not a constant failure, which is why it had gone unnoticed: a sale that
+     * morning survived because its PATCH landed 23ms before this write, and the three that
+     * afternoon lost by 0-2ms. The adapter's own logs recorded it writing {@code state=PAID}
+     * once and {@code state=PENDING} three times.
+     *
+     * <p>A re-read before the PUT would only shrink that window. Naming one field CLOSES it:
+     * this call has no opinion about {@code state} and can no longer express one. Payment state
+     * belongs to whoever observed the payment; all this knows is that the mint was told.
      */
     private void recordMintNotified(GatewayQuote quote) {
         try {
-            quote.setMintNotifiedAt(Instant.now());
-            quoteClient.updateQuote(quote);
+            Instant notifiedAt = Instant.now();
+            quoteClient.stampMintNotified(quote.getId(), notifiedAt);
+            // Keep the caller's copy consistent with what was just written, so anything reading
+            // it further down this request sees the stamp rather than a stale null.
+            quote.setMintNotifiedAt(notifiedAt);
         } catch (RuntimeException e) {
             log.warn("mint_notified_stamp_failed quote_id={} — the mint HAS the payment; a later "
                     + "sweep may re-deliver it and be answered duplicate", quote.getQuoteId(), e);

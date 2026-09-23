@@ -9,9 +9,12 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
 import xyz.tcheeric.payment.adapter.core.model.entity.GatewayQuote;
+
+import java.time.Instant;
 import xyz.tcheeric.payment.adapter.core.model.entity.enums.State;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -88,6 +91,37 @@ public class QuoteClientTest {
 
         mockServer.verify();
         assertThat(result.getId()).isEqualTo(9L);
+        assertThat(result.getState()).isEqualTo(State.PAID);
+    }
+
+    /**
+     * The regression test for #245.
+     *
+     * <p>Two things are asserted and both matter. The request must be a PATCH, because the
+     * default RestTemplate factory could not send one at all ({@code Invalid HTTP method:
+     * PATCH}) and this call site swallows its exceptions — a stamp that throws every time would
+     * fail silently, which is the very failure this fixes. And the BODY must mention
+     * {@code mintNotifiedAt} and nothing else: a body carrying {@code state} is how a settled
+     * payment got reverted to PENDING and three real sales were lost.
+     */
+    @Test
+    void stampMintNotifiedSendsAPatchCarryingOnlyThatField() throws Exception {
+        GatewayQuote expected = new GatewayQuote();
+        expected.setId(9L);
+        expected.setState(State.PAID);
+
+        String body = objectMapper.writeValueAsString(expected);
+        mockServer.expect(requestTo("http://localhost:8080/quote/9"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(jsonPath("$.mintNotifiedAt").exists())
+                // The assertion with teeth. Everything else here would still pass if the body
+                // were a whole serialised quote.
+                .andExpect(jsonPath("$.state").doesNotExist())
+                .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+
+        GatewayQuote result = quoteClient.stampMintNotified(9L, Instant.parse("2026-09-23T16:32:37Z"));
+
+        mockServer.verify();
         assertThat(result.getState()).isEqualTo(State.PAID);
     }
 }
