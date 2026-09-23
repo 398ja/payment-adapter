@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.16.2] - 2026-09-23
+
+### Fixed
+
+- **A settled payment could be silently reverted to PENDING, and the mint would then refuse to
+  issue.** `PhoenixWebhookHandler.recordMintNotified` stamped one bookkeeping field by calling
+  `updateQuote`, which PUTs the *whole* object. The object was read at the top of the request and
+  carried whatever `state` held at read time; phoenixd marks the invoice paid inside that window,
+  so the PUT wrote back a stale `PENDING`. The mint then answered `20001 Invoice not paid` for a
+  payment that had settled, and three staging sales died at the finalisation poll while every HTTP
+  call in the flow returned 2xx.
+
+  It is a race, which is why it went unnoticed for so long: one sale that morning won by 23ms and
+  three that afternoon lost by 0-2ms. The historical 244 PAID against 4,375 PENDING receive quotes
+  is what that coin flip looks like at scale.
+
+  Fixed with a targeted partial update (`QuoteClient.stampMintNotified`). Re-reading before the PUT
+  would only shrink the window; a field the request never mentions cannot be clobbered however the
+  two writers interleave. `updateQuote` remains for `StripeWebhookHandler`, which sets `state`
+  deliberately, and now documents what it costs to use it for a single field.
+
+- **The stamp's result is checked rather than assumed.** A partial update the server accepts and
+  does not apply is the same shape as the defect above, so a 2xx is not treated as proof. A lost
+  write logs `[alert] mint_notified_stamp_lost`.
+
+- **A null quote id is rejected** instead of building `/quote/null`, which 404s into a caught and
+  logged warning — a write silently not happening.
+
+### Changed
+
+- **`AbstractBaseClient` now uses `JdkClientHttpRequestFactory`.** The default
+  `SimpleClientHttpRequestFactory` rejects PATCH outright (`Invalid HTTP method: PATCH`), so the
+  partial update above could not have been sent at all. Chosen over Apache HttpClient because this
+  module's classpath carries no httpclient, and adding one would put a new artifact in every
+  consumer.
+
+- **HTTP reads are bounded at 30 seconds.** Neither factory bounds a read by default, and these
+  clients run on a webhook thread while a payment is in flight.
+
+### Notes for operators
+
+- No schema change, no migration, no configuration change.
+- Quotes stranded by the old behaviour are repairable through the adapter's own REST API: PATCH
+  `/quote/{id}` with `{"state":"PAID"}`. The mint re-reads quote state on every poll, so a repaired
+  quote becomes issuable immediately — verified on staging against a still-PENDING control.
+- The two new `[alert]` lines are genuinely rare. Unlike `payment_missing`, neither fires on a
+  healthy payment; a test asserts that a concurrent settlement raises nothing.
+
 ## [0.16.1] - 2026-09-22
 
 ### Security
