@@ -14,6 +14,7 @@ import java.time.Instant;
 import xyz.tcheeric.payment.adapter.core.model.entity.enums.State;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -123,5 +124,20 @@ public class QuoteClientTest {
 
         mockServer.verify();
         assertThat(result.getState()).isEqualTo(State.PAID);
+    }
+
+    /**
+     * A null id must fail LOUDLY rather than build {@code /quote/null}.
+     *
+     * <p>That URL answers 404, which surfaces as a RuntimeException, which
+     * {@code PhoenixWebhookHandler.recordMintNotified} catches and logs as a warning. So the
+     * write would silently not happen — the exact class of failure this whole change removes,
+     * reintroduced through the back door by a programming error rather than a race.
+     */
+    @Test
+    void stampMintNotifiedRejectsANullId() {
+        assertThatThrownBy(() -> quoteClient.stampMintNotified(null, Instant.now()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("quote id");
     }
 }

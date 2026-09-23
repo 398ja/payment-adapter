@@ -1,9 +1,13 @@
 package xyz.tcheeric.payment.adapter.ln.webhook;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
 import xyz.tcheeric.payment.adapter.core.client.PaymentClient;
@@ -16,6 +20,7 @@ import xyz.tcheeric.payment.adapter.webhook.forwarder.MintWebhookForwarder;
 import xyz.tcheeric.payment.adapter.webhook.forwarder.PaymentNotification;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -65,6 +70,10 @@ class PhoenixWebhookHandlerReceiveTest {
 
     private GatewayQuote receiveQuote(Integer amount) {
         GatewayQuote quote = new GatewayQuote();
+        // A quote read back from the gateway API always carries its database id, and the stamp
+        // is addressed by it. The fixture used to omit it, so `stampMintNotified(anyLong(), ..)`
+        // matched nothing and the assertions passed against a call that never happened.
+        quote.setId(4242L);
         quote.setQuoteId(QUOTE_ID);
         quote.setInvoiceId(QUOTE_ID);
         quote.setDirection(Direction.RECEIVE);
@@ -130,11 +139,17 @@ class PhoenixWebhookHandlerReceiveTest {
     @Test
     @DisplayName("stamps the quote when the mint acknowledges the payment")
     void recordsASuccessfulForward() throws Exception {
+        ListAppender<ILoggingEvent> alerts = captureAlerts();
         GatewayQuote quote = receiveQuote(AMOUNT_SAT);
         when(quoteClient.getByInvoiceId(QUOTE_ID)).thenReturn(quote);
         stubNoPaymentRecord();
         when(mintForwarder.isEnabled()).thenReturn(true);
         when(mintForwarder.notifyPaymentReceived(any())).thenReturn(true);
+        // The server echoes the stamped row, and it must echo the state the fixture already
+        // has. Stubbing PENDING against a PAID fixture invents a settled payment going
+        // BACKWARDS -- exactly the regression the alert exists to catch -- so the happy-path
+        // test would have fired a critical alert while reporting success.
+        stubStampReturns(stampedCopy(quote, quote.getState()));
 
         handler().handle(payload(AMOUNT_SAT));
 
@@ -147,6 +162,10 @@ class PhoenixWebhookHandlerReceiveTest {
         // The point of #245: the stamp must not be able to write `state` at all. A full-object
         // PUT here reverted a concurrently-PAID quote to PENDING and cost three real sales.
         verify(quoteClient, never()).updateQuote(any());
+        assertThat(alertsIn(alerts))
+                .as("a healthy forward must raise nothing; an alert on the normal path is how "
+                        + "operators learn to ignore alerts")
+                .isEmpty();
     }
 
     /**
@@ -212,5 +231,121 @@ class PhoenixWebhookHandlerReceiveTest {
         var result = handler().handle(payload(AMOUNT_SAT));
 
         assertThat(result.newState()).isEqualTo(State.CONFIRMED);
+    }
+
+    /**
+     * What the server sends back from a partial update: the whole row, as it now stands.
+     *
+     * <p>{@code state} is a parameter because the interesting cases differ only in that field --
+     * a concurrent payment settling mid-request is the NORMAL case, not an anomaly.
+     */
+    private static GatewayQuote stampedCopy(GatewayQuote source, State state) {
+        GatewayQuote stamped = new GatewayQuote();
+        stamped.setId(source.getId());
+        stamped.setQuoteId(source.getQuoteId());
+        stamped.setInvoiceId(source.getInvoiceId());
+        stamped.setAmount(source.getAmount());
+        stamped.setDirection(source.getDirection());
+        stamped.setState(state);
+        stamped.setMintNotifiedAt(Instant.parse("2026-09-23T16:32:37Z"));
+        return stamped;
+    }
+
+    private void stubStampReturns(GatewayQuote response) {
+        when(quoteClient.stampMintNotified(anyLong(), any())).thenReturn(response);
+    }
+
+    /**
+     * Captures what the handler actually LOGGED.
+     *
+     * <p>Asserting on state alone is not enough for the alerts: a check that cries wolf on the
+     * healthy path leaves every field correct and still costs an operator their attention, which
+     * is how `payment_missing` ended up firing on every successful mint poll. The only way a
+     * test can hold that line is to read the log.
+     */
+    private ListAppender<ILoggingEvent> captureAlerts() {
+        Logger logger = (Logger) LoggerFactory.getLogger(PhoenixWebhookHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        return appender;
+    }
+
+    private static List<String> alertsIn(ListAppender<ILoggingEvent> appender) {
+        return appender.list.stream()
+                .map(ILoggingEvent::getFormattedMessage)
+                .filter(m -> m.contains("[alert]"))
+                .toList();
+    }
+
+    /**
+     * The stamp is accepted and does not land.
+     *
+     * <p>This is #245's shape exactly -- a write that answers 2xx and changes nothing -- so the
+     * handler must SAY so rather than trust the status. Before the response was checked, this
+     * scenario was indistinguishable from success.
+     */
+    @Test
+    @DisplayName("says so when the stamp is accepted but does not land")
+    void reportsALostStamp() throws Exception {
+        ListAppender<ILoggingEvent> alerts = captureAlerts();
+        GatewayQuote quote = receiveQuote(AMOUNT_SAT);
+        when(quoteClient.getByInvoiceId(QUOTE_ID)).thenReturn(quote);
+        stubNoPaymentRecord();
+        when(mintForwarder.isEnabled()).thenReturn(true);
+        when(mintForwarder.notifyPaymentReceived(any())).thenReturn(true);
+
+        GatewayQuote notStamped = stampedCopy(quote, State.PENDING);
+        notStamped.setMintNotifiedAt(null);          // accepted, not applied
+        stubStampReturns(notStamped);
+
+        handler().handle(payload(AMOUNT_SAT));
+
+        assertThat(quote.getMintNotifiedAt())
+                .as("a stamp that did not land must not be recorded locally as though it had, "
+                        + "or the sweep skips a payment the mint may never have heard about")
+                .isNull();
+        assertThat(alertsIn(alerts))
+                .as("a lost write must be SAID, not swallowed -- being silent here is the "
+                        + "original defect")
+                .anyMatch(m -> m.contains("mint_notified_stamp_lost"));
+    }
+
+    /**
+     * A payment settling DURING the request is the ordinary case, not a fault.
+     *
+     * <p>The handler's own copy is stale by construction -- that staleness is what #245 was --
+     * so a check comparing local against server state would fire here on a perfectly healthy
+     * sale. This pins that it stays quiet, because an alert that cries wolf on the normal path
+     * is the failure mode this estate keeps rediscovering.
+     */
+    @Test
+    @DisplayName("stays quiet when the payment settles concurrently, which is the normal case")
+    void toleratesAConcurrentSettlement() throws Exception {
+        ListAppender<ILoggingEvent> alerts = captureAlerts();
+        GatewayQuote quote = receiveQuote(AMOUNT_SAT);
+        // The handler's copy is stale BY CONSTRUCTION: it was read before phoenixd settled the
+        // invoice. Forcing it to PENDING here is what makes this the #245 timeline rather than a
+        // repeat of the happy path -- the fixture is PAID by default, and leaving it that way
+        // would have made this test assert nothing the previous one did not.
+        quote.setState(State.PENDING);
+        when(quoteClient.getByInvoiceId(QUOTE_ID)).thenReturn(quote);
+        stubNoPaymentRecord();
+        when(mintForwarder.isEnabled()).thenReturn(true);
+        when(mintForwarder.notifyPaymentReceived(any())).thenReturn(true);
+        // phoenixd marked it PAID between the read and the stamp. The server's echo is the truth.
+        stubStampReturns(stampedCopy(quote, State.PAID));
+
+        handler().handle(payload(AMOUNT_SAT));
+
+        assertThat(quote.getMintNotifiedAt())
+                .as("a concurrent settlement is success, and the stamp must still be recorded")
+                .isNotNull();
+        // The assertion this test exists for. A naive `stamped.state != local.state` check passes
+        // every other assertion here and still fires, because the local copy is stale by
+        // construction. Only reading the log catches that.
+        assertThat(alertsIn(alerts))
+                .as("a payment settling mid-request is the NORMAL case and must raise no alert")
+                .isEmpty();
     }
 }

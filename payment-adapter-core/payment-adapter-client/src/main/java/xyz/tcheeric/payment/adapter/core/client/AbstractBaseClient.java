@@ -8,6 +8,8 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
+
+import java.time.Duration;
 import xyz.tcheeric.payment.adapter.core.model.entity.GatewayEntity;
 import xyz.tcheeric.payment.adapter.core.model.entity.GatewayPayment;
 import xyz.tcheeric.payment.adapter.core.model.entity.GatewayQuote;
@@ -38,12 +40,25 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
      * dependency — verified that this module's classpath carries no httpclient at all, so the
      * usual advice to "just add HttpComponents" would have meant a new artifact in every
      * consumer.
+     *
+     * <p><strong>Timeouts are set explicitly.</strong> Neither factory bounds a read by default
+     * — the old one carried {@code readTimeout=-1}, this one {@code readTimeout=null}, both
+     * meaning "wait forever". That was pre-existing rather than introduced here, but these
+     * clients are called from a webhook thread while a payment is in flight, and a gateway that
+     * accepts a connection and never answers would hang that thread indefinitely. Thirty
+     * seconds is far longer than any healthy call on this path and still bounded.
      */
     @Getter
-    protected final RestTemplate restTemplate = new RestTemplate(new JdkClientHttpRequestFactory());
+    protected final RestTemplate restTemplate = new RestTemplate(timeoutBoundedFactory());
     private final String entity;
     private final Class<T> entityClass;
     private final String baseUrl;
+
+    private static JdkClientHttpRequestFactory timeoutBoundedFactory() {
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory();
+        factory.setReadTimeout(Duration.ofSeconds(30));
+        return factory;
+    }
 
     protected AbstractBaseClient(@NonNull String entity, @NonNull Class<T> entityClass) {
         this(null, entity, entityClass);

@@ -73,6 +73,13 @@ public class QuoteClient extends AbstractBaseClient<GatewayQuote> {
      * ({@code Allow: HEAD,DELETE,GET,OPTIONS,PUT,PATCH}).
      */
     public GatewayQuote stampMintNotified(Long id, Instant notifiedAt) {
+        // A null id would build `/quote/null`, which answers 404, which becomes a
+        // RuntimeException that the caller catches and logs as a warning — a write silently not
+        // happening, which is the entire class of bug this change exists to remove. Fail on the
+        // programming error instead of laundering it into the same quiet failure.
+        if (id == null) {
+            throw new IllegalArgumentException("stampMintNotified requires a quote id");
+        }
         String url = getUrl() + "/" + id;
         log.info("Sending mint-notified stamp: {}", url);
 

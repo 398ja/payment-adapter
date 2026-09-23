@@ -257,10 +257,45 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
     private void recordMintNotified(GatewayQuote quote) {
         try {
             Instant notifiedAt = Instant.now();
-            quoteClient.stampMintNotified(quote.getId(), notifiedAt);
+            GatewayQuote stamped = quoteClient.stampMintNotified(quote.getId(), notifiedAt);
+
+            // The response is CHECKED, not discarded.
+            //
+            // #245 was a write that reported success without landing, and the reason it cost an
+            // afternoon is that every log line along the way said the opposite. Taking a 2xx as
+            // proof here would rebuild that: a partial update the server accepts and does not
+            // apply is exactly the shape of the original defect.
+            //
+            if (stamped == null || stamped.getMintNotifiedAt() == null) {
+                log.error("[alert] mint_notified_stamp_lost quote_id={} — the stamp was accepted "
+                        + "and did not land; the sweep will re-deliver and be answered duplicate",
+                        quote.getQuoteId());
+                return;
+            }
+
+            // The state check that is actually sound.
+            //
+            // Comparing the server's state against this handler's LOCAL copy would fire on every
+            // healthy race: the local copy is stale by construction — that staleness IS #245 —
+            // so a legitimate concurrent PAID reads as PENDING here and would look like a
+            // regression. That alert would be lit routinely while naming a bug that was fixed,
+            // which is the `payment_missing` mistake one layer down.
+            //
+            // The real invariant is directional and cannot false-positive: a payment that has
+            // settled must not come back UNPAID. Only a write carrying `state` can do that, so
+            // this catches a refactor that reintroduces the full-object PUT without accusing the
+            // healthy path of anything.
+            if (State.PAID.equals(quote.getState()) && !State.PAID.equals(stamped.getState())) {
+                log.error("[alert] quote_unpaid_by_stamp quote_id={} before=PAID after={} — the "
+                        + "mint-notified stamp reverted a settled payment; this is #245 again",
+                        quote.getQuoteId(), stamped.getState());
+            }
+
             // Keep the caller's copy consistent with what was just written, so anything reading
-            // it further down this request sees the stamp rather than a stale null.
-            quote.setMintNotifiedAt(notifiedAt);
+            // it further down this request sees the stamp rather than a stale null. Taken from
+            // the SERVER's copy rather than the local Instant: if the two ever disagree, the
+            // stored value is the one that matters.
+            quote.setMintNotifiedAt(stamped.getMintNotifiedAt());
         } catch (RuntimeException e) {
             log.warn("mint_notified_stamp_failed quote_id={} — the mint HAS the payment; a later "
                     + "sweep may re-deliver it and be answered duplicate", quote.getQuoteId(), e);
