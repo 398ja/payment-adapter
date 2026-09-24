@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.16.3] - 2026-09-24
+
+### Fixed
+
+- **A payment the mint will never accept was re-delivered forever.** `PaidQuoteForwardReconciler`
+  retried every PAID quote on every sweep with no notion of giving up, so nine quotes stranded by
+  the mint's zero-amount fee bug produced thousands of refusals. The count on the dashboard was
+  retries, not new damage, which is what made it look like an ongoing outage.
+
+  Adds `forward_attempts` and `forward_gave_up_at` (V12), a cap after which a quote is left alone
+  and reported once at ERROR, and the `payment_adapter_forward_given_up` gauge so a poisoned
+  payment is visible rather than merely quiet.
+
+- **The give-up cap was unreachable on the path that needed it most.** `retryForward` incremented
+  the attempt count in memory, and a THROW left the row unpersisted, so the next sweep read the
+  old count and the loop stayed unbounded. A refusing mint was capped; a failing one was not.
+  The count is now persisted in the catch block.
+
+
 ## [0.16.2] - 2026-09-23
 
 ### Fixed
