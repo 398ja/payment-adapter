@@ -57,16 +57,26 @@ public class PaidQuoteForwardReconciler {
     private final int batchSize;
     private final boolean enabled;
 
+    /**
+     * How many re-delivery attempts one quote gets before the sweep stops trying.
+     *
+     * <p>Zero or negative disables giving up, restoring the previous unbounded behaviour for a
+     * deployment that would rather have the noise than the silence.
+     */
+    private final int maxAttempts;
+
     public PaidQuoteForwardReconciler(
             @Autowired(required = false) QuoteRepository quotes,
             @Autowired(required = false) MintForwardRetrier retrier,
             @Value("${mint.webhook.reconcile.enabled:false}") boolean enabled,
             @Value("${mint.webhook.reconcile.grace-period:PT5M}") Duration gracePeriod,
-            @Value("${mint.webhook.reconcile.batch-size:100}") int batchSize) {
+            @Value("${mint.webhook.reconcile.batch-size:100}") int batchSize,
+            @Value("${mint.webhook.reconcile.max-attempts:10}") int maxAttempts) {
         this.quotes = quotes;
         this.retrier = retrier;
         this.enabled = enabled;
         this.gracePeriod = gracePeriod;
+        this.maxAttempts = maxAttempts;
         // A non-positive batch size would make the sweep a silent no-op, which is the one
         // failure a safety net must not have: it looks exactly like a healthy system with
         // nothing to do.
@@ -118,6 +128,9 @@ public class PaidQuoteForwardReconciler {
      */
     private void redeliver(GatewayQuote quote) {
         try {
+            int attempts = quote.getForwardAttempts() == null ? 0 : quote.getForwardAttempts();
+            quote.setForwardAttempts(attempts + 1);
+
             if (retrier.retryForward(quote)) {
                 quote.setMintNotifiedAt(Instant.now());
                 quotes.save(quote);
@@ -126,9 +139,30 @@ public class PaidQuoteForwardReconciler {
                         quote.getQuoteId(), quote.getAmount());
                 return;
             }
+
+            // Give up, but stay visible.
+            //
+            // A payment refused for a reason that cannot change is refused identically on
+            // every tick. Nine such quotes produced 9962 refused webhooks overnight on
+            // staging, which buried every other signal in two services' logs while adding
+            // nothing. The money is unchanged either way; only the noise stops.
+            //
+            // The row stays PAID with mintNotifiedAt null, so paid-unforwarded still counts
+            // it and countForwardGivenUp raises it separately as the operator's problem.
+            if (maxAttempts > 0 && quote.getForwardAttempts() >= maxAttempts) {
+                quote.setForwardGaveUpAt(Instant.now());
+                quotes.save(quote);
+                log.error("[alert] paid_quote_forward_reconcile gave_up quote_id={} amount={} "
+                                + "attempts={} reason=refused_every_time - the money is still "
+                                + "owed and still counted; an operator must resolve it",
+                        quote.getQuoteId(), quote.getAmount(), quote.getForwardAttempts());
+                return;
+            }
+
+            quotes.save(quote);
             log.error("[alert] paid_quote_forward_reconcile undeliverable quote_id={} amount={} "
-                            + "— settled payment the mint still has not accepted",
-                    quote.getQuoteId(), quote.getAmount());
+                            + "attempts={} of {} - settled payment the mint still has not accepted",
+                    quote.getQuoteId(), quote.getAmount(), quote.getForwardAttempts(), maxAttempts);
         } catch (RuntimeException e) {
             log.error("[alert] paid_quote_forward_reconcile failed quote_id={}",
                     quote.getQuoteId(), e);

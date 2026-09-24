@@ -37,8 +37,18 @@ public class PaidUnforwardedGauge {
     /** Name the alert rule reads. Changing it silently disarms the alert. */
     static final String METRIC_NAME = "payment_adapter_paid_unforwarded";
 
+    /**
+     * The subset the sweep has stopped retrying (398ja/payment-adapter#246).
+     *
+     * <p>Separate from the total because the two want different responses. A rising
+     * paid-unforwarded count may be a transient the sweep will clear by itself; a non-zero
+     * given-up count never will, and nothing else in the system raises it again.
+     */
+    static final String GIVEN_UP_METRIC_NAME = "payment_adapter_forward_given_up";
+
     private final QuoteRepository quotes;
     private final AtomicLong paidUnforwarded = new AtomicLong();
+    private final AtomicLong forwardGivenUp = new AtomicLong();
 
     public PaidUnforwardedGauge(@Autowired(required = false) QuoteRepository quotes,
                                 @Autowired(required = false) MeterRegistry registry) {
@@ -48,6 +58,14 @@ public class PaidUnforwardedGauge {
                     .description("Settled payments with no successful forward to the mint recorded. "
                             + "Non-zero means money was taken and the mint does not know, so it can "
                             + "neither issue against it nor see that it is missing.")
+                    .register(registry);
+            // Bound eagerly for the same reason as the gauge above: an alert on `> 0` cannot
+            // tell a healthy zero from a series that does not exist yet.
+            Gauge.builder(GIVEN_UP_METRIC_NAME, forwardGivenUp, AtomicLong::get)
+                    .description("Settled payments the reconciler has stopped re-delivering after "
+                            + "repeated refusals. The money is still owed and still counted by "
+                            + METRIC_NAME + "; only the retry traffic has stopped. These will not "
+                            + "resolve themselves.")
                     .register(registry);
         }
     }
@@ -59,6 +77,7 @@ public class PaidUnforwardedGauge {
         }
         try {
             paidUnforwarded.set(quotes.countPaidButNotForwarded());
+            forwardGivenUp.set(quotes.countForwardGivenUp());
         } catch (RuntimeException e) {
             // Hold the last known value rather than reporting a false zero: a zero here would
             // silently clear a firing alert, which is the one failure mode worse than the
@@ -70,5 +89,10 @@ public class PaidUnforwardedGauge {
     /** Last polled value, for tests and for anything that wants it without a scrape. */
     long current() {
         return paidUnforwarded.get();
+    }
+
+    /** Last polled given-up count. */
+    long currentGivenUp() {
+        return forwardGivenUp.get();
     }
 }

@@ -1,0 +1,45 @@
+-- 398ja/payment-adapter#246 — stop re-delivering a payment the mint will never accept.
+--
+-- The reconciler retries a stranded payment on every tick, forever, and
+-- MintWebhookForwardRetrier rebuilds the notification from quote.amount each
+-- time. When the amount itself is what the mint refuses, every redelivery is
+-- refused identically and the loop never ends.
+--
+-- Measured on staging 2026-09-23: NINE quotes with amount=0 produced 9962
+-- refused webhooks overnight and were still climbing at ~18/min. The count was
+-- retries, not new damage. It buried every other signal in both services' logs
+-- and in the mint's webhook_event table.
+--
+-- These two columns are what lets the sweep give up on one quote without
+-- losing sight of it:
+--
+--   * forward_attempts  — how many times redelivery has been tried.
+--   * forward_gave_up_at — when it stopped, NULL while it is still trying.
+--
+-- GIVING UP IS NOT ABANDONING. The money is real and still owed, so the row
+-- stays PAID with mint_notified_at NULL, which means payment_adapter_paid_
+-- unforwarded still counts it. An operator must still act. What changes is
+-- that the adapter stops generating traffic that cannot succeed.
+--
+-- That distinction is why forward_gave_up_at is a separate column rather than
+-- a state change: a quote that has been given up on is in exactly the same
+-- financial position as one still being retried, and collapsing the two would
+-- make the liability harder to see rather than easier.
+--
+-- Nullable, and NULL is the normal case: a quote that has never needed a
+-- retry has nothing to record. Existing rows are left NULL for the same reason
+-- V11 left mint_notified_at NULL: their attempt history is genuinely unknown,
+-- and inventing one would either hide a stranded payment or fabricate a
+-- give-up that never happened.
+--
+-- forward_attempts defaults to 0 rather than NULL because it is a count, and
+-- "no attempts recorded" and "zero attempts" mean the same thing here.
+--
+-- The `quote` table is managed by Hibernate ddl-auto, not by an earlier Flyway
+-- migration, and Flyway runs first — so on a fresh database this is a no-op and
+-- Hibernate creates the table already carrying the columns. Same guard as V6
+-- and V11 for the same reason.
+--
+-- Idempotent via IF NOT EXISTS so re-runs are safe.
+ALTER TABLE IF EXISTS quote ADD COLUMN IF NOT EXISTS forward_attempts INTEGER DEFAULT 0;
+ALTER TABLE IF EXISTS quote ADD COLUMN IF NOT EXISTS forward_gave_up_at TIMESTAMP;

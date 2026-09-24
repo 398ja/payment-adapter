@@ -31,6 +31,8 @@ class PaidQuoteForwardReconcilerTest {
 
     private static final Duration GRACE = Duration.ofMinutes(5);
     private static final int BATCH = 100;
+    /** High enough that the existing tests never reach the give-up path. */
+    private static final int MAX_ATTEMPTS = 10;
 
     private QuoteRepository quotes;
     private MintForwardRetrier retrier;
@@ -40,7 +42,7 @@ class PaidQuoteForwardReconcilerTest {
     void setUp() {
         quotes = Mockito.mock(QuoteRepository.class);
         retrier = Mockito.mock(MintForwardRetrier.class);
-        reconciler = new PaidQuoteForwardReconciler(quotes, retrier, true, GRACE, BATCH);
+        reconciler = new PaidQuoteForwardReconciler(quotes, retrier, true, GRACE, BATCH, MAX_ATTEMPTS);
     }
 
     private static GatewayQuote paidQuote(String quoteId) {
@@ -129,7 +131,13 @@ class PaidQuoteForwardReconcilerTest {
         assertThat(stranded.getMintNotifiedAt())
                 .as("an undelivered payment must remain countable by the gauge")
                 .isNull();
-        verify(quotes, never()).save(any());
+        // The row IS saved now, because the attempt count is persisted so the
+        // sweep can eventually stop (#246). What must never happen is the
+        // stamp, and that is what this test is actually about: `never().save()`
+        // was a proxy for "not marked delivered" and is no longer equivalent.
+        assertThat(stranded.getForwardGaveUpAt())
+                .as("one refusal is not a reason to stop trying")
+                .isNull();
     }
 
     /** One unrecoverable payment must not stop the others being swept. */
@@ -168,7 +176,7 @@ class PaidQuoteForwardReconcilerTest {
     @DisplayName("does nothing until explicitly enabled")
     void doesNothingWhenDisabled() {
         PaidQuoteForwardReconciler disabled =
-                new PaidQuoteForwardReconciler(quotes, retrier, false, GRACE, BATCH);
+                new PaidQuoteForwardReconciler(quotes, retrier, false, GRACE, BATCH, MAX_ATTEMPTS);
 
         disabled.reconcileTick();
 
@@ -183,7 +191,7 @@ class PaidQuoteForwardReconcilerTest {
     @DisplayName("refuses a non-positive batch size rather than sweeping nothing")
     void refusesANonPositiveBatchSize() {
         PaidQuoteForwardReconciler misconfigured =
-                new PaidQuoteForwardReconciler(quotes, retrier, true, GRACE, 0);
+                new PaidQuoteForwardReconciler(quotes, retrier, true, GRACE, 0, MAX_ATTEMPTS);
         when(quotes.findPaidButNotForwarded(any(), any())).thenReturn(List.of());
 
         misconfigured.reconcileTick();
@@ -197,10 +205,97 @@ class PaidQuoteForwardReconcilerTest {
     @DisplayName("does nothing when the dependencies are not wired")
     void doesNothingWhenDependenciesAreMissing() {
         PaidQuoteForwardReconciler unwired =
-                new PaidQuoteForwardReconciler(null, null, true, GRACE, BATCH);
+                new PaidQuoteForwardReconciler(null, null, true, GRACE, BATCH, MAX_ATTEMPTS);
 
         unwired.reconcileTick();
 
         verify(quotes, never()).findPaidButNotForwarded(any(), any());
+    }
+
+    // ---- Giving up on a payment the mint will never accept (#246) ----
+
+    @Test
+    void stopsRetryingAfterMaxAttemptsAndRecordsWhy() {
+        // THE REGRESSION. Nine quotes the mint refused every time produced 9962
+        // refused webhooks overnight on staging, still climbing at ~18/min. The
+        // count was retries, not new damage.
+        GatewayQuote doomed = paidQuote("never-acceptable");
+        doomed.setForwardAttempts(MAX_ATTEMPTS - 1);
+        when(quotes.findPaidButNotForwarded(any(), any())).thenReturn(List.of(doomed));
+        when(retrier.retryForward(doomed)).thenReturn(false);
+
+        reconciler.sweepPaidButNotForwarded();
+
+        assertThat(doomed.getForwardAttempts()).isEqualTo(MAX_ATTEMPTS);
+        assertThat(doomed.getForwardGaveUpAt()).isNotNull();
+        verify(quotes).save(doomed);
+    }
+
+    @Test
+    void givingUpDoesNotClearTheDebt() {
+        // Giving up is not abandoning. The row must stay PAID with no
+        // mintNotifiedAt, so payment_adapter_paid_unforwarded still counts it
+        // and an operator still has to resolve it. Only the traffic stops.
+        GatewayQuote doomed = paidQuote("still-owed");
+        doomed.setForwardAttempts(MAX_ATTEMPTS - 1);
+        when(quotes.findPaidButNotForwarded(any(), any())).thenReturn(List.of(doomed));
+        when(retrier.retryForward(doomed)).thenReturn(false);
+
+        reconciler.sweepPaidButNotForwarded();
+
+        assertThat(doomed.getMintNotifiedAt())
+                .as("the mint was never told, so this must not read as delivered")
+                .isNull();
+        assertThat(doomed.getState()).isEqualTo(State.PAID);
+    }
+
+    @Test
+    void keepsTryingBeforeTheCap() {
+        // A transient failure must not be mistaken for a structural one. The
+        // sweep exists to recover from a mint restart or a partition, and both
+        // resolve well inside the attempt budget.
+        GatewayQuote transientFailure = paidQuote("mint-was-restarting");
+        when(quotes.findPaidButNotForwarded(any(), any())).thenReturn(List.of(transientFailure));
+        when(retrier.retryForward(transientFailure)).thenReturn(false);
+
+        reconciler.sweepPaidButNotForwarded();
+
+        assertThat(transientFailure.getForwardAttempts()).isEqualTo(1);
+        assertThat(transientFailure.getForwardGaveUpAt())
+                .as("one failure is not a reason to stop")
+                .isNull();
+    }
+
+    @Test
+    void aRecoveredQuoteIsNeverGivenUpOn() {
+        // The success path must win even on the last permitted attempt: the
+        // money arriving is the outcome this whole mechanism exists for.
+        GatewayQuote recovered = paidQuote("late-but-delivered");
+        recovered.setForwardAttempts(MAX_ATTEMPTS - 1);
+        when(quotes.findPaidButNotForwarded(any(), any())).thenReturn(List.of(recovered));
+        when(retrier.retryForward(recovered)).thenReturn(true);
+
+        reconciler.sweepPaidButNotForwarded();
+
+        assertThat(recovered.getMintNotifiedAt()).isNotNull();
+        assertThat(recovered.getForwardGaveUpAt())
+                .as("a delivered payment is not a given-up one")
+                .isNull();
+    }
+
+    @Test
+    void aZeroCapRestoresUnboundedRetrying() {
+        // Configurable, because a deployment may prefer the noise to the
+        // silence. Zero disables giving up entirely.
+        PaidQuoteForwardReconciler unbounded =
+                new PaidQuoteForwardReconciler(quotes, retrier, true, GRACE, BATCH, 0);
+        GatewayQuote doomed = paidQuote("retry-forever");
+        doomed.setForwardAttempts(9999);
+        when(quotes.findPaidButNotForwarded(any(), any())).thenReturn(List.of(doomed));
+        when(retrier.retryForward(doomed)).thenReturn(false);
+
+        unbounded.sweepPaidButNotForwarded();
+
+        assertThat(doomed.getForwardGaveUpAt()).isNull();
     }
 }

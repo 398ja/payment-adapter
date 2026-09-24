@@ -64,13 +64,20 @@ public interface QuoteRepository extends PagingAndSortingRepository<GatewayQuote
      * keeps rows predating {@code mint_notified_at} out of reach on first deploy, since their
      * forwarding state is unknown rather than known-bad.
      *
+     * <p><strong>Excludes quotes the sweep has given up on</strong>
+     * ({@code forwardGaveUpAt is not null}), which is what stops a payment the mint can never
+     * accept from being re-delivered forever. Those rows are still {@code PAID} with no
+     * {@code mintNotifiedAt}, so {@code countPaidButNotForwarded} still counts them and the
+     * liability stays visible; only the traffic stops. See 398ja/payment-adapter#246.
+     *
      * <p>{@code @RestResource(exported = false)}: this repository is published over Spring Data
      * REST, and a query listing every payment the mint has not acknowledged is an inventory of
      * where value is currently unaccounted for. It is for the reconciler, not for callers.
      */
     @RestResource(exported = false)
     @Query("select q from quote q where q.state = xyz.tcheeric.payment.adapter.core.model.entity.enums.State.PAID "
-            + "and q.mintNotifiedAt is null and q.createdAt < :confirmedBefore order by q.createdAt")
+            + "and q.mintNotifiedAt is null and q.forwardGaveUpAt is null "
+            + "and q.createdAt < :confirmedBefore order by q.createdAt")
     List<GatewayQuote> findPaidButNotForwarded(@Param("confirmedBefore") Instant confirmedBefore,
                                                Limit limit);
 
@@ -91,4 +98,21 @@ public interface QuoteRepository extends PagingAndSortingRepository<GatewayQuote
     @Query("select count(q) from quote q where q.state = xyz.tcheeric.payment.adapter.core.model.entity.enums.State.PAID "
             + "and q.mintNotifiedAt is null")
     long countPaidButNotForwarded();
+
+    /**
+     * Settled payments the sweep has GIVEN UP on (398ja/payment-adapter#246).
+     *
+     * <p>A subset of {@link #countPaidButNotForwarded()}, and the more urgent one: these will
+     * not resolve themselves. Every other stranded payment is still being re-delivered and may
+     * yet succeed after a mint restart or a network partition heals; these have been refused
+     * enough times that the adapter has stopped asking, which means the refusal is structural.
+     *
+     * <p>Exported separately because the two need different responses. A rising
+     * paid-unforwarded count may be a transient the sweep will clear. A non-zero given-up count
+     * is always an operator's problem, and nothing else in the system will raise it again.
+     */
+    @RestResource(exported = false)
+    @Query("select count(q) from quote q where q.state = xyz.tcheeric.payment.adapter.core.model.entity.enums.State.PAID "
+            + "and q.mintNotifiedAt is null and q.forwardGaveUpAt is not null")
+    long countForwardGivenUp();
 }
