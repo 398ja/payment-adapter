@@ -166,6 +166,25 @@ public class PaidQuoteForwardReconciler {
         } catch (RuntimeException e) {
             log.error("[alert] paid_quote_forward_reconcile failed quote_id={}",
                     quote.getQuoteId(), e);
+            // Persist the attempt even when the forward THREW rather than
+            // returning false. Without this the count is lost on every tick, so
+            // a forwarder that throws consistently never reaches the cap and
+            // the loop is unbounded again, which is the defect this whole
+            // change exists to remove.
+            //
+            // Best-effort: if the save fails too, the sweep has a database
+            // problem and the next tick is the recovery. Losing one increment
+            // costs a delay, not the money.
+            try {
+                if (maxAttempts > 0 && quote.getForwardAttempts() != null
+                        && quote.getForwardAttempts() >= maxAttempts) {
+                    quote.setForwardGaveUpAt(Instant.now());
+                }
+                quotes.save(quote);
+            } catch (RuntimeException saveFailed) {
+                log.warn("paid_quote_forward_reconcile attempt_not_recorded quote_id={}",
+                        quote.getQuoteId(), saveFailed);
+            }
         }
     }
 }

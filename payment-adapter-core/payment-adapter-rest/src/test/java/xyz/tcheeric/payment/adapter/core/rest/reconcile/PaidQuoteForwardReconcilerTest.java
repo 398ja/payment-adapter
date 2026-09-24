@@ -298,4 +298,38 @@ class PaidQuoteForwardReconcilerTest {
 
         assertThat(doomed.getForwardGaveUpAt()).isNull();
     }
+
+    @Test
+    void aThrowingForwardStillCountsAsAnAttempt() {
+        // Found in review. The catch block logged and returned, so an attempt
+        // that THREW was never persisted: the count reset every tick, the cap
+        // was never reached, and the loop stayed unbounded, which is the exact
+        // defect this change removes. A forwarder that throws consistently is
+        // not a hypothetical, since that is what a mint being down looks like.
+        GatewayQuote quote = paidQuote("forward-explodes");
+        quote.setForwardAttempts(3);
+        when(quotes.findPaidButNotForwarded(any(), any())).thenReturn(List.of(quote));
+        when(retrier.retryForward(quote)).thenThrow(new IllegalStateException("mint unreachable"));
+
+        reconciler.sweepPaidButNotForwarded();
+
+        assertThat(quote.getForwardAttempts())
+                .as("a throw is still an attempt, or the cap can never be reached")
+                .isEqualTo(4);
+        verify(quotes).save(quote);
+    }
+
+    @Test
+    void aThrowingForwardCanStillReachTheCap() {
+        GatewayQuote quote = paidQuote("explodes-forever");
+        quote.setForwardAttempts(MAX_ATTEMPTS - 1);
+        when(quotes.findPaidButNotForwarded(any(), any())).thenReturn(List.of(quote));
+        when(retrier.retryForward(quote)).thenThrow(new IllegalStateException("mint unreachable"));
+
+        reconciler.sweepPaidButNotForwarded();
+
+        assertThat(quote.getForwardGaveUpAt())
+                .as("throwing forever must terminate, exactly as refusing forever does")
+                .isNotNull();
+    }
 }
