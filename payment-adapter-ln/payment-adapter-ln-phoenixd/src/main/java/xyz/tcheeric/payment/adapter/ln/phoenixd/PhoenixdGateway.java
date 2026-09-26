@@ -84,15 +84,28 @@ public class PhoenixdGateway implements Gateway {
         loadPropertiesIfNeeded();
     }
 
-    @SneakyThrows
     @Override
     public String createMintQuote(Integer amount, String description) {
-
-        log.info("Creating mint quote: amount={}, description={}", amount, description);
-
         // Generate a single UUID for both quoteId and externalId
         // This allows external clients to use quoteId for phoenixd lookups (e.g., mockpay)
-        String quoteId = UUID.randomUUID().toString();
+        return createMintQuote(UUID.randomUUID().toString(), amount, description);
+    }
+
+    /**
+     * Creates the invoice under the caller's id, so the caller can record the quote first.
+     *
+     * <p>phoenixd takes the id as {@code externalId} and this gateway already used one UUID for
+     * both, so honouring a supplied id changes nothing about how the invoice is created or looked
+     * up: the only difference is who chose the value.
+     */
+    @SneakyThrows
+    @Override
+    public String createMintQuote(String quoteId, Integer amount, String description) {
+        if (quoteId == null || quoteId.isBlank()) {
+            throw new IllegalArgumentException("quoteId must not be blank");
+        }
+
+        log.info("Creating mint quote: quoteId={}, amount={}, description={}", quoteId, amount, description);
 
         // Create the invoice param
         CreateInvoiceParam param = new CreateInvoiceParam();
