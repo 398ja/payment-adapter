@@ -17,6 +17,36 @@ public interface Gateway {
     String createMintQuote(Integer amount, String description);
 
     /**
+     * Create a mint quote under an identifier the caller has already chosen.
+     *
+     * <p>Exists so a caller can make its own durable record of the quote <em>before</em> the
+     * invoice is raised. Raising an invoice is irreversible: it is payable the moment it exists
+     * and none of these gateways can withdraw it. A caller that persists after the invoice has a
+     * window where a failed write leaves a payable invoice with no record behind it, so the
+     * payment arrives at a mint that has already refused the request. That stranded twelve paid
+     * voucher quotes on staging (cashu-mint#469). Choosing the id first lets the caller write the
+     * record, and only then raise the invoice, so a failed write refuses the quote while nothing
+     * is yet payable.
+     *
+     * <p>The default refuses rather than falling back to {@link #createMintQuote(Integer, String)}.
+     * A fallback would return a gateway-generated id different from {@code quoteId}, and the
+     * caller's record would then name a quote that does not exist, which is the failure this
+     * method exists to prevent, moved one step later. A gateway that cannot honour the caller's
+     * id must say so.
+     *
+     * @param quoteId the identifier to create the quote under; must be unique to the gateway
+     * @param amount the amount to invoice
+     * @param description the invoice description, may be {@code null}
+     * @return {@code quoteId}, unchanged
+     * @throws UnsupportedOperationException if this gateway cannot create a quote under a
+     *     caller-supplied identifier
+     */
+    default String createMintQuote(String quoteId, Integer amount, String description) {
+        throw new UnsupportedOperationException(
+                getClass().getSimpleName() + " cannot create a mint quote under a caller-supplied id");
+    }
+
+    /**
      * Create a quote for melting a certain amount
      * @param amount
      * @param request

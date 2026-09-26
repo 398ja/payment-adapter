@@ -88,6 +88,68 @@ public class PhoenixdGatewayTest {
         }
     }
 
+    // A quote created under a caller-chosen id must be created under exactly that id, end to end.
+    // The mint records the voucher quote under this id BEFORE raising the invoice (cashu-mint#469),
+    // so if the gateway substituted its own id the mint's record would name an invoice that does not
+    // exist. Three places must agree: the returned id, the persisted quote, and the externalId phoenixd
+    // echoes back on the payment webhook, which is how an incoming payment is matched to its quote.
+    @Test
+    public void createMintQuoteUsesTheCallersIdEverywhere() throws Exception {
+        String callersId = "7f3c2b1a-0000-4000-8000-000000000469";
+        CreateInvoiceResponse createResp = new CreateInvoiceResponse();
+        createResp.setSerialized("lninvoice");
+        createResp.setAmountSat(10);
+        when(service.createInvoice(any())).thenReturn(createResp);
+        when(service.getLightningAddress()).thenReturn(new GetLightningAddressResponse());
+
+        GatewayQuote[] savedQuote = new GatewayQuote[1];
+        try (
+            MockedConstruction<QuoteClient> mocked = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.create(any(GatewayQuote.class))).thenAnswer(inv -> {
+                        savedQuote[0] = inv.getArgument(0);
+                        return savedQuote[0];
+                    }))
+        ) {
+            String returned = gateway.createMintQuote(callersId, 10, "voucher");
+
+            Assertions.assertEquals(callersId, returned, "the returned id must be the caller's");
+            Assertions.assertEquals(callersId, savedQuote[0].getQuoteId(), "the persisted quote id");
+            Assertions.assertEquals(callersId, savedQuote[0].getInvoiceId(), "the persisted invoice id");
+            verify(service).createInvoice(argThat(param -> callersId.equals(param.getExternalId())));
+        }
+    }
+
+    // The original two-argument form still generates its own id, and a fresh one each time. It now
+    // delegates to the caller-id form, so this pins that the delegation did not collapse ids together.
+    @Test
+    public void createMintQuoteWithoutAnIdGeneratesAFreshOne() throws Exception {
+        CreateInvoiceResponse createResp = new CreateInvoiceResponse();
+        createResp.setSerialized("lninvoice");
+        createResp.setAmountSat(10);
+        when(service.createInvoice(any())).thenReturn(createResp);
+        when(service.getLightningAddress()).thenReturn(new GetLightningAddressResponse());
+
+        try (MockedConstruction<QuoteClient> mocked = mockConstruction(QuoteClient.class,
+                (mock, context) -> when(mock.create(any(GatewayQuote.class))).thenAnswer(inv -> inv.getArgument(0)))) {
+            String first = gateway.createMintQuote(10, "a");
+            String second = gateway.createMintQuote(10, "b");
+
+            Assertions.assertNotNull(first);
+            Assertions.assertNotEquals(first, second, "each generated quote must get its own id");
+        }
+    }
+
+    // A blank id is refused before any invoice is raised. Raising one under a blank externalId would
+    // produce an invoice whose payment could never be matched to a quote, which is the stranded-payment
+    // shape this method exists to prevent.
+    @Test
+    public void createMintQuoteRefusesABlankIdBeforeRaisingAnInvoice() throws Exception {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> gateway.createMintQuote(" ", 10, "x"));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> gateway.createMintQuote((String) null, 10, "x"));
+
+        verify(service, never()).createInvoice(any());
+    }
+
     // verifies paying a BOLT11 invoice results in a paid payment record
     @Test
     public void testPayBoltInvoice() throws Exception {
