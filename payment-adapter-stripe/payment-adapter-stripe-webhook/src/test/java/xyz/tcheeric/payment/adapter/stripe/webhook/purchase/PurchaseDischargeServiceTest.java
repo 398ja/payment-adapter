@@ -14,6 +14,7 @@ import xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseReposito
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -168,5 +169,79 @@ class PurchaseDischargeServiceTest {
         service.recordFailure(EVENT, "late failure report", true, null);
 
         assertEquals(StripePurchase.Status.DISCHARGED, owed.getStatus());
+    }
+
+    @Test
+    void neverSendsAnIssuedPurchaseBackToTheMintableQueue() {
+        // imani-wallet#96: a later report naming no coupon must not undo the
+        // ISSUED that an earlier one set. OWED here is a second mint.
+        owed.setStatus(StripePurchase.Status.ISSUED);
+        owed.setVoucherId("voucher-1");
+
+        service.recordFailure(EVENT, "a later, voucherless report", false, null);
+
+        assertEquals(StripePurchase.Status.ISSUED, owed.getStatus());
+        assertEquals("voucher-1", owed.getVoucherId());
+    }
+
+    @Test
+    void releasesAClaimWhenNothingWasMinted() {
+        // A failure before the mint returns the row to OWED so it is retried.
+        owed.setStatus(StripePurchase.Status.ISSUING);
+        owed.setClaimedUntil(java.time.Instant.now().plusSeconds(600));
+
+        service.recordFailure(EVENT, "gateway unreachable", false, null);
+
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+        assertNull(owed.getClaimedUntil());
+    }
+
+    @Test
+    void aLateReportCannotReleaseAClaimAnotherWorkerHolds() {
+        // imani-wallet#96 review: worker A's claim lapsed, B re-claimed and is
+        // minting, then A's delayed "nothing minted" arrives. Releasing to
+        // OWED here would let a third worker mint alongside B.
+        owed.setStatus(StripePurchase.Status.ISSUING);
+        owed.setClaimedBy("worker-b");
+        owed.setClaimedUntil(java.time.Instant.now().plusSeconds(600));
+
+        service.recordFailure(EVENT, "late report from a", false, null, "worker-a", false);
+
+        assertEquals(StripePurchase.Status.ISSUING, owed.getStatus());
+        assertEquals("worker-b", owed.getClaimedBy());
+    }
+
+    @Test
+    void anAmbiguousOutcomeLeavesTheClaimToLapse() {
+        // The mint may have happened (timed out, 5xx). Handing the row back at
+        // once would re-mint while that request could still be settling.
+        owed.setStatus(StripePurchase.Status.ISSUING);
+        owed.setClaimedBy("worker-a");
+        java.time.Instant until = java.time.Instant.now().plusSeconds(600);
+        owed.setClaimedUntil(until);
+
+        service.recordFailure(EVENT, "gateway timed out", false, null, "worker-a", true);
+
+        assertEquals(StripePurchase.Status.ISSUING, owed.getStatus());
+        assertEquals(until, owed.getClaimedUntil());
+    }
+
+    @Test
+    void claimIsTheDatabasesVerdict() {
+        when(purchases.claim(eq(EVENT), eq("w1"), any(), any(),
+                eq(StripePurchase.Status.OWED), eq(StripePurchase.Status.ISSUING))).thenReturn(1);
+        when(purchases.claim(eq(EVENT), eq("w2"), any(), any(), any(), any())).thenReturn(0);
+
+        assertEquals(PurchaseDischargeService.ClaimResult.CLAIMED, service.claim(EVENT, "w1"));
+        assertEquals(PurchaseDischargeService.ClaimResult.NOT_CLAIMABLE, service.claim(EVENT, "w2"));
+    }
+
+    @Test
+    void claimingAnUnknownPurchaseCreatesNothing() {
+        when(purchases.findByEventId("evt_missing")).thenReturn(Optional.empty());
+
+        assertEquals(PurchaseDischargeService.ClaimResult.UNKNOWN_PURCHASE,
+                service.claim("evt_missing", "w1"));
+        verify(purchases, never()).claim(any(), any(), any(), any(), any(), any());
     }
 }

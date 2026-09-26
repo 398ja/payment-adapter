@@ -64,6 +64,18 @@ public class StripePurchase {
         OWED,
 
         /**
+         * One worker has claimed this and may be minting right now
+         * (imani-wallet#96).
+         *
+         * <p>Held under a lease ({@link #claimedUntil}). Not in the owed queue,
+         * so a second worker cannot mint for it. A worker that dies holding the
+         * claim leaves it here until the lease expires, and the re-claim mints
+         * under the same idempotency key, so the gateway returns the original
+         * coupon rather than a new one.
+         */
+        ISSUING,
+
+        /**
          * A coupon EXISTS for this purchase and the debt is not closed.
          *
          * <p>The state that stops one payment becoming many coupons. Delivery
@@ -196,6 +208,19 @@ public class StripePurchase {
      */
     @Column(name = "attempts", nullable = false)
     private int attempts;
+
+    /**
+     * Until when the current claim holds, set with {@link Status#ISSUING}.
+     *
+     * <p>Past it, the claim is abandoned (the worker died) and the row may be
+     * claimed again. Null outside ISSUING.
+     */
+    @Column(name = "claimed_until")
+    private Instant claimedUntil;
+
+    /** Which worker holds the claim, for an operator reading the row. */
+    @Column(name = "claimed_by", length = 128)
+    private String claimedBy;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;

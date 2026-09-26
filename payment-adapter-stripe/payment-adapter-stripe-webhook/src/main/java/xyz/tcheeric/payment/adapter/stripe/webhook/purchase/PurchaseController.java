@@ -1,5 +1,6 @@
 package xyz.tcheeric.payment.adapter.stripe.webhook.purchase;
 
+import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -55,13 +56,44 @@ public class PurchaseController {
     private final StripePurchaseRepository purchases;
     private final PurchaseDischargeService discharges;
 
-    /** What is still owed, oldest first. */
+    /**
+     * What may be claimed, oldest first: owed rows, and rows whose claim lapsed
+     * because the worker holding it died (imani-wallet#96). Listing is not
+     * permission to mint; {@link #claim} is.
+     */
     @GetMapping("/owed")
     public List<OwedPurchase> owed() {
-        return purchases.findByStatusOrderByCreatedAtAsc(StripePurchase.Status.OWED).stream()
+        return purchases.findClaimable(
+                        StripePurchase.Status.OWED, StripePurchase.Status.ISSUING, Instant.now())
+                .stream()
                 .limit(MAX_BATCH)
                 .map(OwedPurchase::of)
                 .toList();
+    }
+
+    /**
+     * Claim one purchase before minting for it (imani-wallet#96).
+     *
+     * <ul>
+     *   <li>200: this caller holds the row until the lease runs out. Mint.</li>
+     *   <li>409: somebody else holds it, or it is no longer owed. Do NOT mint.</li>
+     *   <li>404: no such purchase.</li>
+     * </ul>
+     *
+     * <p>This is what lets two workers share one queue: the database, not a
+     * deployment convention, decides which of them mints.
+     */
+    @PostMapping("/{eventId}/claim")
+    public ResponseEntity<Void> claim(
+            @PathVariable String eventId,
+            @RequestBody(required = false) ClaimRequest request) {
+        PurchaseDischargeService.ClaimResult result =
+                discharges.claim(eventId, request == null ? null : request.worker());
+        return switch (result) {
+            case CLAIMED -> ResponseEntity.ok().build();
+            case NOT_CLAIMABLE -> ResponseEntity.status(HttpStatus.CONFLICT).build();
+            case UNKNOWN_PURCHASE -> ResponseEntity.notFound().build();
+        };
     }
 
     /**
@@ -120,15 +152,21 @@ public class PurchaseController {
                 // A failure that names a coupon is value that already exists,
                 // and the debt must leave the mintable queue or the next pass
                 // mints another one.
-                request == null ? null : request.voucherId());
+                request == null ? null : request.voucherId(),
+                request == null ? null : request.worker(),
+                request != null && Boolean.TRUE.equals(request.keepClaim()));
         return ResponseEntity.accepted().build();
     }
 
     /**
      * One debt, in the terms the issuer needs and nothing more.
      *
-     * <p>No Stripe session id, no payment intent, no charge. The issuer mints
-     * coupons; it has no business with the payment that funded them, and
+     * <p>No Stripe session id and no charge object. The one payment handle
+     * carried is {@code processorReference}, an opaque string the issuer copies
+     * verbatim into a {@code processor} issuance warrant so the STALL can
+     * reconcile the coupon against its own Stripe account (imani-wallet#96).
+     * The issuer mints coupons; it has no business acting on the payment that
+     * funded them, and
      * handing it those ids would invite code that acts on them.
      *
      * @param eventId          the handle for reporting back
@@ -150,7 +188,16 @@ public class PurchaseController {
             Long amountMinor,
             String currency,
             boolean livemode,
-            int attempts) {
+            int attempts,
+            /**
+             * The Stripe payment intent, as the REFERENCE a `processor`
+             * issuance warrant carries (imani-wallet#96), so the stall can
+             * match the coupon to a charge on its own Stripe dashboard. The
+             * one payment id exposed, and only as an opaque string to copy
+             * into the warrant: the issuer takes no action on it. Null when
+             * the webhook did not record one.
+             */
+            String processorReference) {
 
         static OwedPurchase of(StripePurchase purchase) {
             return new OwedPurchase(
@@ -166,8 +213,16 @@ public class PurchaseController {
                     purchase.getAmountMinor(),
                     purchase.getCurrency(),
                     purchase.isLivemode(),
-                    purchase.getAttempts());
+                    purchase.getAttempts(),
+                    purchase.getPaymentIntentId());
         }
+    }
+
+    /**
+     * @param worker which worker is claiming, recorded on the row for an
+     *               operator. Not an authority: the bearer token is.
+     */
+    public record ClaimRequest(String worker) {
     }
 
     /**
@@ -185,7 +240,11 @@ public class PurchaseController {
      *                  is what tells this service the debt must stop being
      *                  mintable, so omitting it after a successful mint is how
      *                  one payment becomes many coupons.
+     * @param worker    who is reporting (imani-wallet#96); a report cannot
+     *                  release a claim another worker still holds
+     * @param keepClaim the outcome is ambiguous, so the claim is left to lapse
      */
-    public record FailureRequest(String reason, boolean permanent, String voucherId) {
+    public record FailureRequest(String reason, boolean permanent, String voucherId,
+            String worker, Boolean keepClaim) {
     }
 }

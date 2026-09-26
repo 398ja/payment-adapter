@@ -1,0 +1,22 @@
+-- imani-wallet#96: claim a purchase before minting for it.
+--
+-- The issuer read everything OWED and minted. Nothing stopped two workers (two
+-- replicas, or one restarted mid-pass) from minting for the same row, and the
+-- only thing standing between a crash after the mint and a second coupon was a
+-- best-effort failure report. One payment, two coupons.
+--
+-- Now a worker must CLAIM a row before it mints: a conditional update moves it
+-- from OWED to ISSUING and stamps a lease. Exactly one caller's update matches,
+-- so exactly one worker mints. The rest see "not claimed" and move on.
+--
+-- ISSUING is not in the owed queue. A worker that dies holding a claim leaves
+-- the row ISSUING until the lease runs out, and then it may be claimed again.
+-- The re-claim mints under the same Idempotency-Key (purchase:<eventId>), so a
+-- gateway that honours the key durably hands back the ORIGINAL coupon rather
+-- than a second one. Until the gateway's store is durable
+-- (imani-gateway-customer#108) that last step is best-effort across a gateway
+-- restart, and the lease is deliberately long to keep that window rare.
+--
+-- `status` is a VARCHAR carrying the enum's name, so ISSUING needs no change.
+ALTER TABLE stripe_purchase ADD COLUMN claimed_until TIMESTAMP WITH TIME ZONE;
+ALTER TABLE stripe_purchase ADD COLUMN claimed_by VARCHAR(128);
