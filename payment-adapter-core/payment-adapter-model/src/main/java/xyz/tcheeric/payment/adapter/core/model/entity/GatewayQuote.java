@@ -96,6 +96,31 @@ public class GatewayQuote implements GatewayEntity {
     @Column(name = "mint_notified_at")
     private Instant mintNotifiedAt;
 
+    /**
+     * How many times re-delivery to the mint has been attempted (398ja/payment-adapter#246).
+     *
+     * <p>Counted so the sweep can stop. A payment the mint refuses for a reason that cannot
+     * change — an amount it will never accept — is refused identically on every tick, and
+     * without a count there is nothing to stop on. Nine such quotes produced 9962 refused
+     * webhooks overnight on staging.
+     */
+    @Column(name = "forward_attempts")
+    private Integer forwardAttempts;
+
+    /**
+     * When re-delivery stopped being attempted, or {@code null} while it is still trying.
+     *
+     * <p><strong>Giving up is not abandoning.</strong> The row stays {@code PAID} with
+     * {@code mintNotifiedAt} null, so {@code payment_adapter_paid_unforwarded} still counts
+     * it and an operator must still act. What stops is only the traffic that cannot succeed.
+     *
+     * <p>A separate column rather than a state, because a quote that has been given up on is
+     * in exactly the same financial position as one still being retried. Collapsing them would
+     * make the standing liability harder to see, which is the opposite of what this is for.
+     */
+    @Column(name = "forward_gave_up_at")
+    private Instant forwardGaveUpAt;
+
     @PrePersist
     void onCreate() {
         if (this.createdAt == null) {

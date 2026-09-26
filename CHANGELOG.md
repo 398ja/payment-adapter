@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.17.0] - 2026-09-26
+
+### Added
+
+- **`Gateway.createMintQuote(quoteId, amount, description)`: create a mint quote under an id the
+  caller has already chosen.** Lets a caller write its own durable record of the quote *before*
+  the invoice is raised, which is the only order that makes a failed write safe.
+
+  Raising an invoice is irreversible: it is payable the moment it exists and no gateway here can
+  withdraw it. cashu-mint recorded its voucher quote *after* raising the invoice, so a failed write
+  left a payable invoice with no record, the customer paid, and the payment arrived at a mint that
+  had already refused the request. That stranded twelve paid voucher quotes on staging
+  (cashu-mint#469). With the id chosen first, the mint writes its record and only then raises the
+  invoice, so a failed write refuses the quote while nothing is yet payable.
+
+  `PhoenixdGateway` implements it. It already used one UUID for both `quoteId` and phoenixd's
+  `externalId`, so honouring a supplied id changes nothing about how the invoice is created or how
+  its payment webhook is matched: only who picks the value. The two-argument form now delegates to
+  it with a fresh UUID. A blank id is refused before any invoice is raised.
+
+  **The interface default throws `UnsupportedOperationException` rather than falling back** to the
+  two-argument form. A fallback would return a gateway-generated id different from the one passed
+  in, the caller's record would then name an invoice that does not exist, and the failure this
+  method exists to prevent would simply move one step later. `CashGateway`, `StripeGateway` and
+  `DummyGateway` inherit the refusal. None serves cashu-mint's voucher path: its `bolt11` and
+  `bolt11.sat` gateway keys map only to `PhoenixdGateway`, in both `rest.properties` and
+  `proto.properties`, and staging does not override them. A future config pointing voucher quotes
+  at one of them would fail loudly at quote creation rather than stranding a payment.
+
+  Minor rather than patch: a new interface method. Source-compatible for every implementation,
+  since it is a default.
+
+## [0.16.3] - 2026-09-24
+
+### Fixed
+
+- **A payment the mint will never accept was re-delivered forever.** `PaidQuoteForwardReconciler`
+  retried every PAID quote on every sweep with no notion of giving up, so nine quotes stranded by
+  the mint's zero-amount fee bug produced thousands of refusals. The count on the dashboard was
+  retries, not new damage, which is what made it look like an ongoing outage.
+
+  Adds `forward_attempts` and `forward_gave_up_at` (V12), a cap after which a quote is left alone
+  and reported once at ERROR, and the `payment_adapter_forward_given_up` gauge so a poisoned
+  payment is visible rather than merely quiet.
+
+- **The give-up cap was unreachable on the path that needed it most.** `retryForward` incremented
+  the attempt count in memory, and a THROW left the row unpersisted, so the next sweep read the
+  old count and the loop stayed unbounded. A refusing mint was capped; a failing one was not.
+  The count is now persisted in the catch block.
+
+
 ## [0.16.2] - 2026-09-23
 
 ### Fixed
