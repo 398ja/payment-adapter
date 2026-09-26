@@ -1,8 +1,8 @@
 package xyz.tcheeric.payment.adapter.stripe.webhook.purchase;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripePurchase;
@@ -26,11 +26,60 @@ import xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseReposito
  * asks the caller to come back.
  */
 @Slf4j
-@RequiredArgsConstructor
 public class PurchaseDischargeService {
 
     private final StripePurchaseRepository purchases;
     private final GatewayFulfilmentClient fulfilment;
+    /**
+     * How long a claim holds before another worker may take the row over
+     * (imani-wallet#96). Long against a mint (seconds), because a lapsed
+     * claim is re-minted under the same idempotency key, and until the
+     * gateway's key store is durable that re-mint is only as safe as the
+     * gateway not having restarted in between.
+     */
+    private final Duration claimLease;
+
+    public PurchaseDischargeService(StripePurchaseRepository purchases, GatewayFulfilmentClient fulfilment) {
+        this(purchases, fulfilment, Duration.ofMinutes(10));
+    }
+
+    public PurchaseDischargeService(
+            StripePurchaseRepository purchases, GatewayFulfilmentClient fulfilment, Duration claimLease) {
+        this.purchases = purchases;
+        this.fulfilment = fulfilment;
+        this.claimLease = claimLease;
+    }
+
+    /** The answer to a claim. */
+    public enum ClaimResult {
+        /** This caller holds the row and may mint for it. */
+        CLAIMED,
+        /** Somebody else holds it, or it is no longer owed. Do not mint. */
+        NOT_CLAIMABLE,
+        /** No such purchase. */
+        UNKNOWN_PURCHASE
+    }
+
+    /**
+     * Claim one purchase before minting for it (imani-wallet#96).
+     *
+     * <p>The database decides: {@link StripePurchaseRepository#claim} is one
+     * conditional update, so of any number of workers racing one row exactly
+     * one gets CLAIMED. Mint only on CLAIMED.
+     */
+    @Transactional
+    public ClaimResult claim(String eventId, String worker) {
+        if (purchases.findByEventId(eventId).isEmpty()) {
+            return ClaimResult.UNKNOWN_PURCHASE;
+        }
+        Instant now = Instant.now();
+        String who = worker == null || worker.isBlank()
+                ? "unnamed"
+                : worker.substring(0, Math.min(128, worker.length()));
+        int updated = purchases.claim(eventId, who, now, now.plus(claimLease),
+                StripePurchase.Status.OWED, StripePurchase.Status.ISSUING);
+        return updated == 1 ? ClaimResult.CLAIMED : ClaimResult.NOT_CLAIMABLE;
+    }
 
     /** What happened to a discharge request, in terms the caller can act on. */
     public enum Result {
@@ -109,6 +158,7 @@ public class PurchaseDischargeService {
         }
 
         purchase.setStatus(StripePurchase.Status.DISCHARGED);
+        purchase.setClaimedUntil(null);
         // The coupon, not the issuer. These are different things and storing
         // one under the other's name is how a trail stops leading anywhere:
         // the voucher id is what someone follows to the coupon itself.
@@ -130,12 +180,31 @@ public class PurchaseDischargeService {
      */
     @Transactional
     public void recordFailure(String eventId, String reason, boolean permanent, String voucherId) {
+        recordFailure(eventId, reason, permanent, voucherId, null, false);
+    }
+
+    /**
+     * @param worker    who is reporting; when set, a report cannot release a
+     *                  claim another worker still holds (imani-wallet#96)
+     * @param keepClaim the outcome is ambiguous (the mint may still be in
+     *                  flight), so record the note but leave the claim to
+     *                  lapse rather than handing the row straight back
+     */
+    @Transactional
+    public void recordFailure(String eventId, String reason, boolean permanent, String voucherId,
+            String worker, boolean keepClaim) {
         purchases.findByEventId(eventId).ifPresent(purchase -> {
             if (purchase.getStatus() == StripePurchase.Status.DISCHARGED) {
                 return;
             }
             purchase.setAttempts(purchase.getAttempts() + 1);
             purchase.setLastFailure(reason == null ? null : reason.substring(0, Math.min(500, reason.length())));
+
+            Instant now = Instant.now();
+            boolean heldByAnother = purchase.getStatus() == StripePurchase.Status.ISSUING
+                    && worker != null && purchase.getClaimedBy() != null
+                    && !worker.equals(purchase.getClaimedBy())
+                    && purchase.getClaimedUntil() != null && purchase.getClaimedUntil().isAfter(now);
 
             if (voucherId != null && !voucherId.isBlank()) {
                 /*
@@ -148,15 +217,34 @@ public class PurchaseDischargeService {
                  */
                 purchase.setVoucherId(voucherId);
                 purchase.setStatus(StripePurchase.Status.ISSUED);
+                purchase.setClaimedUntil(null);
+            } else if (purchase.getStatus() == StripePurchase.Status.ISSUED) {
+                // A coupon already exists for this row (an earlier report
+                // named it). A later report that names none must NOT send it
+                // back to OWED: that is the re-mint this state exists to stop
+                // (imani-wallet#96).
+                log.warn("Failure report for already-issued purchase {} ignored for status", eventId);
+            } else if (heldByAnother) {
+                // A worker whose claim lapsed reporting late, while another
+                // worker now holds the row and may be minting. Releasing it
+                // would let a third worker mint concurrently (imani-wallet#96).
+                log.warn("Late failure report for purchase {} from {} ignored; {} holds the claim",
+                        eventId, worker, purchase.getClaimedBy());
+            } else if (keepClaim && purchase.getStatus() == StripePurchase.Status.ISSUING) {
+                // Ambiguous outcome: the mint may have happened. The claim is
+                // left to lapse, so the retry comes after any in-flight
+                // request has settled and the idempotency key can answer it.
             } else {
                 // BLOCKED is not "given up on". It is "retrying cannot help",
                 // which is a different thing and needs a person, not a timer.
+                // From ISSUING this releases the claim: nothing was minted.
                 purchase.setStatus(permanent
                         ? StripePurchase.Status.BLOCKED
                         : StripePurchase.Status.OWED);
+                purchase.setClaimedUntil(null);
             }
 
-            purchase.setUpdatedAt(Instant.now());
+            purchase.setUpdatedAt(now);
             purchases.save(purchase);
         });
     }

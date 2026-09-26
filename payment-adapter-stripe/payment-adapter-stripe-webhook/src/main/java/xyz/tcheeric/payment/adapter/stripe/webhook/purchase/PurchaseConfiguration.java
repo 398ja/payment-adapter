@@ -54,6 +54,16 @@ public class PurchaseConfiguration {
     @Value("${purchase.gateway.timeout-seconds:5}")
     private int gatewayTimeoutSeconds;
 
+    /**
+     * How long an issuer's claim on a purchase holds (imani-wallet#96).
+     *
+     * <p>Minutes, not seconds: a lapsed claim lets another worker mint again
+     * under the same idempotency key, and that is only as safe as the
+     * gateway's key store. Long enough that only a dead worker lets it lapse.
+     */
+    @Value("${purchase.claim.lease-seconds:600}")
+    private long claimLeaseSeconds;
+
     @Bean
     public GatewayFulfilmentClient gatewayFulfilmentClient() {
         return new GatewayFulfilmentClient(
@@ -63,7 +73,7 @@ public class PurchaseConfiguration {
     @Bean
     public PurchaseDischargeService purchaseDischargeService(
             StripePurchaseRepository purchases, GatewayFulfilmentClient fulfilment) {
-        return new PurchaseDischargeService(purchases, fulfilment);
+        return new PurchaseDischargeService(purchases, fulfilment, Duration.ofSeconds(claimLeaseSeconds));
     }
 
     /**

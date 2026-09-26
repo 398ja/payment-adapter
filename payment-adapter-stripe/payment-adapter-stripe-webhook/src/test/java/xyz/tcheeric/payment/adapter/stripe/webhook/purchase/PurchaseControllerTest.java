@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -56,6 +57,7 @@ class PurchaseControllerTest {
         purchase.setEventId(eventId);
         purchase.setPaymentRequestId("0123456789abcdef0123456789abcdef");
         purchase.setConnectedAccountId("acct_1");
+        purchase.setPaymentIntentId("pi_1");
         purchase.setRecipientPubkey("a".repeat(64));
         purchase.setAmountMinor(2500L);
         purchase.setCurrency("gbp");
@@ -67,7 +69,7 @@ class PurchaseControllerTest {
     void listsWhatIsOwedWithoutLeakingThePaymentThatFundedIt() {
         // The issuer mints coupons. Handing it the Stripe session or charge
         // would invite code that acts on payments it has no business touching.
-        when(purchases.findByStatusOrderByCreatedAtAsc(StripePurchase.Status.OWED))
+        when(purchases.findClaimable(eq(StripePurchase.Status.OWED), eq(StripePurchase.Status.ISSUING), any()))
                 .thenReturn(List.of(owed("evt_1")));
 
         List<PurchaseController.OwedPurchase> result = controller.owed();
@@ -75,7 +77,9 @@ class PurchaseControllerTest {
         assertEquals(1, result.size());
         assertEquals("evt_1", result.get(0).eventId());
         assertEquals("0123456789abcdef0123456789abcdef", result.get(0).paymentRequestId());
-        // The record simply has no field for them, which is the point.
+        // No session and no charge: the record has no field for them. The one
+        // payment handle is the intent, carried as an opaque warrant reference.
+        assertEquals("pi_1", result.get(0).processorReference());
     }
 
     @Test
@@ -83,9 +87,24 @@ class PurchaseControllerTest {
         List<StripePurchase> many = java.util.stream.IntStream.range(0, 250)
                 .mapToObj(i -> owed("evt_" + i))
                 .toList();
-        when(purchases.findByStatusOrderByCreatedAtAsc(any())).thenReturn(many);
+        when(purchases.findClaimable(any(), any(), any())).thenReturn(many);
 
         assertEquals(100, controller.owed().size());
+    }
+
+    @Test
+    void aClaimIsOkOnlyForTheWinnerAndConflictForEveryoneElse() {
+        // imani-wallet#96: the issuer mints only on 200. A 409 must never be
+        // read as "try minting anyway".
+        when(discharges.claim("evt_1", "w1")).thenReturn(PurchaseDischargeService.ClaimResult.CLAIMED);
+        when(discharges.claim("evt_1", "w2")).thenReturn(PurchaseDischargeService.ClaimResult.NOT_CLAIMABLE);
+        when(discharges.claim("evt_x", null)).thenReturn(PurchaseDischargeService.ClaimResult.UNKNOWN_PURCHASE);
+
+        assertEquals(HttpStatus.OK,
+                controller.claim("evt_1", new PurchaseController.ClaimRequest("w1")).getStatusCode());
+        assertEquals(HttpStatus.CONFLICT,
+                controller.claim("evt_1", new PurchaseController.ClaimRequest("w2")).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, controller.claim("evt_x", null).getStatusCode());
     }
 
     @Test
@@ -133,11 +152,11 @@ class PurchaseControllerTest {
     @Test
     void acceptsAFailureReportWithoutClosingAnything() {
         ResponseEntity<Void> result = controller.failure("evt_1",
-                new PurchaseController.FailureRequest("gateway down", false, null));
+                new PurchaseController.FailureRequest("gateway down", false, null, "w1", null));
 
         // 202, not 200: the report is accepted and nothing was resolved.
         assertEquals(HttpStatus.ACCEPTED, result.getStatusCode());
-        verify(discharges).recordFailure("evt_1", "gateway down", false, null);
+        verify(discharges).recordFailure("evt_1", "gateway down", false, null, "w1", false);
     }
 
     @Test
