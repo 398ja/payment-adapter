@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.17.1] - 2026-09-27
+
+### Fixed
+
+- **A purchase is claimed before it is minted, so two issuers cannot both mint it
+  ([imani-wallet#96](https://github.com/398ja/imani-wallet/issues/96)).** `POST
+  /api/v1/purchases/{eventId}/claim` moves a row from `OWED` (or `ISSUING` whose lease lapsed) to
+  `ISSUING` with a lease (`purchase.claim.lease-seconds`, default 600) in one conditional
+  `UPDATE`: 200 means mint it, 409 means another worker holds it. `GET /owed` also lists lapsed
+  claims, so a worker that died mid-mint does not strand the purchase. `recordFailure` never sends
+  an `ISSUED` row back to `OWED`, a late report from a worker whose claim lapsed cannot release
+  another worker's live claim, and an ambiguous outcome keeps the claim to lapse. `OwedPurchase`
+  now carries the `processorReference` (payment intent) for the coupon's issuance warrant.
+  Flyway `V13` adds `claimed_until` / `claimed_by`.
+
 ## [0.17.0] - 2026-09-26
 
 ### Added
