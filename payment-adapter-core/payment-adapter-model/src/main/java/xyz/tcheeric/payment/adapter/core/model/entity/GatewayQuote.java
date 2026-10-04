@@ -16,6 +16,8 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 import xyz.tcheeric.payment.adapter.core.model.entity.enums.Direction;
 import xyz.tcheeric.payment.adapter.core.model.entity.enums.State;
 
@@ -47,7 +49,9 @@ public class GatewayQuote implements GatewayEntity {
     @Id
     @GeneratedValue(strategy=GenerationType.AUTO)    
     private Long id;
+    @ToString.Exclude
     private String quoteId;
+    @ToString.Exclude
     private String invoiceId;
     private Integer expiry;
 
@@ -155,5 +159,16 @@ public class GatewayQuote implements GatewayEntity {
         quote.setState(State.PENDING);
         quote.setDirection(Direction.RECEIVE);
         return quote;
+    }
+
+    /**
+     * The log-safe handle for {@link #quoteId}, which {@code toString} prints in its place. A quote
+     * id is a bearer claim on the payment (cashu-mint#531), and an entity passed to a log call as
+     * a {@code {}} argument is printed through {@code toString}. Not a getter, so Jackson and
+     * Spring Data REST never serialise it.
+     */
+    @ToString.Include(name = "quoteRef")
+    String quoteRef() {
+        return QuoteRef.of(quoteId);
     }
 }

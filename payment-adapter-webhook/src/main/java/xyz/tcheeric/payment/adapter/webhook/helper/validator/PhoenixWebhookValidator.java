@@ -1,5 +1,6 @@
 package xyz.tcheeric.payment.adapter.webhook.helper.validator;
 
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 import lombok.extern.slf4j.Slf4j;
 import xyz.tcheeric.payment.adapter.core.client.PaymentClient;
 import xyz.tcheeric.payment.adapter.core.client.QuoteClient;
@@ -43,15 +44,15 @@ public class PhoenixWebhookValidator extends BaseWebhookValidator {
         String paymentHash = webhookRequest.getPaymentHash();
         String externalId = webhookRequest.getExternalId();
 
-        log.info("Received webhook: type={}, amountSat={}, paymentHash={}, externalId={}",
-                type, amountSat, paymentHash, externalId);
+        log.info("Received webhook: type={}, amountSat={}, paymentHash={}, quote_ref={}",
+                type, amountSat, paymentHash, QuoteRef.of(externalId));
 
         // Find the quote
         QuoteClient quoteClient = new QuoteClient();
         GatewayQuote quote = quoteClient.getByInvoiceId(externalId);
 
         if (quote == null) {
-            log.warn("Quote not found: externalId={}", externalId);
+            log.warn("Quote not found: quote_ref={}", QuoteRef.of(externalId));
             throw new IllegalArgumentException("Quote not found");
         }
 

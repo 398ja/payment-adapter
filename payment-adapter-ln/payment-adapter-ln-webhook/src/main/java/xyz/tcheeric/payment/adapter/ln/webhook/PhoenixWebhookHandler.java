@@ -1,5 +1,6 @@
 package xyz.tcheeric.payment.adapter.ln.webhook;
 
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.client.HttpClientErrorException;
@@ -76,21 +77,21 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
             }
         }
 
-        log.debug("Parsed phoenixd webhook: type={}, amount={}, paymentHash={}, externalId={}",
-                type, amount, paymentHash, externalId);
+        log.debug("Parsed phoenixd webhook: type={}, amount={}, paymentHash={}, quote_ref={}",
+                type, amount, paymentHash, QuoteRef.of(externalId));
 
         return new PhoenixWebhookPayload(type, amount, paymentHash, externalId);
     }
 
     @Override
     public WebhookResult handle(PhoenixWebhookPayload payload) throws WebhookProcessingException, WebhookDuplicateException {
-        log.info("Processing phoenixd webhook: externalId={}, type={}",
-                payload.externalId(), payload.type());
+        log.info("Processing phoenixd webhook: quote_ref={}, type={}",
+                QuoteRef.of(payload.externalId()), payload.type());
 
         // 1. Find the quote by externalId (invoice ID)
         GatewayQuote quote = quoteClient.getByInvoiceId(payload.externalId());
         if (quote == null) {
-            throw new WebhookProcessingException("Quote not found: " + payload.externalId());
+            throw new WebhookProcessingException("Quote not found: " + QuoteRef.of(payload.externalId()));
         }
 
         // 2. Validate quote direction
@@ -152,8 +153,8 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
             throw new WebhookProcessingException("Unsupported event type: " + payload.type());
         }
 
-        log.info("Payment confirmed: paymentId={}, quoteId={}",
-                payment.getPaymentId(), quote.getQuoteId());
+        log.info("Payment confirmed: paymentId={}, quote_ref={}",
+                payment.getPaymentId(), QuoteRef.of(quote.getQuoteId()));
 
         forwardToMint(quote, payload);
 
@@ -181,8 +182,8 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
                     + quote.getAmount() + ", received=" + payload.amountSat());
         }
 
-        log.info("Incoming payment confirmed: quoteId={} amount={} state={}",
-                quote.getQuoteId(), payload.amountSat(), quote.getState());
+        log.info("Incoming payment confirmed: quote_ref={} amount={} state={}",
+                QuoteRef.of(quote.getQuoteId()), payload.amountSat(), quote.getState());
 
         forwardToMint(quote, payload);
 
@@ -220,13 +221,13 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
             } else {
                 // The forwarder has already exhausted its retries and logged why. This line is
                 // the one that says the money is now stranded until something sweeps it.
-                log.error("[alert] mint_not_notified quote_id={} amount={} — payment settled and "
+                log.error("[alert] mint_not_notified quote_ref={} amount={} — payment settled and "
                                 + "the mint was not told; left for PaidQuoteForwardReconciler",
-                        quoteId, payload.amountSat());
+                        QuoteRef.of(quoteId), payload.amountSat());
             }
         } catch (RuntimeException e) {
-            log.error("[alert] mint_not_notified quote_id={} — payment settled, forward threw; "
-                    + "left for PaidQuoteForwardReconciler", quoteId, e);
+            log.error("[alert] mint_not_notified quote_ref={} — payment settled, forward threw; "
+                    + "left for PaidQuoteForwardReconciler", QuoteRef.of(quoteId), e);
         }
     }
 
@@ -267,9 +268,9 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
             // apply is exactly the shape of the original defect.
             //
             if (stamped == null || stamped.getMintNotifiedAt() == null) {
-                log.error("[alert] mint_notified_stamp_lost quote_id={} — the stamp was accepted "
+                log.error("[alert] mint_notified_stamp_lost quote_ref={} — the stamp was accepted "
                         + "and did not land; the sweep will re-deliver and be answered duplicate",
-                        quote.getQuoteId());
+                        QuoteRef.of(quote.getQuoteId()));
                 return;
             }
 
@@ -286,9 +287,9 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
             // this catches a refactor that reintroduces the full-object PUT without accusing the
             // healthy path of anything.
             if (State.PAID.equals(quote.getState()) && !State.PAID.equals(stamped.getState())) {
-                log.error("[alert] quote_unpaid_by_stamp quote_id={} before=PAID after={} — the "
+                log.error("[alert] quote_unpaid_by_stamp quote_ref={} before=PAID after={} — the "
                         + "mint-notified stamp reverted a settled payment; this is #245 again",
-                        quote.getQuoteId(), stamped.getState());
+                        QuoteRef.of(quote.getQuoteId()), stamped.getState());
             }
 
             // Keep the caller's copy consistent with what was just written, so anything reading
@@ -297,8 +298,8 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
             // stored value is the one that matters.
             quote.setMintNotifiedAt(stamped.getMintNotifiedAt());
         } catch (RuntimeException e) {
-            log.warn("mint_notified_stamp_failed quote_id={} — the mint HAS the payment; a later "
-                    + "sweep may re-deliver it and be answered duplicate", quote.getQuoteId(), e);
+            log.warn("mint_notified_stamp_failed quote_ref={} — the mint HAS the payment; a later "
+                    + "sweep may re-deliver it and be answered duplicate", QuoteRef.of(quote.getQuoteId()), e);
         }
     }
 

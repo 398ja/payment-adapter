@@ -1,5 +1,6 @@
 package xyz.tcheeric.payment.adapter.webhook.forwarder;
 
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -90,8 +91,8 @@ public class HttpMintWebhookForwarder implements MintWebhookForwarder {
             return false;
         }
 
-        log.info("Forwarding payment notification to mint: quoteId={}, method={}",
-                notification.getQuoteId(), notification.getPaymentMethod());
+        log.info("Forwarding payment notification to mint: quote_ref={}, method={}",
+                QuoteRef.of(notification.getQuoteId()), notification.getPaymentMethod());
 
         int attempt = 0;
         long delayMs = initialDelayMs;
@@ -99,13 +100,13 @@ public class HttpMintWebhookForwarder implements MintWebhookForwarder {
         for (attempt = 1; attempt <= maxRetryAttempts; attempt++) {
             try {
                 if (sendNotification(notification)) {
-                    log.info("Payment notification forwarded successfully: quoteId={}",
-                            notification.getQuoteId());
+                    log.info("Payment notification forwarded successfully: quote_ref={}",
+                            QuoteRef.of(notification.getQuoteId()));
                     return true;
                 }
             } catch (Exception e) {
-                log.warn("Failed to forward payment notification (attempt {}/{}): quoteId={}, error={}",
-                        attempt, maxRetryAttempts, notification.getQuoteId(), e.getMessage());
+                log.warn("Failed to forward payment notification (attempt {}/{}): quote_ref={}, error={}",
+                        attempt, maxRetryAttempts, QuoteRef.of(notification.getQuoteId()), e.getMessage());
             }
 
             if (attempt < maxRetryAttempts) {
@@ -119,8 +120,8 @@ public class HttpMintWebhookForwarder implements MintWebhookForwarder {
             }
         }
 
-        log.error("Failed to forward payment notification after {} attempts: quoteId={}",
-                maxRetryAttempts, notification.getQuoteId());
+        log.error("Failed to forward payment notification after {} attempts: quote_ref={}",
+                maxRetryAttempts, QuoteRef.of(notification.getQuoteId()));
         return false;
     }
 

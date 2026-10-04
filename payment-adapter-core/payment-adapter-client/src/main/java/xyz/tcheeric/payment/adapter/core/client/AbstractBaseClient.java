@@ -103,7 +103,7 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
         log.info("[{}] POST create start: {}", this.entity, describe(entity));
         HttpEntity<T> request = new HttpEntity<>(entity);
         ResponseEntity<T> response = restTemplate.exchange(url, HttpMethod.POST, request, entityClass);
-        log.info("[{}] POST create success: {}", entity, describe(response.getBody()));
+        log.info("[{}] POST create success: {}", this.entity, describe(response.getBody()));
         return response.getBody();
     }
 
@@ -130,5 +130,15 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
 
     protected String getUrl() {
         return baseUrl + "/" + entity;
+    }
+
+    /**
+     * The adapter this client talks to, as resolved from {@code GATEWAY_API_BASE_URL} and friends.
+     * Also where the adapter's own endpoints (its {@code /webhook/*} servlet) are reachable from
+     * this process, including inside cashu-mint, where the gateway is built by reflection and no
+     * Spring property reaches it.
+     */
+    public String getBaseUrl() {
+        return baseUrl;
     }
 }

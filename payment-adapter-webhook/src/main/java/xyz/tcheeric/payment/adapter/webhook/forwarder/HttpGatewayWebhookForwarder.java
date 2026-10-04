@@ -1,5 +1,6 @@
 package xyz.tcheeric.payment.adapter.webhook.forwarder;
 
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -93,8 +94,8 @@ public class HttpGatewayWebhookForwarder implements GatewayWebhookForwarder {
             return false;
         }
 
-        log.info("Forwarding payment notification to gateway: quoteId={}, method={}",
-                notification.getQuoteId(), notification.getPaymentMethod());
+        log.info("Forwarding payment notification to gateway: quote_ref={}, method={}",
+                QuoteRef.of(notification.getQuoteId()), notification.getPaymentMethod());
 
         int attempt = 0;
         long delayMs = initialDelayMs;
@@ -102,13 +103,13 @@ public class HttpGatewayWebhookForwarder implements GatewayWebhookForwarder {
         for (attempt = 1; attempt <= maxRetryAttempts; attempt++) {
             try {
                 if (sendNotification(notification)) {
-                    log.info("Payment notification forwarded to gateway: quoteId={}",
-                            notification.getQuoteId());
+                    log.info("Payment notification forwarded to gateway: quote_ref={}",
+                            QuoteRef.of(notification.getQuoteId()));
                     return true;
                 }
             } catch (Exception e) {
-                log.warn("Failed to forward to gateway (attempt {}/{}): quoteId={}, error={}",
-                        attempt, maxRetryAttempts, notification.getQuoteId(), e.getMessage());
+                log.warn("Failed to forward to gateway (attempt {}/{}): quote_ref={}, error={}",
+                        attempt, maxRetryAttempts, QuoteRef.of(notification.getQuoteId()), e.getMessage());
             }
 
             if (attempt < maxRetryAttempts) {
@@ -122,8 +123,8 @@ public class HttpGatewayWebhookForwarder implements GatewayWebhookForwarder {
             }
         }
 
-        log.error("Failed to forward payment to gateway after {} attempts: quoteId={}",
-                maxRetryAttempts, notification.getQuoteId());
+        log.error("Failed to forward payment to gateway after {} attempts: quote_ref={}",
+                maxRetryAttempts, QuoteRef.of(notification.getQuoteId()));
         return false;
     }
 

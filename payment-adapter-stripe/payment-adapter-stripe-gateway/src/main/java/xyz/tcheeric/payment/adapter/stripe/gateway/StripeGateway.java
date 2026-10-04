@@ -1,5 +1,6 @@
 package xyz.tcheeric.payment.adapter.stripe.gateway;
 
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -47,8 +48,8 @@ public class StripeGateway implements Gateway {
         GatewayPayment persistedPayment = paymentClient.create(payment);
         paymentReferenceRepository.save(createPaymentReference(persistedQuote, checkoutSession));
 
-        log.info("Created Stripe mint quote: quoteId={}, paymentId={}, checkoutSessionId={}",
-                persistedQuote.getQuoteId(), persistedPayment.getId(), checkoutSession.getSessionId());
+        log.info("Created Stripe mint quote: quote_ref={}, paymentId={}, checkoutSessionId={}",
+                QuoteRef.of(persistedQuote.getQuoteId()), persistedPayment.getId(), checkoutSession.getSessionId());
         return persistedQuote.getQuoteId();
     }
 

@@ -1,5 +1,6 @@
 package xyz.tcheeric.payment.adapter.ln.webhook;
 
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -29,8 +30,8 @@ public class MintWebhookForwardRetrier implements MintForwardRetrier {
         if (forwarder == null || !forwarder.isEnabled()) {
             return false;
         }
-        log.info("mint_forward_retry quote_id={} amount={} — re-delivering a settled payment",
-                quote.getQuoteId(), quote.getAmount());
+        log.info("mint_forward_retry quote_ref={} amount={} — re-delivering a settled payment",
+                QuoteRef.of(quote.getQuoteId()), quote.getAmount());
         // The preimage is not persisted on the quote, so the re-delivery carries none. The mint
         // binds the payment on (provider, provider_event_id) and the amount, not the preimage,
         // which is why this can be reconstructed at all. If that ever stops being true, this is

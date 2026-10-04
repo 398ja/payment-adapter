@@ -1,5 +1,6 @@
 package xyz.tcheeric.payment.adapter.stripe.webhook;
 
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -204,8 +205,8 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         boolean paymentSettled = "paid".equalsIgnoreCase(payload.getPaymentStatus());
 
         if (!paymentSettled && "checkout.session.completed".equals(payload.getEventType())) {
-            log.info("Checkout session completed with payment_status='{}' for quoteId={}; deferring settlement to async_payment_succeeded",
-                    payload.getPaymentStatus(), quoteId);
+            log.info("Checkout session completed with payment_status='{}' for quote_ref={}; deferring settlement to async_payment_succeeded",
+                    payload.getPaymentStatus(), QuoteRef.of(quoteId));
             paymentReference.setStripeStatus(StringUtils.defaultIfBlank(payload.getPaymentStatus(), payload.getStatus()));
             paymentReference.setLivemode(payload.isLivemode());
             paymentReference.setLastEventId(payload.getEventId());
@@ -409,17 +410,17 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
 
     private void validateAmountAndCurrency(StripeWebhookPayload payload, GatewayQuote quote) throws WebhookProcessingException {
         if (payload.getAmountTotal() != null && !payload.getAmountTotal().equals(quote.getAmount())) {
-            throw new WebhookProcessingException("Stripe amount mismatch for quoteId=" + quote.getQuoteId());
+            throw new WebhookProcessingException("Stripe amount mismatch for quote_ref=" + QuoteRef.of(quote.getQuoteId()));
         }
         if (StringUtils.isNotBlank(payload.getCurrency()) && !payload.getCurrency().equalsIgnoreCase(quote.getUnit())) {
-            throw new WebhookProcessingException("Stripe currency mismatch for quoteId=" + quote.getQuoteId());
+            throw new WebhookProcessingException("Stripe currency mismatch for quote_ref=" + QuoteRef.of(quote.getQuoteId()));
         }
     }
 
     private void validateReference(StripeWebhookPayload payload, StripePaymentReference paymentReference) throws WebhookProcessingException {
         if (StringUtils.isNotBlank(payload.getCheckoutSessionId())
                 && !payload.getCheckoutSessionId().equals(paymentReference.getCheckoutSessionId())) {
-            throw new WebhookProcessingException("Stripe checkout session mismatch for quoteId=" + paymentReference.getQuoteId());
+            throw new WebhookProcessingException("Stripe checkout session mismatch for quote_ref=" + QuoteRef.of(paymentReference.getQuoteId()));
         }
     }
 
@@ -435,11 +436,11 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         try {
             GatewayQuote quote = quoteClient.getByEntityId(quoteId);
             if (quote == null) {
-                throw new WebhookProcessingException("Quote not found: " + quoteId);
+                throw new WebhookProcessingException("Quote not found: " + QuoteRef.of(quoteId));
             }
             return quote;
         } catch (HttpClientErrorException e) {
-            throw new WebhookProcessingException("Quote not found: " + quoteId, e);
+            throw new WebhookProcessingException("Quote not found: " + QuoteRef.of(quoteId), e);
         }
     }
 
@@ -447,11 +448,11 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         try {
             GatewayPayment payment = paymentClient.getByQuoteId(quoteId);
             if (payment == null) {
-                throw new WebhookProcessingException("Payment not found for quoteId=" + quoteId);
+                throw new WebhookProcessingException("Payment not found for quote_ref=" + QuoteRef.of(quoteId));
             }
             return payment;
         } catch (HttpClientErrorException e) {
-            throw new WebhookProcessingException("Payment not found for quoteId=" + quoteId, e);
+            throw new WebhookProcessingException("Payment not found for quote_ref=" + QuoteRef.of(quoteId), e);
         }
     }
 
