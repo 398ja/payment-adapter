@@ -27,6 +27,20 @@
   `true`. phoenixd says unpaid or holds no such payment: `false`. phoenixd unreachable or 5xx:
   `PaymentStatusUnavailableException` (unknown). SEND quotes are not looked up.
 
+- **The reconcile no longer depends on the webhook replay, and nothing after "paid" can undo it
+  ([#253](https://github.com/398ja/payment-adapter/issues/253) review).** cashu-mint builds
+  `PhoenixdGateway` by reflection, so `@Value` never applies and `webhook.base_url` is the bundled
+  `http://localhost:9090/webhook`, where nothing listens inside the mint: the replay would always be
+  refused. The answer never depended on it (the PAID stamp makes every later check, the mint's
+  status task and `MintTask` read paid), and now the replay goes to the adapter the REST clients
+  already use (`GATEWAY_API_BASE_URL` + `/webhook/phoenixd`), the same host that just accepted the
+  stamp. A refused or failed replay is a WARN `reconcile_replay_failed`, not an `[alert]`, and
+  `PaidQuoteForwardReconciler` re-delivers it. A received amount that does not fit an `int` no
+  longer throws out of the reconcile (`Math.toIntExact`) as an error; it falls back to the invoiced
+  amount and the answer stays paid.
+- **A CONFIRMED quote or payment reads paid.** CONFIRMED is the state after PAID; checking only
+  PAID reported it unpaid.
+
 ### Security
 
 - **Quote ids are no longer logged ([cashu-mint#531](https://github.com/398ja/cashu-mint/issues/531)).**
@@ -35,6 +49,20 @@
   first six bytes of SHA-256, the format imani-gateway-customer uses) instead of the id, the URL that
   carries it, or the entity body whose `toString` prints it. `PaymentStatusUnavailableException`'s
   message carries the ref too; the id stays available as `getQuoteId()`.
+- **The unknown answer no longer chains the id.** `PhoenixdGateway` logged `cause.getMessage()` and
+  chained the cause, and a RestTemplate I/O error's message is
+  `I/O error on GET request for ".../findByQuoteId?quoteId=<raw id>"`. It now logs the cause's
+  class name only and chains a redacted copy (class name and stack trace, no message, no nested
+  causes).
+- **`GatewayQuote` and `GatewayPayment` `toString` print a `quoteRef`, never the quote id**, the
+  invoice id (the same value for phoenixd), the preimage or the idempotency key. This closes the
+  class of leak where an entity is passed as a `{}` log argument, such as
+  `AbstractBaseClient.create`, which logged the quote where it meant the resource name (also
+  fixed). Equality is unchanged.
+- **The remaining log lines and exception messages that carried a raw quote id** (the webhook
+  forwarders, `PhoenixWebhookHandler`, `PhoenixWebhookValidator`, `MintWebhookForwardRetrier`,
+  `PaidQuoteForwardReconciler`, `StripeGateway`, `StripeWebhookHandler`, `DummyGateway`) now carry
+  the `quote_ref`.
 
 ### Notes for operators
 
@@ -43,6 +71,11 @@
   `payment-adapter-ln-phoenixd`, `payment-adapter-common` and `payment-adapter-webhook`.
 - The phoenixd lookup runs inside the mint, so the mint's `phoenixd.base_url`, `phoenixd.username`
   and `phoenixd.password` must reach phoenixd's HTTP API, as they already must for invoice creation.
+- The replay needs no new setting: it uses the mint's existing `GATEWAY_API_BASE_URL`
+  (`http://payment-adapter:8080` on staging and test). Where a replay still fails, the adapter's
+  `PaidQuoteForwardReconciler` is the fallback, which only runs with
+  `MINT_WEBHOOK_RECONCILE_ENABLED=true` on the payment-adapter (set on staging; not set in
+  imani-deploy's `docker-compose.prod.yml`, where the default is `false`).
 
 ## [0.17.1] - 2026-09-27
 

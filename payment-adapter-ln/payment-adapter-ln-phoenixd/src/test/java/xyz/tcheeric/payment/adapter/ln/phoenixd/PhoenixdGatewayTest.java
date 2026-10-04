@@ -688,7 +688,7 @@ public class PhoenixdGatewayTest {
                             .thenThrow(notFound())
                             .thenThrow(new ResourceAccessException("Read timed out")))
         ) {
-            // Reconcile path: paid at phoenixd, relay refused, so it logs WARN and an [alert] ERROR.
+            // Reconcile path: paid at phoenixd and the relay refused, so it logs two WARN lines.
             Assertions.assertTrue(reconciling.checkPaymentStatus(secretId));
         }
         try (
@@ -709,6 +709,159 @@ public class PhoenixdGatewayTest {
         Assertions.assertTrue(lines.stream().anyMatch(l -> l.contains("state=UNKNOWN")), lines.toString());
         Assertions.assertTrue(lines.stream().anyMatch(l -> l.contains(QuoteRef.of(secretId))), lines.toString());
         Assertions.assertTrue(lines.stream().noneMatch(l -> l.contains(secretId)), lines.toString());
+    }
+
+    // Inside cashu-mint the gateway is built by reflection, so webhook.base_url is the bundled
+    // http://localhost:9090/webhook, where nothing listens. The replay must go to the adapter the
+    // gateway's REST clients already talk to (GATEWAY_API_BASE_URL, which the mint sets): the
+    // same host that just accepted the PAID stamp, at its /webhook/phoenixd endpoint.
+    @Test
+    public void replayGoesToTheAdapterTheClientsUseNotTheBundledWebhookUrl() {
+        GatewayQuote pending = receiveQuote("q-replay-host");
+        stubDecode("hash-host");
+        when(service.getIncomingPayment("hash-host")).thenReturn(incoming("hash-host", true, 30L));
+        AdapterWebhookRelay relay = mock(AdapterWebhookRelay.class);
+        when(relay.relayPaymentReceived(any(), anyString(), any(), anyString())).thenReturn(true);
+        PhoenixdGateway reconciling = gatewayWithRelay(relay);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> {
+                        when(mock.getByEntityId(anyString())).thenReturn(pending);
+                        when(mock.getBaseUrl()).thenReturn("http://payment-adapter:8080");
+                    });
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString())).thenThrow(notFound()))
+        ) {
+            Assertions.assertTrue(reconciling.checkPaymentStatus("q-replay-host"));
+
+            verify(relay).relayPaymentReceived(
+                    argThat(url -> url.toString().equals("http://payment-adapter:8080/webhook/phoenixd")),
+                    eq("q-replay-host"), eq(30), eq("hash-host"));
+        }
+    }
+
+    // The replay is an optimisation, not part of the answer: phoenixd has the money, the quote is
+    // now PAID, and the mint's own status check and MintTask read that through this gateway. A
+    // replay that is refused, or that throws, is a WARN and the answer stays paid. It is not an
+    // [alert] ERROR either: the adapter's PaidQuoteForwardReconciler re-delivers the PAID quote.
+    @Test
+    public void failedReplayIsAWarnAndTheAnswerStaysPaid() {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(PhoenixdGateway.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        GatewayQuote pending = receiveQuote("q-replay-fails");
+        stubDecode("hash-rp");
+        when(service.getIncomingPayment("hash-rp")).thenReturn(incoming("hash-rp", true, 30L));
+        AdapterWebhookRelay relay = mock(AdapterWebhookRelay.class);
+        when(relay.relayPaymentReceived(any(), anyString(), any(), anyString()))
+                .thenReturn(false)
+                .thenThrow(new IllegalStateException("connection refused"));
+        PhoenixdGateway reconciling = gatewayWithRelay(relay);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> {
+                        when(mock.getByEntityId(anyString())).thenReturn(pending);
+                        when(mock.getBaseUrl()).thenReturn("http://payment-adapter:8080");
+                    });
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString())).thenThrow(notFound()))
+        ) {
+            Assertions.assertTrue(reconciling.checkPaymentStatus("q-replay-fails"), "refused replay");
+            Assertions.assertTrue(reconciling.checkPaymentStatus("q-replay-fails"), "replay threw");
+        } finally {
+            logger.detachAppender(appender);
+        }
+        java.util.List<ch.qos.logback.classic.spi.ILoggingEvent> replayLines = appender.list.stream()
+                .filter(e -> e.getFormattedMessage().contains("reconcile_replay_failed")).toList();
+        Assertions.assertEquals(2, replayLines.size(), appender.list.toString());
+        replayLines.forEach(e -> Assertions.assertEquals(ch.qos.logback.classic.Level.WARN, e.getLevel()));
+    }
+
+    // Nothing after phoenixd says "paid" may turn the answer into anything else. phoenixd reporting
+    // an amount too large for an int used to throw out of the reconcile (Math.toIntExact) and
+    // surface as an error; the answer must still be paid.
+    @Test
+    public void anOverflowingReceivedAmountStillAnswersPaid() {
+        GatewayQuote pending = receiveQuote("q-huge");
+        stubDecode("hash-huge");
+        when(service.getIncomingPayment("hash-huge")).thenReturn(incoming("hash-huge", true, Long.MAX_VALUE));
+        AdapterWebhookRelay relay = mock(AdapterWebhookRelay.class);
+        PhoenixdGateway reconciling = gatewayWithRelay(relay);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString())).thenReturn(pending));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString())).thenThrow(notFound()))
+        ) {
+            Assertions.assertTrue(reconciling.checkPaymentStatus("q-huge"));
+        }
+    }
+
+    // CONFIRMED is the state after PAID. A quote or payment that has moved on to CONFIRMED is
+    // still paid; reading only PAID would report a settled payment as unpaid.
+    @Test
+    public void confirmedQuoteOrPaymentIsPaid() {
+        GatewayQuote confirmed = receiveQuote("q-confirmed");
+        confirmed.setState(State.CONFIRMED);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString())).thenReturn(confirmed));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class)
+        ) {
+            Assertions.assertTrue(gateway.checkPaymentStatus("q-confirmed"), "confirmed quote");
+        }
+
+        GatewayQuote pendingSend = receiveQuote("q-payment-confirmed");
+        pendingSend.setDirection(Direction.SEND);
+        GatewayPayment payment = new GatewayPayment();
+        payment.setState(State.CONFIRMED);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString())).thenReturn(pendingSend));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString())).thenReturn(payment))
+        ) {
+            Assertions.assertTrue(gateway.checkPaymentStatus("q-payment-confirmed"), "confirmed payment");
+        }
+    }
+
+    // A RestTemplate I/O error carries the request URL, and so the raw quote id, in its message.
+    // Neither the WARN line nor anything reachable from the exception callers log (its message,
+    // its cause chain, their messages) may contain the id. The cause keeps the original class
+    // name and stack trace so the failure can still be located.
+    @Test
+    public void unknownAnswerCarriesNoQuoteIdAnywhereInItsCauseChainOrLog() {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(PhoenixdGateway.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        String secretId = "0d9e3c1a-5f7b-4e2d-9a8c-000000000531";
+        ResourceAccessException io = new ResourceAccessException(
+                "I/O error on GET request for \"http://payment-adapter:8080/quote/search/findByQuoteId?quoteId="
+                        + secretId + "\": Read timed out", new java.net.SocketTimeoutException("Read timed out " + secretId));
+        PaymentStatusUnavailableException thrown;
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString())).thenThrow(io))
+        ) {
+            thrown = Assertions.assertThrows(PaymentStatusUnavailableException.class,
+                    () -> gateway.checkPaymentStatus(secretId));
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        java.io.StringWriter trace = new java.io.StringWriter();
+        thrown.printStackTrace(new java.io.PrintWriter(trace));
+        Assertions.assertFalse(trace.toString().contains(secretId), trace.toString());
+        Assertions.assertTrue(trace.toString().contains(ResourceAccessException.class.getName()), trace.toString());
+        Assertions.assertTrue(appender.list.stream().noneMatch(e -> e.getFormattedMessage().contains(secretId)));
+        Assertions.assertTrue(appender.list.stream()
+                .anyMatch(e -> e.getFormattedMessage().contains("error=ResourceAccessException")));
     }
 
     private static GatewayQuote receiveQuote(String quoteId) {
