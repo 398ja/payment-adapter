@@ -126,6 +126,34 @@ public class QuoteClientTest {
         assertThat(result.getState()).isEqualTo(State.PAID);
     }
 
+    // Recording a payment found at phoenixd (its webhook was lost) must be a PATCH carrying only
+    // state=PAID. A body carrying anything else could revert a concurrent write, which is #245.
+    @Test
+    void markPaidSendsAPatchCarryingOnlyTheState() throws Exception {
+        GatewayQuote expected = new GatewayQuote();
+        expected.setId(7L);
+        expected.setState(State.PAID);
+
+        mockServer.expect(requestTo("http://localhost:8080/quote/7"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(jsonPath("$.state").value("PAID"))
+                .andExpect(jsonPath("$.mintNotifiedAt").doesNotExist())
+                .andExpect(jsonPath("$.quoteId").doesNotExist())
+                .andRespond(withSuccess(objectMapper.writeValueAsString(expected), MediaType.APPLICATION_JSON));
+
+        GatewayQuote result = quoteClient.markPaid(7L);
+
+        mockServer.verify();
+        assertThat(result.getState()).isEqualTo(State.PAID);
+    }
+
+    // A null id must fail loudly rather than PATCH /quote/null.
+    @Test
+    void markPaidRejectsANullId() {
+        assertThatThrownBy(() -> quoteClient.markPaid(null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     /**
      * A null id must fail LOUDLY rather than build {@code /quote/null}.
      *

@@ -16,4 +16,12 @@ public interface PhoenixdService {
     GetLightningAddressResponse getLightningAddress();
     PayBolt11InvoiceInvoiceResponse payBolt11Invoice(PayBolt11InvoiceParam param);
     PayLightningAddressInvoiceResponse payLightningAddress(PayLightningAddressParam param);
+
+    /**
+     * phoenixd's own record of the incoming payment for an invoice, by payment hash.
+     *
+     * @return the record, or {@code null} when phoenixd answers 404 (it holds no such payment)
+     * @throws RuntimeException when phoenixd is unreachable or answers anything else
+     */
+    IncomingPaymentResponse getIncomingPayment(String paymentHash);
 }

@@ -27,6 +27,11 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import xyz.tcheeric.payment.adapter.core.common.InvoiceNotPaidException;
 import xyz.tcheeric.payment.adapter.core.common.PaymentStatusUnavailableException;
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
+import xyz.tcheeric.payment.adapter.core.model.entity.enums.Direction;
+import xyz.tcheeric.payment.adapter.ln.phoenixd.service.AdapterWebhookRelay;
+import xyz.tcheeric.payment.adapter.ln.phoenixd.service.IncomingPaymentResponse;
+import xyz.tcheeric.phoenixd.model.response.DecodeInvoiceResponse;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.util.Properties;
@@ -498,6 +503,257 @@ public class PhoenixdGatewayTest {
             Assertions.assertTrue(gateway.checkPaymentStatus("q-paid"));
             Assertions.assertTrue(payments.constructed().isEmpty());
         }
+    }
+
+    // A store lookup for the Payment record that fails with a server error (the adapter's REST
+    // store answered 500) is as unknown as a failed quote lookup. The quote itself was found and is
+    // not PAID, but the Payment record might say PAID, so the answer must be "unknown", never "unpaid".
+    @Test
+    public void paymentLookupServerErrorIsAnErrorNotUnpaid() {
+        GatewayQuote pending = receiveQuote("q-pay-500");
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString())).thenReturn(pending));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString()))
+                            .thenThrow(HttpServerErrorException.create(HttpStatus.INTERNAL_SERVER_ERROR,
+                                    "Internal Server Error", HttpHeaders.EMPTY, new byte[0], null)))
+        ) {
+            PaymentStatusUnavailableException thrown = Assertions.assertThrows(
+                    PaymentStatusUnavailableException.class,
+                    () -> gateway.checkPaymentStatus("q-pay-500"));
+            Assertions.assertEquals("q-pay-500", thrown.getQuoteId());
+            verify(service, never()).getIncomingPayment(anyString());
+        }
+    }
+
+    // The lost-webhook case. The invoice was paid at phoenixd, but its callback never reached the
+    // adapter, so the stored quote still reads PENDING and there is no Payment record. Answering
+    // "unpaid" here makes the mint report UNPAID and the gateway forget a paid voucher. The gateway
+    // must ask phoenixd, and on "paid" record the payment (mark the quote PAID), replay phoenixd's
+    // callback to the adapter's webhook so the mint is told as it would have been, and answer paid.
+    @Test
+    public void receiveQuotePaidAtPhoenixdIsReconciledAndReportedPaid() {
+        GatewayQuote pending = receiveQuote("q-lost-webhook");
+        stubDecode("hash-lost");
+        IncomingPaymentResponse paid = incoming("hash-lost", true, 30L);
+        when(service.getIncomingPayment("hash-lost")).thenReturn(paid);
+        AdapterWebhookRelay relay = mock(AdapterWebhookRelay.class);
+        when(relay.relayPaymentReceived(any(), anyString(), any(), anyString())).thenReturn(true);
+        PhoenixdGateway reconciling = gatewayWithRelay(relay);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString())).thenReturn(pending));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString())).thenThrow(notFound()))
+        ) {
+            Assertions.assertTrue(reconciling.checkPaymentStatus("q-lost-webhook"));
+
+            verify(quotes.constructed().get(quotes.constructed().size() - 1)).markPaid(pending.getId());
+            verify(relay).relayPaymentReceived(
+                    argThat(url -> url.toString().equals("http://localhost:9090/webhook/phoenixd")),
+                    eq("q-lost-webhook"), eq(30), eq("hash-lost"));
+        }
+    }
+
+    // phoenixd itself says the invoice is not paid. That is a definite answer, so the quote reads
+    // unpaid (the mint answers 200 with state UNPAID), and nothing is recorded or forwarded.
+    @Test
+    public void receiveQuoteUnpaidAtPhoenixdStaysUnpaid() {
+        GatewayQuote pending = receiveQuote("q-unpaid");
+        stubDecode("hash-unpaid");
+        when(service.getIncomingPayment("hash-unpaid")).thenReturn(incoming("hash-unpaid", false, 0L));
+        AdapterWebhookRelay relay = mock(AdapterWebhookRelay.class);
+        PhoenixdGateway reconciling = gatewayWithRelay(relay);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString())).thenReturn(pending));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString())).thenThrow(notFound()))
+        ) {
+            Assertions.assertFalse(reconciling.checkPaymentStatus("q-unpaid"));
+
+            quotes.constructed().forEach(q -> verify(q, never()).markPaid(any()));
+            verifyNoInteractions(relay);
+        }
+    }
+
+    // phoenixd holds no payment at all for the invoice's hash (it answers 404, which the service
+    // returns as null). That is also a definite "not paid".
+    @Test
+    public void receiveQuoteWithNoPaymentAtPhoenixdIsUnpaid() {
+        GatewayQuote pending = receiveQuote("q-none");
+        stubDecode("hash-none");
+        when(service.getIncomingPayment("hash-none")).thenReturn(null);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString())).thenReturn(pending));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString())).thenThrow(notFound()))
+        ) {
+            Assertions.assertFalse(gateway.checkPaymentStatus("q-none"));
+        }
+    }
+
+    // phoenixd cannot be reached, so whether the invoice was paid is unknown. That must be the
+    // "unknown" answer (the mint answers 5xx and callers retry), never "unpaid", and the quote
+    // id must not appear in the exception message, which callers log (cashu-mint#531).
+    @Test
+    public void receiveQuoteWithPhoenixdUnreachableIsUnknown() {
+        GatewayQuote pending = receiveQuote("q-phoenixd-down");
+        stubDecode("hash-down");
+        when(service.getIncomingPayment("hash-down"))
+                .thenThrow(new IllegalStateException("java.net.ConnectException: Connection refused"));
+        AdapterWebhookRelay relay = mock(AdapterWebhookRelay.class);
+        PhoenixdGateway reconciling = gatewayWithRelay(relay);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString())).thenReturn(pending));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString())).thenThrow(notFound()))
+        ) {
+            PaymentStatusUnavailableException thrown = Assertions.assertThrows(
+                    PaymentStatusUnavailableException.class,
+                    () -> reconciling.checkPaymentStatus("q-phoenixd-down"));
+            Assertions.assertEquals("q-phoenixd-down", thrown.getQuoteId());
+            Assertions.assertFalse(thrown.getMessage().contains("q-phoenixd-down"));
+            quotes.constructed().forEach(q -> verify(q, never()).markPaid(any()));
+            verifyNoInteractions(relay);
+        }
+    }
+
+    // When phoenixd says paid but recording the payment fails, the answer is still "paid": the
+    // money is at phoenixd. Nothing is forwarded yet, since the mint would then hear of a payment
+    // the adapter has no record of; the next status check asks phoenixd again.
+    @Test
+    public void reconcileRecordFailureStillAnswersPaidAndDoesNotForward() {
+        GatewayQuote pending = receiveQuote("q-record-fails");
+        stubDecode("hash-rf");
+        when(service.getIncomingPayment("hash-rf")).thenReturn(incoming("hash-rf", true, 30L));
+        AdapterWebhookRelay relay = mock(AdapterWebhookRelay.class);
+        PhoenixdGateway reconciling = gatewayWithRelay(relay);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> {
+                        when(mock.getByEntityId(anyString())).thenReturn(pending);
+                        when(mock.markPaid(any())).thenThrow(new ResourceAccessException("Read timed out"));
+                    });
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString())).thenThrow(notFound()))
+        ) {
+            Assertions.assertTrue(reconciling.checkPaymentStatus("q-record-fails"));
+            verifyNoInteractions(relay);
+        }
+    }
+
+    // A SEND (melt) quote with no Payment record has not been paid by this gateway, which is a
+    // definite answer on its own: phoenixd is not asked about incoming payments for it.
+    @Test
+    public void sendQuoteWithNoPaymentIsUnpaidWithoutAskingPhoenixd() {
+        GatewayQuote send = receiveQuote("q-send");
+        send.setDirection(Direction.SEND);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString())).thenReturn(send));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString())).thenThrow(notFound()))
+        ) {
+            Assertions.assertFalse(gateway.checkPaymentStatus("q-send"));
+            verify(service, never()).getIncomingPayment(anyString());
+        }
+    }
+
+    // A quote id is a bearer claim on the customer's payment (cashu-mint#531), so the WARN and ERROR
+    // lines the gateway writes on its unknown and reconcile paths must carry the quote's ref, never
+    // the id itself. Drives both paths and reads every line the gateway logged.
+    @Test
+    public void unknownAndReconcileLogsCarryTheQuoteRefNotTheId() {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(PhoenixdGateway.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        String secretId = "5b7a958a-77a3-4ad0-a67b-e5aa00000531";
+        GatewayQuote pending = receiveQuote(secretId);
+        stubDecode("hash-log");
+        when(service.getIncomingPayment("hash-log")).thenReturn(incoming("hash-log", true, 30L));
+        AdapterWebhookRelay relay = mock(AdapterWebhookRelay.class);
+        PhoenixdGateway reconciling = gatewayWithRelay(relay);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString())).thenReturn(pending));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString()))
+                            .thenThrow(notFound())
+                            .thenThrow(new ResourceAccessException("Read timed out")))
+        ) {
+            // Reconcile path: paid at phoenixd, relay refused, so it logs WARN and an [alert] ERROR.
+            Assertions.assertTrue(reconciling.checkPaymentStatus(secretId));
+        }
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString()))
+                            .thenThrow(new ResourceAccessException("Read timed out")))
+        ) {
+            // Unknown path: the store lookup fails.
+            Assertions.assertThrows(PaymentStatusUnavailableException.class,
+                    () -> reconciling.checkPaymentStatus(secretId));
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        java.util.List<String> lines = appender.list.stream()
+                .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
+        Assertions.assertTrue(lines.stream().anyMatch(l -> l.contains("payment_reconciled")), lines.toString());
+        Assertions.assertTrue(lines.stream().anyMatch(l -> l.contains("state=UNKNOWN")), lines.toString());
+        Assertions.assertTrue(lines.stream().anyMatch(l -> l.contains(QuoteRef.of(secretId))), lines.toString());
+        Assertions.assertTrue(lines.stream().noneMatch(l -> l.contains(secretId)), lines.toString());
+    }
+
+    private static GatewayQuote receiveQuote(String quoteId) {
+        GatewayQuote quote = new GatewayQuote();
+        quote.setId(42L);
+        quote.setQuoteId(quoteId);
+        quote.setInvoiceId(quoteId);
+        quote.setAmount(30);
+        quote.setRequest("lnbc300n1ptest");
+        quote.setState(State.PENDING);
+        quote.setDirection(Direction.RECEIVE);
+        return quote;
+    }
+
+    private void stubDecode(String paymentHash) {
+        DecodeInvoiceResponse decoded = new DecodeInvoiceResponse();
+        decoded.setPaymentHash(paymentHash);
+        when(service.decodeInvoice(any())).thenReturn(decoded);
+    }
+
+    private static IncomingPaymentResponse incoming(String paymentHash, boolean paid, long receivedSat) {
+        IncomingPaymentResponse response = new IncomingPaymentResponse();
+        response.setPaymentHash(paymentHash);
+        response.setPaid(paid);
+        response.setReceivedSat(receivedSat);
+        return response;
+    }
+
+    private static HttpClientErrorException notFound() {
+        return HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                HttpHeaders.EMPTY, new byte[0], null);
+    }
+
+    private PhoenixdGateway gatewayWithRelay(AdapterWebhookRelay relay) {
+        PhoenixdGateway reconciling = new PhoenixdGateway(service, relay);
+        for (String name : new String[]{"currency", "expiry", "lnAddressFlag", "feePercent", "fixedFee", "webhookBaseUrl"}) {
+            try {
+                Field field = PhoenixdGateway.class.getDeclaredField(name);
+                field.setAccessible(true);
+                field.set(reconciling, field.get(gateway));
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+        return reconciling;
     }
 
     // verifies that webhook URL appends the gateway name

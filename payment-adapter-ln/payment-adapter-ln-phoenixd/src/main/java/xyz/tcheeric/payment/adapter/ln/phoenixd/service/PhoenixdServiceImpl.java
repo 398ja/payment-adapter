@@ -40,4 +40,21 @@ public class PhoenixdServiceImpl implements PhoenixdService {
     public PayLightningAddressInvoiceResponse payLightningAddress(PayLightningAddressParam param) {
         return new PayLightningAddressRequest(param).getResponse();
     }
+
+    @Override
+    public IncomingPaymentResponse getIncomingPayment(String paymentHash) {
+        try {
+            return new GetIncomingPaymentRequest(new IncomingPaymentParam(paymentHash)).getResponse();
+        } catch (Exception e) {
+            // phoenixd-java reports a non-2xx answer as an IOException whose message starts with
+            // the status ("Failed HTTP request: 404 ..."). A 404 is phoenixd saying it holds no
+            // payment for this hash, which is a definite answer; everything else is not.
+            String message = e.getMessage();
+            if (message != null && message.startsWith("Failed HTTP request: 404")) {
+                return null;
+            }
+            throw e instanceof RuntimeException runtime ? runtime
+                    : new IllegalStateException("phoenixd incoming payment lookup failed", e);
+        }
+    }
 }

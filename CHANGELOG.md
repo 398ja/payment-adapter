@@ -12,8 +12,37 @@
   (imani-gateway-customer#171). Only a definite answer now means unpaid. A stored quote that is not
   PAID with no Payment record returns `false` (the mint answers 200 with state `UNPAID`); a 404 for
   both the quote and its Payment still throws `InvoiceNotPaidException`. Any other lookup failure
-  throws the new `PaymentStatusUnavailableException` (state UNKNOWN, logged at WARN with the quote
-  id), which cashu-mint does not map to a NUT error code, so it answers 5xx and callers retry.
+  throws the new `PaymentStatusUnavailableException` (state UNKNOWN, logged at WARN with the quote's
+  ref), which cashu-mint does not map to a NUT error code, so it answers 5xx and callers retry.
+
+- **A paid invoice whose phoenixd webhook was lost is no longer reported unpaid
+  ([#253](https://github.com/398ja/payment-adapter/issues/253)).** The store learns of an incoming
+  payment only from phoenixd's webhook, so with the change above a lost webhook made a paid RECEIVE
+  quote a definite `false`, and a caller past the quote's expiry would forget a paid voucher. Before
+  answering unpaid for a RECEIVE quote with no Payment record, `checkPaymentStatus` now asks phoenixd
+  directly (`GET /payments/incoming/{paymentHash}`, the hash decoded from the quote's invoice).
+  phoenixd says paid: the quote is marked PAID through a state-only PATCH (`QuoteClient.markPaid`),
+  phoenixd's callback is replayed to the adapter's own webhook so the mint is told exactly as the
+  webhook would have (signed forward, `mintNotifiedAt` stamp, reconciler fallback), and the answer is
+  `true`. phoenixd says unpaid or holds no such payment: `false`. phoenixd unreachable or 5xx:
+  `PaymentStatusUnavailableException` (unknown). SEND quotes are not looked up.
+
+### Security
+
+- **Quote ids are no longer logged ([cashu-mint#531](https://github.com/398ja/cashu-mint/issues/531)).**
+  A quote id is a bearer claim on the customer's payment. `PhoenixdGateway` and the REST clients it
+  calls (`QuoteClient`, `PaymentClient`, `AbstractBaseClient`) now log a `quote_ref` (`q:` plus the
+  first six bytes of SHA-256, the format imani-gateway-customer uses) instead of the id, the URL that
+  carries it, or the entity body whose `toString` prints it. `PaymentStatusUnavailableException`'s
+  message carries the ref too; the id stays available as `getQuoteId()`.
+
+### Notes for operators
+
+- Takes effect in the mint only once cashu-mint depends on this release: cashu-mint pins
+  `payment-adapter.version` to 0.17.0 in its root `pom.xml`, which it embeds as
+  `payment-adapter-ln-phoenixd`, `payment-adapter-common` and `payment-adapter-webhook`.
+- The phoenixd lookup runs inside the mint, so the mint's `phoenixd.base_url`, `phoenixd.username`
+  and `phoenixd.password` must reach phoenixd's HTTP API, as they already must for invoice creation.
 
 ## [0.17.1] - 2026-09-27
 
