@@ -201,15 +201,21 @@ public class PhoenixdGateway implements Gateway {
     /**
      * Answers whether the quote is paid, and only ever says "not paid" on a definite answer.
      *
-     * <p>A lookup that fails for a transient reason (timeout, connection reset, a 5xx from the
-     * store) throws {@link PaymentStatusUnavailableException} instead. Falling through to "not
-     * paid" there reported a PAID quote as unpaid, which the mint answers as 20001 and a caller
-     * past the quote's expiry reads as "forget it" (#253).
+     * <p>A stored quote that is not PAID and has no Payment record is definitely unpaid, so the
+     * answer is {@code false}, which the mint reports as a 200 with state UNPAID. A quote and
+     * Payment the store both answer 404 for stays {@link InvoiceNotPaidException}, as before.
+     *
+     * <p>A lookup that fails for any other reason (timeout, connection reset, a 5xx from the
+     * store) throws {@link PaymentStatusUnavailableException}. Falling through to "not paid"
+     * there reported a PAID quote as unpaid, which the mint answers as 20001 and a caller past
+     * the quote's expiry read as "forget it" (#253).
      */
     @Override
     public boolean checkPaymentStatus(String quoteId) {
         // First check the Quote state directly (supports RECEIVE quotes where payment record may not exist)
-        if (isQuotePaid(quoteId)) {
+        GatewayQuote quote = findQuote(quoteId);
+        if (quote != null && State.PAID.equals(quote.getState())) {
+            log.debug("phoenixd_gateway quote_paid quoteId={} state={}", quoteId, quote.getState());
             return true;
         }
 
@@ -219,6 +225,10 @@ public class PhoenixdGateway implements Gateway {
             log.debug("Checked payment status for quoteId={}, state={}", quoteId, payment.getState());
             return State.PAID.equals(payment.getState());
         } catch (HttpClientErrorException.NotFound notFound) {
+            if (quote != null) {
+                log.debug("phoenixd_gateway quote_unpaid quoteId={} state={}", quoteId, quote.getState());
+                return false;
+            }
             log.warn("phoenixd_gateway payment_missing quoteId={} state=UNPAID reason=not_recorded", quoteId);
             throw new InvoiceNotPaidException(
                     quoteId,
@@ -231,20 +241,15 @@ public class PhoenixdGateway implements Gateway {
     }
 
     /**
-     * True when the stored quote is PAID. False when it is stored and not PAID, or definitely
-     * absent (404), so the caller falls back to the Payment record. Any other failure is unknown.
+     * The stored quote, or {@code null} when the store definitely does not have it (404).
+     * Any other failure means its state is unknown.
      */
-    private boolean isQuotePaid(String quoteId) {
+    private GatewayQuote findQuote(String quoteId) {
         try {
-            GatewayQuote quote = new QuoteClient().getByEntityId(quoteId);
-            if (quote != null && State.PAID.equals(quote.getState())) {
-                log.debug("phoenixd_gateway quote_paid quoteId={} state={}", quoteId, quote.getState());
-                return true;
-            }
-            return false;
+            return new QuoteClient().getByEntityId(quoteId);
         } catch (HttpClientErrorException.NotFound notFound) {
             log.debug("phoenixd_gateway quote_not_found quoteId={}", quoteId);
-            return false;
+            return null;
         } catch (RuntimeException e) {
             throw statusUnavailable(quoteId, "quote_lookup_failed", e);
         }

@@ -9,10 +9,11 @@
   swallowed any quote-lookup failure and fell through to the Payment-record lookup, whose 404 became
   `InvoiceNotPaidException` (the mint's 20001). A timeout, connection reset or 5xx on a PAID quote
   therefore read as "not paid", and a caller past the quote's expiry could forget a paid voucher
-  (imani-gateway-customer#171). Only a definite answer now means unpaid: a stored, non-PAID quote or
-  a 404 for both the quote and its Payment. Any other lookup failure throws the new
-  `PaymentStatusUnavailableException` (state UNKNOWN, logged at WARN with the quote id), which
-  cashu-mint does not map to a NUT error code, so it answers 5xx and callers retry.
+  (imani-gateway-customer#171). Only a definite answer now means unpaid. A stored quote that is not
+  PAID with no Payment record returns `false` (the mint answers 200 with state `UNPAID`); a 404 for
+  both the quote and its Payment still throws `InvoiceNotPaidException`. Any other lookup failure
+  throws the new `PaymentStatusUnavailableException` (state UNKNOWN, logged at WARN with the quote
+  id), which cashu-mint does not map to a NUT error code, so it answers 5xx and callers retry.
 
 ## [0.17.1] - 2026-09-27
 

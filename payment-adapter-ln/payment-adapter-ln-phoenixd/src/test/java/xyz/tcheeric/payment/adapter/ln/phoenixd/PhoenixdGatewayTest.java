@@ -446,9 +446,10 @@ public class PhoenixdGatewayTest {
     }
 
     // A genuinely unpaid quote still reads as unpaid: the quote is found and PENDING, and there is
-    // no Payment record, so the answer is a definite InvoiceNotPaidException (the mint's 20001).
+    // no Payment record. That is a definite answer, so it is a plain false, which the mint reports
+    // as a 200 with state UNPAID (NUT-04) rather than an error a caller cannot tell from a fault.
     @Test
-    public void pendingQuoteWithNoPaymentIsStillUnpaid() {
+    public void pendingQuoteWithNoPaymentIsDefinitelyUnpaid() {
         GatewayQuote pending = new GatewayQuote();
         pending.setQuoteId("q-pending");
         pending.setState(State.PENDING);
@@ -460,8 +461,7 @@ public class PhoenixdGatewayTest {
                             .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
                                     HttpHeaders.EMPTY, new byte[0], null)))
         ) {
-            Assertions.assertThrows(InvoiceNotPaidException.class,
-                    () -> gateway.checkPaymentStatus("q-pending"));
+            Assertions.assertFalse(gateway.checkPaymentStatus("q-pending"));
         }
     }
 
