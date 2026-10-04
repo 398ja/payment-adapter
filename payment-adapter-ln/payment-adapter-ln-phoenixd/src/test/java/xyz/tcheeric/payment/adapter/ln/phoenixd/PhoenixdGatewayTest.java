@@ -20,6 +20,13 @@ import xyz.tcheeric.cashu.common.nut18.PaymentMethod;
 import xyz.tcheeric.payment.adapter.core.common.Gateway;
 import xyz.tcheeric.phoenixd.model.response.PayBolt11InvoiceInvoiceResponse;
 import xyz.tcheeric.phoenixd.model.response.PayLightningAddressInvoiceResponse;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
+import xyz.tcheeric.payment.adapter.core.common.InvoiceNotPaidException;
+import xyz.tcheeric.payment.adapter.core.common.PaymentStatusUnavailableException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.util.Properties;
@@ -400,6 +407,99 @@ public class PhoenixdGatewayTest {
         Assertions.assertFalse(gateway.supports(PaymentMethod.MOBILE_MONEY));
         Assertions.assertFalse(gateway.supports(PaymentMethod.MOCK));
     }
+    // A quote lookup that fails for a transient reason (here a timeout) must not be reported as
+    // "not paid", even when no Payment record exists. The quote may well be PAID; we just could not
+    // read it. Reporting it unpaid makes the mint answer 20001, and a caller past the quote's expiry
+    // forgets a paid voucher (#253). It must surface as an error the mint answers with a 5xx.
+    @Test
+    public void transientQuoteLookupFailureIsAnErrorNotUnpaid() {
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString()))
+                            .thenThrow(new ResourceAccessException("Read timed out")));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString()))
+                            .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                                    HttpHeaders.EMPTY, new byte[0], null)))
+        ) {
+            PaymentStatusUnavailableException thrown = Assertions.assertThrows(
+                    PaymentStatusUnavailableException.class,
+                    () -> gateway.checkPaymentStatus("q-timeout"));
+            Assertions.assertEquals("q-timeout", thrown.getQuoteId());
+        }
+    }
+
+    // A quote lookup answered by a server error (the adapter's REST store returned 503) is just as
+    // unknown as a timeout, so it is also an error and never "not paid".
+    @Test
+    public void quoteLookupServerErrorIsAnErrorNotUnpaid() {
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString()))
+                            .thenThrow(HttpServerErrorException.create(HttpStatus.SERVICE_UNAVAILABLE,
+                                    "Service Unavailable", HttpHeaders.EMPTY, new byte[0], null)));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class)
+        ) {
+            Assertions.assertThrows(PaymentStatusUnavailableException.class,
+                    () -> gateway.checkPaymentStatus("q-503"));
+        }
+    }
+
+    // A genuinely unpaid quote still reads as unpaid: the quote is found and PENDING, and there is
+    // no Payment record, so the answer is a definite InvoiceNotPaidException (the mint's 20001).
+    @Test
+    public void pendingQuoteWithNoPaymentIsStillUnpaid() {
+        GatewayQuote pending = new GatewayQuote();
+        pending.setQuoteId("q-pending");
+        pending.setState(State.PENDING);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString())).thenReturn(pending));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString()))
+                            .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                                    HttpHeaders.EMPTY, new byte[0], null)))
+        ) {
+            Assertions.assertThrows(InvoiceNotPaidException.class,
+                    () -> gateway.checkPaymentStatus("q-pending"));
+        }
+    }
+
+    // A quote the store definitely does not have (404) is still allowed to fall back to the Payment
+    // record, which older MELT quotes rely on. With no Payment either, the answer is a definite unpaid.
+    @Test
+    public void quoteNotFoundFallsBackToPaymentAndReadsUnpaidWhenThatIsMissingToo() {
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString()))
+                            .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                                    HttpHeaders.EMPTY, new byte[0], null)));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class,
+                    (mock, context) -> when(mock.getByQuoteId(anyString()))
+                            .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                                    HttpHeaders.EMPTY, new byte[0], null)))
+        ) {
+            Assertions.assertThrows(InvoiceNotPaidException.class,
+                    () -> gateway.checkPaymentStatus("q-gone"));
+        }
+    }
+
+    // A PAID quote is reported paid without consulting the Payment record at all.
+    @Test
+    public void paidQuoteIsPaid() {
+        GatewayQuote paid = new GatewayQuote();
+        paid.setQuoteId("q-paid");
+        paid.setState(State.PAID);
+        try (
+            MockedConstruction<QuoteClient> quotes = mockConstruction(QuoteClient.class,
+                    (mock, context) -> when(mock.getByEntityId(anyString())).thenReturn(paid));
+            MockedConstruction<PaymentClient> payments = mockConstruction(PaymentClient.class)
+        ) {
+            Assertions.assertTrue(gateway.checkPaymentStatus("q-paid"));
+            Assertions.assertTrue(payments.constructed().isEmpty());
+        }
+    }
+
     // verifies that webhook URL appends the gateway name
     @Test
     public void testWebhookUrlAppendsGatewayName() throws Exception {
