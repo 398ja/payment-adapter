@@ -15,6 +15,8 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 
 import java.io.Serial;
 import java.time.Instant;
@@ -46,6 +48,7 @@ public class GatewayPayment implements GatewayEntity {
     @Column(length = 1024)
     private String request;
     private String paymentId;
+    @ToString.Exclude
     private String quoteId;
 
     @Enumerated(EnumType.STRING)
@@ -62,6 +65,7 @@ public class GatewayPayment implements GatewayEntity {
     private String paymentHash;
 
     @Column(length = 1024)
+    @ToString.Exclude
     private String paymentPreimage;
 
     /**
@@ -81,6 +85,7 @@ public class GatewayPayment implements GatewayEntity {
      * Unique key for webhook idempotency - prevents duplicate processing
      */
     @Column(name = "idempotency_key", unique = true)
+    @ToString.Exclude
     private String idempotencyKey;
 
     /**
@@ -120,5 +125,16 @@ public class GatewayPayment implements GatewayEntity {
         payment.setPaymentPreimage(paymentPreimage);
         payment.setState(State.PENDING);
         return payment;
+    }
+
+    /**
+     * The log-safe handle for {@link #quoteId}, which {@code toString} prints in its place. A quote
+     * id is a bearer claim on the payment (cashu-mint#531), and an entity passed to a log call as
+     * a {@code {}} argument is printed through {@code toString}. Not a getter, so Jackson and
+     * Spring Data REST never serialise it.
+     */
+    @ToString.Include(name = "quoteRef")
+    String quoteRef() {
+        return QuoteRef.of(quoteId);
     }
 }

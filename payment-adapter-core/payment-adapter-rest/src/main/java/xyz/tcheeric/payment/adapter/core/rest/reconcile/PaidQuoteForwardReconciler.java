@@ -1,5 +1,6 @@
 package xyz.tcheeric.payment.adapter.core.rest.reconcile;
 
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -134,9 +135,9 @@ public class PaidQuoteForwardReconciler {
             if (retrier.retryForward(quote)) {
                 quote.setMintNotifiedAt(Instant.now());
                 quotes.save(quote);
-                log.warn("paid_quote_forward_reconcile recovered quote_id={} amount={} "
+                log.warn("paid_quote_forward_reconcile recovered quote_ref={} amount={} "
                                 + "reason=settled_but_mint_never_told",
-                        quote.getQuoteId(), quote.getAmount());
+                        QuoteRef.of(quote.getQuoteId()), quote.getAmount());
                 return;
             }
 
@@ -152,20 +153,20 @@ public class PaidQuoteForwardReconciler {
             if (maxAttempts > 0 && quote.getForwardAttempts() >= maxAttempts) {
                 quote.setForwardGaveUpAt(Instant.now());
                 quotes.save(quote);
-                log.error("[alert] paid_quote_forward_reconcile gave_up quote_id={} amount={} "
+                log.error("[alert] paid_quote_forward_reconcile gave_up quote_ref={} amount={} "
                                 + "attempts={} reason=refused_every_time - the money is still "
                                 + "owed and still counted; an operator must resolve it",
-                        quote.getQuoteId(), quote.getAmount(), quote.getForwardAttempts());
+                        QuoteRef.of(quote.getQuoteId()), quote.getAmount(), quote.getForwardAttempts());
                 return;
             }
 
             quotes.save(quote);
-            log.error("[alert] paid_quote_forward_reconcile undeliverable quote_id={} amount={} "
+            log.error("[alert] paid_quote_forward_reconcile undeliverable quote_ref={} amount={} "
                             + "attempts={} of {} - settled payment the mint still has not accepted",
-                    quote.getQuoteId(), quote.getAmount(), quote.getForwardAttempts(), maxAttempts);
+                    QuoteRef.of(quote.getQuoteId()), quote.getAmount(), quote.getForwardAttempts(), maxAttempts);
         } catch (RuntimeException e) {
-            log.error("[alert] paid_quote_forward_reconcile failed quote_id={}",
-                    quote.getQuoteId(), e);
+            log.error("[alert] paid_quote_forward_reconcile failed quote_ref={}",
+                    QuoteRef.of(quote.getQuoteId()), e);
             // Persist the attempt even when the forward THREW rather than
             // returning false. Without this the count is lost on every tick, so
             // a forwarder that throws consistently never reaches the cap and
@@ -182,8 +183,8 @@ public class PaidQuoteForwardReconciler {
                 }
                 quotes.save(quote);
             } catch (RuntimeException saveFailed) {
-                log.warn("paid_quote_forward_reconcile attempt_not_recorded quote_id={}",
-                        quote.getQuoteId(), saveFailed);
+                log.warn("paid_quote_forward_reconcile attempt_not_recorded quote_ref={}",
+                        QuoteRef.of(quote.getQuoteId()), saveFailed);
             }
         }
     }

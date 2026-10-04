@@ -2,6 +2,7 @@ package xyz.tcheeric.payment.adapter.core.client;
 
 
 import lombok.extern.slf4j.Slf4j;
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -22,9 +23,10 @@ public class QuoteClient extends AbstractBaseClient<GatewayQuote> {
 
     public GatewayQuote getByInvoiceId(String invoiceId) {
         String url = getUrl() + "/search/findByInvoiceId?invoiceId=" + invoiceId;
-        log.info("Sending request: {}", url);
+        // The invoice id is the quote id for phoenixd, a bearer claim (cashu-mint#531): log its ref.
+        log.info("[quote] GET byInvoiceId start: invoice_ref={}", QuoteRef.of(invoiceId));
         ResponseEntity<GatewayQuote> response = restTemplate.getForEntity(url, GatewayQuote.class);
-        log.info("Received response: {}", response.getBody());
+        log.info("[quote] GET byInvoiceId success: {}", describe(response.getBody()));
         return response.getBody();
     }
 
@@ -47,7 +49,31 @@ public class QuoteClient extends AbstractBaseClient<GatewayQuote> {
         log.info("Sending update request: {}", url);
         HttpEntity<GatewayQuote> request = new HttpEntity<>(quote);
         ResponseEntity<GatewayQuote> response = restTemplate.exchange(url, HttpMethod.PUT, request, GatewayQuote.class);
-        log.info("Received update response: {}", response.getBody());
+        log.info("Received update response: {}", describe(response.getBody()));
+        return response.getBody();
+    }
+
+    /**
+     * Sets {@code state} to PAID and NOTHING else, as a partial update.
+     *
+     * <p>For a payment observed directly at the Lightning node rather than through its webhook:
+     * when the callback was lost, the gateway's reconcile path learns of the payment from phoenixd
+     * and records it here. A PATCH naming only {@code state} cannot revert any other field, for the
+     * same reason {@link #stampMintNotified} carries only its own (#245).
+     */
+    public GatewayQuote markPaid(Long id) {
+        if (id == null) {
+            throw new IllegalArgumentException("markPaid requires a quote id");
+        }
+        String url = getUrl() + "/" + id;
+        log.info("Sending paid stamp: {}", url);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(Map.of("state", "PAID"), headers);
+        ResponseEntity<GatewayQuote> response =
+                restTemplate.exchange(url, HttpMethod.PATCH, request, GatewayQuote.class);
         return response.getBody();
     }
 
@@ -90,7 +116,7 @@ public class QuoteClient extends AbstractBaseClient<GatewayQuote> {
                 new HttpEntity<>(Map.of("mintNotifiedAt", notifiedAt.toString()), headers);
         ResponseEntity<GatewayQuote> response =
                 restTemplate.exchange(url, HttpMethod.PATCH, request, GatewayQuote.class);
-        log.info("Received mint-notified stamp response: {}", response.getBody());
+        log.info("Received mint-notified stamp response: {}", describe(response.getBody()));
         return response.getBody();
     }
 }

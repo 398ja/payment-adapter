@@ -1,5 +1,6 @@
 package xyz.tcheeric.payment.adapter.ln.dummy;
 
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 import lombok.NoArgsConstructor;
 import lombok.NonNull;
 import xyz.tcheeric.cashu.common.nut18.PaymentMethod;
@@ -102,7 +103,7 @@ public class DummyGateway implements Gateway {
         } catch (IllegalArgumentException ex) {
             throw new InvoiceNotPaidException(
                     quoteId,
-                    "Payment record not found for quote " + quoteId,
+                    "Payment record not found for quote " + QuoteRef.of(quoteId),
                     ex
             );
         }
@@ -157,7 +158,7 @@ public class DummyGateway implements Gateway {
 
     private static Quote get(String quoteId) {
         Quote q = QUOTES.get(quoteId);
-        if (q == null) throw new IllegalArgumentException("Unknown quoteId: " + quoteId);
+        if (q == null) throw new IllegalArgumentException("Unknown quote: " + QuoteRef.of(quoteId));
         return q;
     }
 

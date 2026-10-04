@@ -72,6 +72,39 @@ public class QuoteClientTest {
         assertThat(result.getDescription()).isEqualTo("desc");
     }
 
+    // POST create used to log its success line with the method's `entity` parameter (the quote)
+    // where it meant the resource name, printing the quote's toString with the raw quote id. No
+    // line create() logs may carry the id, and the success line names the resource.
+    @Test
+    void createLogsNoQuoteId() throws Exception {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(AbstractBaseClient.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        String secretId = "3c2b1a00-9f8e-4d7c-8b6a-000000000531";
+        GatewayQuote request = new GatewayQuote();
+        request.setQuoteId(secretId);
+        request.setInvoiceId(secretId);
+        GatewayQuote created = new GatewayQuote();
+        created.setId(9L);
+        created.setQuoteId(secretId);
+        mockServer.expect(requestTo("http://localhost:8080/quote"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess(objectMapper.writeValueAsString(created), MediaType.APPLICATION_JSON));
+        try {
+            quoteClient.create(request);
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        java.util.List<String> lines = appender.list.stream()
+                .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
+        assertThat(lines).noneMatch(line -> line.contains(secretId));
+        assertThat(lines).anyMatch(line -> line.startsWith("[quote] POST create success"));
+    }
+
     // Verifies updating a quote sends a PUT request to the entity resource URL.
     @Test
     void updateQuoteCallsCorrectUrlAndReturnsUpdatedQuote() throws Exception {
@@ -124,6 +157,34 @@ public class QuoteClientTest {
 
         mockServer.verify();
         assertThat(result.getState()).isEqualTo(State.PAID);
+    }
+
+    // Recording a payment found at phoenixd (its webhook was lost) must be a PATCH carrying only
+    // state=PAID. A body carrying anything else could revert a concurrent write, which is #245.
+    @Test
+    void markPaidSendsAPatchCarryingOnlyTheState() throws Exception {
+        GatewayQuote expected = new GatewayQuote();
+        expected.setId(7L);
+        expected.setState(State.PAID);
+
+        mockServer.expect(requestTo("http://localhost:8080/quote/7"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(jsonPath("$.state").value("PAID"))
+                .andExpect(jsonPath("$.mintNotifiedAt").doesNotExist())
+                .andExpect(jsonPath("$.quoteId").doesNotExist())
+                .andRespond(withSuccess(objectMapper.writeValueAsString(expected), MediaType.APPLICATION_JSON));
+
+        GatewayQuote result = quoteClient.markPaid(7L);
+
+        mockServer.verify();
+        assertThat(result.getState()).isEqualTo(State.PAID);
+    }
+
+    // A null id must fail loudly rather than PATCH /quote/null.
+    @Test
+    void markPaidRejectsANullId() {
+        assertThatThrownBy(() -> quoteClient.markPaid(null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     /**

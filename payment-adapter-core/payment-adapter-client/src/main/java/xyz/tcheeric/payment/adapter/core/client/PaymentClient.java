@@ -1,6 +1,7 @@
 package xyz.tcheeric.payment.adapter.core.client;
 
 import lombok.extern.slf4j.Slf4j;
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
@@ -16,9 +17,9 @@ public class PaymentClient extends AbstractBaseClient<GatewayPayment> {
 
     public GatewayPayment getByQuoteId(String quoteId) {
         String url = getUrl() + "/search/findByQuoteId?quoteId=" + quoteId;
-        log.info("Sending request: {}", url);
+        log.info("[payment] GET byQuoteId start: quote_ref={}", QuoteRef.of(quoteId));
         ResponseEntity<GatewayPayment> response = restTemplate.getForEntity(url, GatewayPayment.class);
-        log.info("Received response: {}", response.getBody());
+        log.info("[payment] GET byQuoteId success: {}", describe(response.getBody()));
         return response.getBody();
     }
 
@@ -26,7 +27,7 @@ public class PaymentClient extends AbstractBaseClient<GatewayPayment> {
         String url = getUrl() + "/search/findByPaymentId?paymentId=" + paymentId;
         log.info("Sending request: {}", url);
         ResponseEntity<GatewayPayment> response = restTemplate.getForEntity(url, GatewayPayment.class);
-        log.info("Received response: {}", response.getBody());
+        log.info("Received response: {}", describe(response.getBody()));
         return response.getBody();
     }
 
@@ -35,7 +36,7 @@ public class PaymentClient extends AbstractBaseClient<GatewayPayment> {
         log.info("Sending update request: {}", url);
         HttpEntity<GatewayPayment> request = new HttpEntity<>(payment);
         ResponseEntity<GatewayPayment> response = restTemplate.exchange(url, HttpMethod.PUT, request, GatewayPayment.class);
-        log.info("Received update response: {}", response.getBody());
+        log.info("Received update response: {}", describe(response.getBody()));
         return response.getBody();
     }
 }

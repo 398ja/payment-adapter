@@ -15,7 +15,9 @@ import xyz.tcheeric.payment.adapter.core.client.PaymentClient;
 import xyz.tcheeric.payment.adapter.core.client.QuoteClient;
 import xyz.tcheeric.payment.adapter.core.common.Gateway;
 import xyz.tcheeric.payment.adapter.core.common.InvoiceNotPaidException;
+import xyz.tcheeric.payment.adapter.core.common.PaymentStatusUnavailableException;
 import xyz.tcheeric.payment.adapter.core.common.PaymentType;
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 import xyz.tcheeric.payment.adapter.core.model.entity.GatewayPayment;
 import xyz.tcheeric.payment.adapter.core.model.entity.GatewayQuote;
 import xyz.tcheeric.payment.adapter.core.model.entity.enums.Direction;
@@ -29,6 +31,8 @@ import xyz.tcheeric.phoenixd.model.response.CreateInvoiceResponse;
 import xyz.tcheeric.phoenixd.model.response.DecodeInvoiceResponse;
 import xyz.tcheeric.phoenixd.model.response.GetLightningAddressResponse;
 import xyz.tcheeric.phoenixd.model.response.PayInvoiceResponse;
+import xyz.tcheeric.payment.adapter.ln.phoenixd.service.AdapterWebhookRelay;
+import xyz.tcheeric.payment.adapter.ln.phoenixd.service.IncomingPaymentResponse;
 import xyz.tcheeric.payment.adapter.ln.phoenixd.service.PhoenixdService;
 import xyz.tcheeric.payment.adapter.ln.phoenixd.service.PhoenixdServiceImpl;
 
@@ -75,6 +79,8 @@ public class PhoenixdGateway implements Gateway {
 
     private PhoenixdService service = new PhoenixdServiceImpl();
 
+    private AdapterWebhookRelay webhookRelay = new AdapterWebhookRelay();
+
     public PhoenixdGateway() {
         loadPropertiesIfNeeded();
     }
@@ -82,6 +88,11 @@ public class PhoenixdGateway implements Gateway {
     public PhoenixdGateway(PhoenixdService service) {
         this.service = service;
         loadPropertiesIfNeeded();
+    }
+
+    PhoenixdGateway(PhoenixdService service, AdapterWebhookRelay webhookRelay) {
+        this(service);
+        this.webhookRelay = webhookRelay;
     }
 
     @Override
@@ -105,7 +116,7 @@ public class PhoenixdGateway implements Gateway {
             throw new IllegalArgumentException("quoteId must not be blank");
         }
 
-        log.info("Creating mint quote: quoteId={}, amount={}, description={}", quoteId, amount, description);
+        log.info("Creating mint quote: quote_ref={}, amount={}, description={}", QuoteRef.of(quoteId), amount, description);
 
         // Create the invoice param
         CreateInvoiceParam param = new CreateInvoiceParam();
@@ -134,7 +145,7 @@ public class PhoenixdGateway implements Gateway {
         QuoteClient quoteClient = new QuoteClient();
         quoteClient.create(quote);
 
-        log.info("Created mint quote: quoteId={}", quote.getQuoteId());
+        log.info("Created mint quote: quote_ref={}", QuoteRef.of(quote.getQuoteId()));
 
         // Return the quote id
         return quote.getQuoteId();
@@ -182,7 +193,7 @@ public class PhoenixdGateway implements Gateway {
         QuoteClient quoteClient = new QuoteClient();
         quoteClient.create(quote);
 
-        log.info("Created melt quote: quoteId={}", quote.getQuoteId());
+        log.info("Created melt quote: quote_ref={}", QuoteRef.of(quote.getQuoteId()));
 
         // Return the quote id
         return quote.getQuoteId();
@@ -193,37 +204,241 @@ public class PhoenixdGateway implements Gateway {
     public String getRequest(String quoteId) {
         QuoteClient quoteClient = new QuoteClient();
         GatewayQuote quote = quoteClient.getByEntityId(quoteId);
-        log.debug("Retrieved request for quoteId={}", quoteId);
+        log.debug("Retrieved request for quote_ref={}", QuoteRef.of(quoteId));
         return quote.getRequest();
     }
 
+    /**
+     * Answers whether the quote is paid, and only ever says "not paid" on a definite answer.
+     *
+     * <p>A stored quote that is not PAID and has no Payment record is not yet known to be paid,
+     * but the store only learns of a payment from phoenixd's webhook, and a lost webhook would
+     * leave a paid invoice reading unpaid for good. So for a RECEIVE quote the gateway asks
+     * phoenixd directly before answering:
+     * <ul>
+     *   <li>phoenixd says paid: the payment is recorded (the quote is marked PAID), phoenixd's
+     *   callback is replayed to the adapter's webhook so the mint is told as it would have been,
+     *   and the answer is {@code true};</li>
+     *   <li>phoenixd says not paid, or holds no payment for the hash: {@code false}, which the
+     *   mint reports as a 200 with state UNPAID;</li>
+     *   <li>phoenixd cannot be asked (unreachable, timeout, 5xx):
+     *   {@link PaymentStatusUnavailableException}, the "unknown" answer.</li>
+     * </ul>
+     *
+     * <p>A quote and Payment the store both answer 404 for stays {@link InvoiceNotPaidException},
+     * as before. A store lookup that fails for any other reason (timeout, connection reset, a 5xx)
+     * throws {@link PaymentStatusUnavailableException}: falling through to "not paid" there
+     * reported a PAID quote as unpaid, which the mint answers as 20001 and a caller past the
+     * quote's expiry read as "forget it" (#253).
+     */
     @Override
     public boolean checkPaymentStatus(String quoteId) {
-        QuoteClient quoteClient = new QuoteClient();
-
         // First check the Quote state directly (supports RECEIVE quotes where payment record may not exist)
-        try {
-            GatewayQuote quote = quoteClient.getByEntityId(quoteId);
-            if (State.PAID.equals(quote.getState())) {
-                log.debug("phoenixd_gateway quote_paid quoteId={} state={}", quoteId, quote.getState());
-                return true;
-            }
-        } catch (Exception e) {
-            log.warn("phoenixd_gateway quote_lookup_failed quoteId={} error={}", quoteId, e.getMessage());
+        GatewayQuote quote = findQuote(quoteId);
+        if (quote != null && isSettled(quote.getState())) {
+            log.debug("phoenixd_gateway quote_paid quote_ref={} state={}", QuoteRef.of(quoteId), quote.getState());
+            return true;
         }
 
         // Fall back to checking Payment record (for backward compatibility with MELT quotes)
+        GatewayPayment payment;
         try {
-            GatewayPayment payment = new PaymentClient().getByQuoteId(quoteId);
-            log.debug("Checked payment status for quoteId={}, state={}", quoteId, payment.getState());
-            return State.PAID.equals(payment.getState());
+            payment = new PaymentClient().getByQuoteId(quoteId);
         } catch (HttpClientErrorException.NotFound notFound) {
-            log.warn("phoenixd_gateway payment_missing quoteId={} state=UNPAID reason=not_recorded", quoteId);
+            if (quote != null) {
+                return askPhoenixd(quote);
+            }
+            log.warn("phoenixd_gateway payment_missing quote_ref={} state=UNPAID reason=not_recorded",
+                    QuoteRef.of(quoteId));
             throw new InvoiceNotPaidException(
                     quoteId,
-                    "Payment record not found for quote " + quoteId,
+                    "Payment record not found for quote " + QuoteRef.of(quoteId),
                     notFound
             );
+        } catch (RuntimeException e) {
+            throw statusUnavailable(quoteId, "payment_lookup_failed", e);
+        }
+        log.debug("phoenixd_gateway payment_state quote_ref={} state={}", QuoteRef.of(quoteId), payment.getState());
+        return isSettled(payment.getState());
+    }
+
+    /**
+     * PAID or CONFIRMED. CONFIRMED is the state after PAID, so a quote or payment that has moved
+     * on to it is still paid; reading only PAID would report a settled payment as unpaid.
+     */
+    private static boolean isSettled(State state) {
+        return State.PAID.equals(state) || State.CONFIRMED.equals(state);
+    }
+
+    /**
+     * The definite answer for a stored, not-PAID quote with no Payment record: phoenixd's own.
+     *
+     * <p>Only an incoming (RECEIVE) quote can have been paid without this adapter doing the
+     * paying, so only those are looked up. A SEND quote with no Payment record has not been paid
+     * by this gateway, which is already a definite answer.
+     */
+    private boolean askPhoenixd(GatewayQuote quote) {
+        String quoteId = quote.getQuoteId() != null ? quote.getQuoteId() : "";
+        String ref = QuoteRef.of(quoteId);
+        if (quote.getDirection() != Direction.RECEIVE) {
+            log.debug("phoenixd_gateway quote_unpaid quote_ref={} state={} direction={}",
+                    ref, quote.getState(), quote.getDirection());
+            return false;
+        }
+        String request = quote.getRequest();
+        if (request == null || !request.toLowerCase().startsWith("ln") || request.contains("@")) {
+            // No per-quote invoice to look up (a Lightning address request): phoenixd cannot
+            // tell this quote's payment apart, and its webhook could not match it either.
+            log.debug("phoenixd_gateway quote_unpaid quote_ref={} state={} reason=no_invoice_to_check",
+                    ref, quote.getState());
+            return false;
+        }
+
+        IncomingPaymentResponse incoming;
+        try {
+            DecodeInvoiceParam decode = new DecodeInvoiceParam();
+            decode.setInvoice(request);
+            DecodeInvoiceResponse decoded = service.decodeInvoice(decode);
+            String paymentHash = decoded == null ? null : decoded.getPaymentHash();
+            if (paymentHash == null || paymentHash.isBlank()) {
+                throw new IllegalStateException("phoenixd decoded the invoice without a payment hash");
+            }
+            incoming = service.getIncomingPayment(paymentHash);
+        } catch (RuntimeException e) {
+            throw statusUnavailable(quoteId, "phoenixd_lookup_failed", e);
+        }
+
+        if (incoming == null || !Boolean.TRUE.equals(incoming.getPaid())) {
+            log.debug("phoenixd_gateway quote_unpaid quote_ref={} state={} phoenixd=unpaid", ref, quote.getState());
+            return false;
+        }
+
+        reconcilePaid(quote, incoming);
+        return true;
+    }
+
+    /**
+     * Records a payment phoenixd has but whose webhook never reached the adapter, then nudges the
+     * mint the way the webhook would have.
+     *
+     * <p><b>Neither step can change the answer.</b> phoenixd has the money, so the quote is paid,
+     * and this method cannot throw: every failure is caught and logged. Turning a failure here
+     * into "not paid" would make a caller forget a paid voucher.
+     *
+     * <p><b>The PAID stamp is what matters.</b> Once the quote reads PAID, every later status
+     * check returns {@code true} from the first branch of {@link #checkPaymentStatus} without
+     * asking phoenixd again, and the mint's {@code MintQuoteStatusTask} and {@code MintTask} both
+     * read paid through this gateway. If the stamp fails, the next status check asks phoenixd
+     * again.
+     *
+     * <p><b>The replay is best effort.</b> It makes the adapter's webhook handler forward the
+     * payment to the mint now, which the voucher route needs (cashu-mint funds a voucher from the
+     * {@code webhook_event} that forward creates). It goes to the adapter the REST clients just
+     * stamped the quote through ({@code GATEWAY_API_BASE_URL}), not to {@code webhook.base_url}:
+     * inside cashu-mint the gateway is built by reflection, so {@code @Value} is never applied and
+     * that property is the bundled {@code http://localhost:9090/webhook}, where nothing listens.
+     * If the replay fails anyway, the quote is PAID with no {@code mintNotifiedAt}, which the
+     * adapter's {@code PaidQuoteForwardReconciler} re-delivers ({@code MINT_WEBHOOK_RECONCILE_ENABLED}),
+     * so it is a WARN rather than an alert.
+     */
+    private void reconcilePaid(GatewayQuote quote, IncomingPaymentResponse incoming) {
+        String ref = QuoteRef.of(quote.getQuoteId());
+        log.warn("phoenixd_gateway payment_reconciled quote_ref={} reason=webhook_not_received "
+                + "- phoenixd reports the invoice paid but the adapter never recorded it", ref);
+        QuoteClient quoteClient;
+        try {
+            quoteClient = new QuoteClient();
+            quoteClient.markPaid(quote.getId());
+        } catch (RuntimeException e) {
+            log.error("[alert] phoenixd_gateway reconcile_record_failed quote_ref={} error={} "
+                    + "- paid at phoenixd, not recorded; the next status check retries",
+                    ref, e.getClass().getSimpleName());
+            return;
+        }
+        try {
+            boolean relayed = webhookRelay.relayPaymentReceived(replayUrl(quoteClient), quote.getQuoteId(),
+                    receivedAmount(incoming, quote), incoming.getPaymentHash());
+            if (!relayed) {
+                log.warn("phoenixd_gateway reconcile_replay_failed quote_ref={} reason=refused "
+                        + "- recorded PAID; left for PaidQuoteForwardReconciler", ref);
+            }
+        } catch (RuntimeException e) {
+            log.warn("phoenixd_gateway reconcile_replay_failed quote_ref={} error={} "
+                    + "- recorded PAID; left for PaidQuoteForwardReconciler", ref, e.getClass().getSimpleName());
+        }
+    }
+
+    /** What phoenixd says arrived, or the invoiced amount when that is missing or not an int. */
+    private static Integer receivedAmount(IncomingPaymentResponse incoming, GatewayQuote quote) {
+        Long received = incoming.getReceivedSat();
+        if (received == null || received < 0 || received > Integer.MAX_VALUE) {
+            return quote.getAmount();
+        }
+        return received.intValue();
+    }
+
+    /**
+     * The adapter's phoenixd webhook, on the host the REST clients use. Falls back to
+     * {@code webhook.base_url} only when the client has no base URL (a test double).
+     */
+    private URL replayUrl(QuoteClient quoteClient) {
+        String adapter = quoteClient.getBaseUrl();
+        if (adapter == null || adapter.isBlank()) {
+            return getWebhookUrl();
+        }
+        try {
+            return URI.create(adapter.replaceAll("/+$", "") + "/webhook/" + GATEWAY_NAME).toURL();
+        } catch (MalformedURLException | IllegalArgumentException e) {
+            return getWebhookUrl();
+        }
+    }
+
+    /**
+     * The stored quote, or {@code null} when the store definitely does not have it (404).
+     * Any other failure means its state is unknown.
+     */
+    private GatewayQuote findQuote(String quoteId) {
+        try {
+            return new QuoteClient().getByEntityId(quoteId);
+        } catch (HttpClientErrorException.NotFound notFound) {
+            log.debug("phoenixd_gateway quote_not_found quote_ref={}", QuoteRef.of(quoteId));
+            return null;
+        } catch (RuntimeException e) {
+            throw statusUnavailable(quoteId, "quote_lookup_failed", e);
+        }
+    }
+
+    /**
+     * The "unknown" answer, built so that nothing a caller logs can carry the quote id.
+     *
+     * <p>The quote id is a bearer claim on the payment (cashu-mint#531). The obvious leak is the
+     * message; the less obvious one is the cause. A RestTemplate I/O error's message is
+     * {@code I/O error on GET request for ".../findByQuoteId?quoteId=<raw id>"}, and a chained
+     * cause is printed in full by every caller that logs the exception with its stack trace. So
+     * this logs only the cause's class name, and chains a {@link RedactedCause}: the original
+     * class name and stack trace, without its message or its own causes.
+     */
+    private static PaymentStatusUnavailableException statusUnavailable(String quoteId, String reason,
+                                                                       RuntimeException cause) {
+        String ref = QuoteRef.of(quoteId);
+        log.warn("phoenixd_gateway {} quote_ref={} state=UNKNOWN error={}",
+                reason, ref, cause.getClass().getSimpleName());
+        return new PaymentStatusUnavailableException(
+                quoteId,
+                "Payment status unavailable for quote " + ref + " (" + reason + ")",
+                new RedactedCause(cause)
+        );
+    }
+
+    /**
+     * A stand-in for a lookup failure whose message may carry a quote id in a URL: the original's
+     * class name as the message, its stack trace for the "where", and nothing else.
+     */
+    static final class RedactedCause extends RuntimeException {
+        RedactedCause(Throwable original) {
+            super(original.getClass().getName() + " (message redacted: may carry the quote id)",
+                    null, false, true);
+            setStackTrace(original.getStackTrace());
         }
     }
 
@@ -231,22 +446,23 @@ public class PhoenixdGateway implements Gateway {
     public String getPaymentPreimage(String quoteId) {
         PaymentClient client = new PaymentClient();
         GatewayPayment payment = client.getByQuoteId(quoteId);
-        log.debug("Retrieved payment preimage for quoteId={}", quoteId);
+        log.debug("Retrieved payment preimage for quote_ref={}", QuoteRef.of(quoteId));
         return payment.getPaymentId();
     }
 
     @Override
     public String pay(String quoteId) {
 
-        log.info("Paying quote: quoteId={}", quoteId);
+        log.info("Paying quote: quote_ref={}", QuoteRef.of(quoteId));
 
         QuoteClient quoteClient = new QuoteClient();
         GatewayQuote quote = quoteClient.getByEntityId(quoteId);
         if (quote == null) {
-            throw new IllegalStateException("Unknown quoteId: " + quoteId);
+            throw new IllegalStateException("Unknown quote: " + QuoteRef.of(quoteId));
         }
         if (!quoteId.equals(quote.getQuoteId())) {
-            throw new IllegalStateException("Mismatched quoteId: requested=" + quoteId + ", stored=" + quote.getQuoteId());
+            throw new IllegalStateException("Mismatched quote: requested=" + QuoteRef.of(quoteId)
+                    + ", stored=" + QuoteRef.of(quote.getQuoteId()));
         }
         String request = quote.getRequest();
 
