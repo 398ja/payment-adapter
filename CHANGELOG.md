@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-10-04
+
 ### Fixed
 
 - **A paid quote is no longer reported unpaid when its lookup fails transiently
