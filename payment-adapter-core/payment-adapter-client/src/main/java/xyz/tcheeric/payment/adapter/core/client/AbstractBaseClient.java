@@ -3,6 +3,7 @@ package xyz.tcheeric.payment.adapter.core.client;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
+import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
@@ -75,7 +76,7 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
         String url = getUrl() + "/" + id;
         log.info("[{}] GET byId start: id={}, url={}", entity, id, url);
         ResponseEntity<T> response = restTemplate.getForEntity(url, entityClass);
-        log.info("[{}] GET byId success: id={}, body={}", entity, id, response.getBody());
+        log.info("[{}] GET byId success: {}", entity, describe(response.getBody()));
         return response.getBody();
     }
 
@@ -88,18 +89,21 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
         } else {
             throw new IllegalArgumentException("Unsupported entity type: " + entityClass.getName());
         }
-        log.info("[{}] GET byEntityId start: entityId={}, url={}", entity, entityId, url);
+        // The entity id is a quote id (or a payment id keyed to one), which is a bearer claim on the
+        // payment (cashu-mint#531), so neither it, the URL carrying it, nor the body is logged.
+        log.info("[{}] GET byEntityId start: entity_ref={}", entity, QuoteRef.of(entityId));
         ResponseEntity<T> response = restTemplate.getForEntity(url, entityClass);
-        log.info("[{}] GET byEntityId success: entityId={}, body={}", entity, entityId, response.getBody());
+        log.info("[{}] GET byEntityId success: {}", entity, describe(response.getBody()));
         return response.getBody();
     }
 
     public T create(@NonNull T entity) {
         String url = getUrl();
-        log.info("[{}] POST create start: url={}", entity, url);
+        // `entity` here is the parameter, not the resource name: its toString carries the quote id.
+        log.info("[{}] POST create start: {}", this.entity, describe(entity));
         HttpEntity<T> request = new HttpEntity<>(entity);
         ResponseEntity<T> response = restTemplate.exchange(url, HttpMethod.POST, request, entityClass);
-        log.info("[{}] POST create success: body={}", entity, response.getBody());
+        log.info("[{}] POST create success: {}", entity, describe(response.getBody()));
         return response.getBody();
     }
 
@@ -108,6 +112,20 @@ public abstract class AbstractBaseClient<T extends GatewayEntity> {
         log.info("[{}] DELETE start: id={}, url={}", entity, id, url);
         restTemplate.delete(url);
         log.info("[{}] DELETE success: id={}", entity, id);
+    }
+
+    /**
+     * A log line for an entity that leaves out its quote id, which the entity's own
+     * {@code toString} would print: the database id, the quote's ref and the state.
+     */
+    protected static String describe(GatewayEntity body) {
+        if (body instanceof GatewayQuote quote) {
+            return "id=" + quote.getId() + " quote_ref=" + QuoteRef.of(quote.getQuoteId()) + " state=" + quote.getState();
+        }
+        if (body instanceof GatewayPayment payment) {
+            return "id=" + payment.getId() + " quote_ref=" + QuoteRef.of(payment.getQuoteId()) + " state=" + payment.getState();
+        }
+        return body == null ? "(empty)" : body.getClass().getSimpleName();
     }
 
     protected String getUrl() {
