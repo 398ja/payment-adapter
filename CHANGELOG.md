@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **RECEIVE quote lookups no longer fail on every call against phoenixd
+  ([#256](https://github.com/398ja/payment-adapter/issues/256)).** 0.17.2 decodes a
+  RECEIVE quote's invoice through phoenixd `/decodeinvoice` and looks the payment up under
+  `GET /payments/incoming/{paymentHash}`, but phoenixd-java 0.3.0's `DecodeInvoiceResponse`
+  marked `paymentHash` `@JsonIgnore`, so the hash always read as null. Every such lookup threw
+  `PaymentStatusUnavailableException` (`phoenixd_lookup_failed`) and the mint answered 500. This hit
+  real phoenixd as well as the staging mock. phoenixd-java is now 0.3.3 (phoenixd-java#68), which
+  reads the hash and ignores unknown fields. Regression tests decode a real phoenixd
+  `/decodeinvoice` answer and run the lookup end to end against phoenixd-mock.
+
 ## [0.17.2] - 2026-10-04
 
 ### Fixed

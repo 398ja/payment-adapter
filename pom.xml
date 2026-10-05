@@ -71,8 +71,10 @@
         <junit-jupiter.version>5.13.4</junit-jupiter.version>
         <junit-platform.version>1.13.4</junit-platform.version>
         <jakarta-servlet-api.version>6.0.0</jakarta-servlet-api.version>
-        <phoenixd-java.version>0.3.0</phoenixd-java.version>
-        <phoenixd-mock.version>0.3.0</phoenixd-mock.version>
+        <!-- 0.3.3: DecodeInvoiceResponse.paymentHash is read (0.3.0 @JsonIgnore'd it, so every
+             RECEIVE quote lookup failed as phoenixd_lookup_failed against real phoenixd too). -->
+        <phoenixd-java.version>0.3.3</phoenixd-java.version>
+        <phoenixd-mock.version>0.3.3</phoenixd-mock.version>
         <nostr-java.version>1.2.1</nostr-java.version>
         <zxing.version>3.5.3</zxing.version>
         <mockito.version>5.11.0</mockito.version>

@@ -1,0 +1,31 @@
+{
+  "chain": "mainnet",
+  "amount": 30000,
+  "paymentHash": "5a3e6c1f0f8b2d47e9a1c3b5d7f90e2a4c6e8a0b2d4f6a8c0e2a4c6e8a0b2d4f",
+  "description": "Imani voucher",
+  "minFinalCltvExpiryDelta": 18,
+  "paymentSecret": "8c0e2a4c6e8a0b2d4f5a3e6c1f0f8b2d47e9a1c3b5d7f90e2a4c6e8a0b2d4f6a",
+  "paymentMetadata": "2a",
+  "extraHops": [
+    [
+      {
+        "nodeId": "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f",
+        "shortChannelId": "861377x1234x1",
+        "feeBase": 1000,
+        "feeProportionalMillionths": 100,
+        "cltvExpiryDelta": 144
+      }
+    ]
+  ],
+  "features": {
+    "activated": {
+      "var_onion_optin": "Mandatory",
+      "payment_secret": "Mandatory",
+      "basic_mpp": "Optional",
+      "option_payment_metadata": "Optional",
+      "trampoline_payment_experimental": "Optional"
+    },
+    "unknown": []
+  },
+  "timestampSeconds": 1759690000
+}
