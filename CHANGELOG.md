@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-10-05
+
 ### Fixed
 
 - **RECEIVE quote lookups no longer fail on every call against phoenixd
