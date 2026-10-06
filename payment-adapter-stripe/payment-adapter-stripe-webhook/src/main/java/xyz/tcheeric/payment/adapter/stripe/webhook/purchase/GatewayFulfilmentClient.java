@@ -107,10 +107,14 @@ public class GatewayFulfilmentClient {
             }
 
             JsonNode body = MAPPER.readTree(response.body());
-            String issuerId = body.hasNonNull("issuerId") ? body.get("issuerId").asText() : null;
-            return body.path("fulfilled").asBoolean(false)
-                    ? new Answer(Fulfilment.FULFILLED, issuerId)
-                    : new Answer(Fulfilment.NOT_FULFILLED, issuerId);
+            return new Answer(
+                    body.path("fulfilled").asBoolean(false) ? Fulfilment.FULFILLED : Fulfilment.NOT_FULFILLED,
+                    text(body, "issuerId"),
+                    text(body, "recipientPubkey"),
+                    body.hasNonNull("amount") && body.get("amount").canConvertToLong()
+                            ? body.get("amount").asLong() : null,
+                    text(body, "unit"),
+                    text(body, "reason"));
         } catch (Exception e) {
             // Unreachable means UNKNOWN. ADR 0009: a network problem never
             // discharges a debt and never accuses a merchant of not issuing.
@@ -131,7 +135,100 @@ public class GatewayFulfilmentClient {
      * @param fulfilment the verdict, including the UNKNOWN that means "do not act"
      * @param issuerId   who the gateway says issued, or null when it did not say
      */
-    public record Answer(Fulfilment fulfilment, String issuerId) {
+    public record Answer(Fulfilment fulfilment, String issuerId, String recipientPubkey,
+                         Long amount, String unit, String reason) {
+
+        /** The two-fact answer, as a gateway older than imani-gateway-core#131 gives it. */
+        public Answer(Fulfilment fulfilment, String issuerId) {
+            this(fulfilment, issuerId, null, null, null, null);
+        }
+
+        /** gateway-core#131's reason for a request nobody registered. */
+        public boolean unregistered() {
+            return "unregistered".equals(reason);
+        }
+    }
+
+    /** What happened to a registration. */
+    public enum Registration {
+        /** 201: the terms are now bound to the request. */
+        REGISTERED,
+        /** 200: the same terms were already bound. Same as success. */
+        ALREADY_REGISTERED,
+        /** 409: different terms got there first. This request can never be confirmed for us. */
+        CONFLICT,
+        /** 404/405: a gateway older than imani-gateway-core#131. Logged; the flow carries on. */
+        UNSUPPORTED,
+        /** Not attempted or not answered: unconfigured, missing facts, unreachable, other status. */
+        FAILED
+    }
+
+    /**
+     * Bind a payment request to its terms (imani-gateway-core#131).
+     *
+     * <p>gateway-core counts a send towards a request only when it went to the
+     * registered recipient, of the registered issuer and unit, and sends add up
+     * to the registered amount. Without this, the GET answers "unregistered" and
+     * nothing can be discharged. First writer wins, so calling this as soon as
+     * the id exists is what stops anyone else pricing it.
+     *
+     * <p>Never throws. A gateway from before #131 has no PUT, and that must not
+     * stop a purchase being recorded: 404/405 is logged and reported as
+     * {@link Registration#UNSUPPORTED}.
+     *
+     * @param amount minor units of {@code unit}
+     */
+    public Registration register(String paymentRequestId, String recipientPubkey, String issuerId,
+                                 long amount, String unit) {
+        if (!isEnabled() || paymentRequestId == null || paymentRequestId.length() < MINIMUM_ID_LENGTH
+                || recipientPubkey == null || issuerId == null || unit == null || amount <= 0) {
+            return Registration.FAILED;
+        }
+
+        String url = baseUrl + "/api/v1/atomic/fulfilment/" + paymentRequestId;
+
+        try {
+            com.fasterxml.jackson.databind.node.ObjectNode terms = MAPPER.createObjectNode();
+            terms.put("recipientPubkey", recipientPubkey);
+            terms.put("issuerId", issuerId);
+            terms.put("amount", amount);
+            terms.put("unit", unit);
+            byte[] body = MAPPER.writeValueAsBytes(terms);
+
+            HttpResponse<String> response = http.send(
+                    HttpRequest.newBuilder(URI.create(url))
+                            .timeout(timeout)
+                            .header("Content-Type", "application/json")
+                            .header("Authorization", authorization("PUT", url, body))
+                            .PUT(HttpRequest.BodyPublishers.ofByteArray(body))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            return switch (response.statusCode()) {
+                case 201 -> Registration.REGISTERED;
+                case 200 -> Registration.ALREADY_REGISTERED;
+                case 409 -> {
+                    log.warn("Payment request {} was registered with other terms first", truncate(paymentRequestId));
+                    yield Registration.CONFLICT;
+                }
+                case 404, 405 -> {
+                    log.warn("Gateway has no fulfilment registration (HTTP {}); {} will need a manual check",
+                            response.statusCode(), truncate(paymentRequestId));
+                    yield Registration.UNSUPPORTED;
+                }
+                default -> {
+                    log.warn("Registering {} returned status {}", truncate(paymentRequestId), response.statusCode());
+                    yield Registration.FAILED;
+                }
+            };
+        } catch (Exception e) {
+            log.warn("Could not reach the gateway to register {}: {}", truncate(paymentRequestId), e.getMessage());
+            return Registration.FAILED;
+        }
+    }
+
+    private static String text(JsonNode body, String field) {
+        return body.hasNonNull(field) ? body.get(field).asText() : null;
     }
 
     /**
@@ -141,6 +238,11 @@ public class GatewayFulfilmentClient {
      * and a GET has none.
      */
     private String authorization(String method, String url) throws Exception {
+        return authorization(method, url, null);
+    }
+
+    /** With a body, NIP-98 adds a {@code payload} tag: the SHA-256 of the exact bytes sent. */
+    private String authorization(String method, String url, byte[] payload) throws Exception {
         long now = System.currentTimeMillis() / 1000L;
         String pubkey = identity.getPublicKey().toString();
 
@@ -161,6 +263,10 @@ public class GatewayFulfilmentClient {
         com.fasterxml.jackson.databind.node.ArrayNode tags = MAPPER.createArrayNode();
         tags.add(MAPPER.createArrayNode().add("u").add(url));
         tags.add(MAPPER.createArrayNode().add("method").add(method));
+        if (payload != null) {
+            tags.add(MAPPER.createArrayNode().add("payload")
+                    .add(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(payload))));
+        }
 
         com.fasterxml.jackson.databind.node.ArrayNode canonical = MAPPER.createArrayNode();
         canonical.add(0);

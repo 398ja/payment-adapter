@@ -124,6 +124,13 @@ public class PurchaseDischargeService {
 
         GatewayFulfilmentClient.Answer answer = fulfilment.check(purchase.getPaymentRequestId());
 
+        if (answer.fulfilment() == Fulfilment.NOT_FULFILLED && answer.unregistered()
+                && registerLate(purchase)) {
+            // Recorded before registration existed, or while the gateway was
+            // unreachable. Registered now, so ask again.
+            answer = fulfilment.check(purchase.getPaymentRequestId());
+        }
+
         if (answer.fulfilment() == Fulfilment.UNKNOWN) {
             // Deliberately NOT recorded as a failed attempt. Nothing was
             // learned about the issuer's work, so counting it would make an
@@ -141,6 +148,24 @@ public class PurchaseDischargeService {
             purchase.setUpdatedAt(Instant.now());
             purchases.save(purchase);
             log.warn("Refused discharge of {}: no completed send answers its request", eventId);
+            return Result.REFUSED;
+        }
+
+        // The facts behind the verdict must be the ones this purchase is owed
+        // (imani-gateway-core#131). A gateway that says "fulfilled" without
+        // them is one from before #131, whose answer a 1-sat send to oneself
+        // could produce: not an accusation, so UNVERIFIABLE, but no discharge.
+        String mismatch = mismatch(purchase, answer);
+        if (mismatch != null) {
+            if (answer.recipientPubkey() == null || answer.amount() == null || answer.unit() == null) {
+                log.info("Gateway confirmed {} without the facts to check; leaving it owed", eventId);
+                return Result.UNVERIFIABLE;
+            }
+            purchase.setAttempts(purchase.getAttempts() + 1);
+            purchase.setLastFailure("gateway answer does not match the purchase: " + mismatch);
+            purchase.setUpdatedAt(Instant.now());
+            purchases.save(purchase);
+            log.warn("Refused discharge of {}: {}", eventId, mismatch);
             return Result.REFUSED;
         }
 
@@ -169,6 +194,57 @@ public class PurchaseDischargeService {
 
         log.info("Discharged purchase {} on confirmed issuance", eventId);
         return Result.DISCHARGED;
+    }
+
+    /**
+     * Why this answer cannot close this purchase, or null when it can.
+     *
+     * <p>Recipient, amount, unit and stall must all be the purchase's own. Any
+     * of them missing is a reason too: the check is only as strong as its
+     * weakest fact.
+     */
+    static String mismatch(StripePurchase purchase, GatewayFulfilmentClient.Answer answer) {
+        if (answer.recipientPubkey() == null || answer.amount() == null || answer.unit() == null) {
+            return "the answer carries no recipient, amount or unit";
+        }
+        if (purchase.getRecipientPubkey() == null
+                || !purchase.getRecipientPubkey().equalsIgnoreCase(answer.recipientPubkey())) {
+            return "paid to " + answer.recipientPubkey() + ", not the buyer";
+        }
+        if (purchase.getAmountMinor() == null || answer.amount() < purchase.getAmountMinor()) {
+            return "paid " + answer.amount() + " of " + purchase.getAmountMinor();
+        }
+        if (purchase.getCurrency() == null || !unitOf(purchase.getCurrency()).equalsIgnoreCase(answer.unit())) {
+            return "paid in " + answer.unit() + ", not " + purchase.getCurrency();
+        }
+        if (purchase.getStallPubkey() != null
+                && (answer.issuerId() == null || !purchase.getStallPubkey().equalsIgnoreCase(answer.issuerId()))) {
+            return "issued by " + answer.issuerId() + ", not the stall";
+        }
+        return null;
+    }
+
+    /** The unit a currency is registered under: Stripe's lower-case ISO code, upper-cased. */
+    static String unitOf(String currency) {
+        return currency == null ? null : currency.trim().toUpperCase(java.util.Locale.ROOT);
+    }
+
+    /**
+     * Register a purchase the listener could not, then report whether it took.
+     *
+     * <p>Safe after the fact: first writer wins at the gateway, and nobody but
+     * this service and the issuer it handed the id to has seen it.
+     */
+    private boolean registerLate(StripePurchase purchase) {
+        if (purchase.getRecipientPubkey() == null || purchase.getStallPubkey() == null
+                || purchase.getAmountMinor() == null || purchase.getCurrency() == null) {
+            return false;
+        }
+        GatewayFulfilmentClient.Registration outcome = fulfilment.register(
+                purchase.getPaymentRequestId(), purchase.getRecipientPubkey(), purchase.getStallPubkey(),
+                purchase.getAmountMinor(), unitOf(purchase.getCurrency()));
+        return outcome == GatewayFulfilmentClient.Registration.REGISTERED
+                || outcome == GatewayFulfilmentClient.Registration.ALREADY_REGISTERED;
     }
 
     /**

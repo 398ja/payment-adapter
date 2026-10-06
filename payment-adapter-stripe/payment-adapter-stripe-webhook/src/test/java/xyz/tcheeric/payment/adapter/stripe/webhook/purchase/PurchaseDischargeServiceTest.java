@@ -35,6 +35,8 @@ class PurchaseDischargeServiceTest {
     private static final String EVENT = "evt_1";
     private static final String REQUEST = "0123456789abcdef0123456789abcdef";
     private static final String STALL = "b".repeat(64);
+    private static final String BUYER = "a".repeat(64);
+    private static final String SELF = "d".repeat(64);
 
     @Mock private StripePurchaseRepository purchases;
     @Mock private GatewayFulfilmentClient fulfilment;
@@ -49,13 +51,98 @@ class PurchaseDischargeServiceTest {
         owed.setEventId(EVENT);
         owed.setPaymentRequestId(REQUEST);
         owed.setStatus(StripePurchase.Status.OWED);
+        owed.setRecipientPubkey(BUYER);
+        owed.setAmountMinor(2500L);
+        owed.setCurrency("gbp");
         when(purchases.findByEventId(EVENT)).thenReturn(Optional.of(owed));
         when(purchases.save(any())).thenAnswer(i -> i.getArgument(0));
     }
 
+    /** What gateway-core#131 says for a real payment: the verdict and the facts behind it. */
     private void gatewaySays(Fulfilment verdict, String issuerId) {
-        when(fulfilment.check(REQUEST))
-                .thenReturn(new GatewayFulfilmentClient.Answer(verdict, issuerId));
+        gatewaySays(new GatewayFulfilmentClient.Answer(verdict, issuerId,
+                verdict == Fulfilment.FULFILLED ? BUYER : null,
+                verdict == Fulfilment.FULFILLED ? 2500L : null,
+                verdict == Fulfilment.FULFILLED ? "GBP" : null,
+                verdict == Fulfilment.FULFILLED ? null : "unpaid"));
+    }
+
+    private void gatewaySays(GatewayFulfilmentClient.Answer answer) {
+        when(fulfilment.check(REQUEST)).thenReturn(answer);
+    }
+
+    @Test
+    void aOneSatSendToSelfDoesNotDischarge() {
+        // The imani-wallet#160 attack. Somebody who saw the request id sends 1
+        // sat of the stall's coupons to THEMSELF, tagged with it. Even if a
+        // gateway called that "fulfilled", it went to the wrong person for the
+        // wrong amount, so the buyer's debt stands and somebody is told.
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, SELF, 1L, "GBP", null));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+        assertEquals(1, owed.getAttempts());
+    }
+
+    @Test
+    void refusesAnUnderpaymentToTheRightBuyer() {
+        // Right person, not enough value. Still owed.
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2499L, "GBP", null));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+    }
+
+    @Test
+    void refusesAPaymentInAnotherCurrency() {
+        // 2500 of some other unit is not 2500 pence.
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "EUR", null));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED,
+                service.discharge(EVENT, "voucher-1", STALL));
+    }
+
+    @Test
+    void refusesWhenTheStallOnTheRowDidNotIssue() {
+        // The row knows its stall. An answer naming another one does not
+        // close this debt, even when the caller names no issuer.
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, "c".repeat(64), BUYER, 2500L, "GBP", null));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED,
+                service.discharge(EVENT, "voucher-1", null));
+    }
+
+    @Test
+    void doesNotTrustABareFulfilledFromAGatewayBeforeRegistration() {
+        // Before imani-gateway-core#131 the answer was a bare boolean that a
+        // 1-sat self-send could produce. With no facts to check, nothing is
+        // discharged, but nobody is accused either: it stays owed, unverifiable.
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL));
+
+        assertEquals(PurchaseDischargeService.Result.UNVERIFIABLE,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+        assertEquals(0, owed.getAttempts());
+    }
+
+    @Test
+    void registersAPurchaseTheListenerCouldNotThenAsksAgain() {
+        // Recorded before registration existed, or while the gateway was down.
+        // The gateway says "unregistered", so discharge registers the terms
+        // and asks once more.
+        owed.setStallPubkey(STALL);
+        when(fulfilment.check(REQUEST)).thenReturn(
+                new GatewayFulfilmentClient.Answer(Fulfilment.NOT_FULFILLED, null, null, 0L, null, "unregistered"),
+                new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null));
+        when(fulfilment.register(REQUEST, BUYER, STALL, 2500L, "GBP"))
+                .thenReturn(GatewayFulfilmentClient.Registration.REGISTERED);
+
+        assertEquals(PurchaseDischargeService.Result.DISCHARGED,
+                service.discharge(EVENT, "voucher-1", STALL));
+        verify(fulfilment).register(REQUEST, BUYER, STALL, 2500L, "GBP");
     }
 
     @Test

@@ -85,8 +85,9 @@ public class PurchaseConfiguration {
      */
     @Bean
     public StripePurchaseListener stripePurchaseListener(
-            StripePurchaseRepository purchases, ConnectedStripeAccountRepository accounts) {
-        return new RecordingPurchaseListener(purchases, accounts);
+            StripePurchaseRepository purchases, ConnectedStripeAccountRepository accounts,
+            GatewayFulfilmentClient fulfilment) {
+        return new RecordingPurchaseListener(purchases, accounts, fulfilment);
     }
 
     /**
