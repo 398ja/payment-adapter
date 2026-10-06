@@ -124,11 +124,24 @@ public class PurchaseDischargeService {
 
         GatewayFulfilmentClient.Answer answer = fulfilment.check(purchase.getPaymentRequestId());
 
-        if (answer.fulfilment() == Fulfilment.NOT_FULFILLED && answer.unregistered()
-                && registerLate(purchase)) {
+        if (answer.fulfilment() == Fulfilment.NOT_FULFILLED && answer.unregistered()) {
             // Recorded before registration existed, or while the gateway was
-            // unreachable. Registered now, so ask again.
-            answer = fulfilment.check(purchase.getPaymentRequestId());
+            // unreachable. Register now and ask again.
+            GatewayFulfilmentClient.Registration late = registerLate(purchase);
+            if (late == GatewayFulfilmentClient.Registration.REGISTERED
+                    || late == GatewayFulfilmentClient.Registration.ALREADY_REGISTERED) {
+                answer = fulfilment.check(purchase.getPaymentRequestId());
+            } else if (late == GatewayFulfilmentClient.Registration.FAILED
+                    || late == GatewayFulfilmentClient.Registration.UNSUPPORTED) {
+                // The PUT timed out, got a 5xx, or this core has no PUT yet.
+                // That says nothing about the issuer's work: same as an
+                // outage, not a refusal (payment-adapter#260 review, PA-3).
+                log.info("Could not register purchase {} late ({}); leaving it for a retry", eventId, late);
+                return Result.UNVERIFIABLE;
+            }
+            // null (no buyer key or stall: cannot ever be registered) and
+            // CONFLICT (somebody else's terms won) fall through to REFUSED:
+            // retrying cannot help, and a person needs to look.
         }
 
         if (answer.fulfilment() == Fulfilment.UNKNOWN) {
@@ -230,21 +243,81 @@ public class PurchaseDischargeService {
     }
 
     /**
-     * Register a purchase the listener could not, then report whether it took.
+     * Register a purchase the listener could not, and say what happened.
      *
-     * <p>Safe after the fact: first writer wins at the gateway, and nobody but
-     * this service and the issuer it handed the id to has seen it.
+     * <p>Safe after the fact, though not because the id is secret: by
+     * discharge time the issuer has already sent the buyer a DM carrying it
+     * (imani-wallet {@code delivery.ts}), so the buyer, or anyone who reads
+     * that DM, can register first. What makes it safe is that core binds the
+     * creator into the terms, so a squatter's registration answers our PUT
+     * with 409, and {@link #mismatch} compares any later answer against this
+     * row's own recipient, amount, unit and stall, never against echoed
+     * terms. The worst a squatter achieves is a debt left for a person to
+     * check, and only against their own purchase.
+     *
+     * @return the gateway's answer, or null when the row lacks the facts to register
      */
-    private boolean registerLate(StripePurchase purchase) {
+    private GatewayFulfilmentClient.Registration registerLate(StripePurchase purchase) {
         if (purchase.getRecipientPubkey() == null || purchase.getStallPubkey() == null
                 || purchase.getAmountMinor() == null || purchase.getCurrency() == null) {
-            return false;
+            return null;
         }
-        GatewayFulfilmentClient.Registration outcome = fulfilment.register(
+        return fulfilment.register(
                 purchase.getPaymentRequestId(), purchase.getRecipientPubkey(), purchase.getStallPubkey(),
                 purchase.getAmountMinor(), unitOf(purchase.getCurrency()));
-        return outcome == GatewayFulfilmentClient.Registration.REGISTERED
-                || outcome == GatewayFulfilmentClient.Registration.ALREADY_REGISTERED;
+    }
+
+    /** How long a re-checked ISSUED row rests before it is asked about again. */
+    static final Duration RECHECK_BACKOFF = Duration.ofMinutes(15);
+    /** After this, an unverifiable ISSUED row needs a person, not another request. */
+    static final Duration RECHECK_HORIZON = Duration.ofDays(14);
+    /** Rows per sweep, so one sweep cannot flood the gateway. */
+    static final int RECHECK_BATCH = 50;
+
+    /**
+     * Ask again about coupons that exist but whose discharge was never
+     * confirmed (payment-adapter#260 review, PA-2).
+     *
+     * <p>The issuer calls {@code /discharge} once, right after minting. A 503
+     * (old core, outage, failed late registration) makes it report a failure
+     * naming the voucher, which parks the row in ISSUED: correctly, because
+     * OWED would mint again. Before this sweep nothing ever asked about an
+     * ISSUED row again, so "unverifiable, try later" meant "never". Now every
+     * ISSUED row is re-discharged with back-off until it closes, is refused,
+     * or ages past {@link #RECHECK_HORIZON}. That is what makes the rollout
+     * safe in either deploy order: rows recorded against an old core close by
+     * themselves once core#131 is live.
+     *
+     * <p>No status ever moves backwards here. A row that still cannot be
+     * verified stays ISSUED with its clock moved on, and no attempt is counted.
+     *
+     * @return how many rows were discharged
+     */
+    public int recheckIssued(Instant now) {
+        int discharged = 0;
+        for (StripePurchase row : purchases.findIssuedDueForRecheck(StripePurchase.Status.ISSUED,
+                now.minus(RECHECK_BACKOFF), now.minus(RECHECK_HORIZON),
+                org.springframework.data.domain.PageRequest.of(0, RECHECK_BATCH))) {
+            Result result;
+            try {
+                // The issuer is not on the line, so no issuer id to compare:
+                // the row's own stall is still checked by mismatch().
+                result = discharge(row.getEventId(), row.getVoucherId(), null);
+            } catch (RuntimeException e) {
+                log.warn("Re-check of issued purchase {} failed: {}", row.getEventId(), e.getMessage());
+                result = Result.UNVERIFIABLE;
+            }
+            if (result == Result.DISCHARGED) {
+                discharged++;
+            } else if (row.getStatus() == StripePurchase.Status.ISSUED) {
+                row.setUpdatedAt(Instant.now());
+                purchases.save(row);
+            }
+        }
+        if (discharged > 0) {
+            log.info("Re-check discharged {} issued purchase(s)", discharged);
+        }
+        return discharged;
     }
 
     /**

@@ -114,7 +114,25 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
                 purchase.eventId(), purchase.connectedAccountId(),
                 purchase.amountMinor(), purchase.currency());
 
-        register(row);
+        // After commit, not inside the transaction (payment-adapter#260
+        // review, PA-5). The PUT can take the client timeout, which would hold
+        // a DB connection that long, and a rollback after a 201 would leave a
+        // binding for a row that never existed. The cost is a window of
+        // milliseconds in which the committed row is visible on /owed before
+        // it is registered. That is covered: discharge registers late on
+        // "unregistered", and the id reaches nobody but the issuer before its
+        // delivery DM, which comes after a mint.
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            register(row);
+                        }
+                    });
+        } else {
+            register(row);
+        }
     }
 
     /**
@@ -122,8 +140,9 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
      *
      * <p>gateway-core#131 counts a send only when it went to the registered
      * recipient, of the registered issuer and unit, for at least the registered
-     * amount. Registering here, before the issuer is ever shown the id, means
-     * nobody else can register it first with terms of their own.
+     * amount. Registering as soon as the row commits, before the issuer has minted or
+     * delivered anything, means nobody else can register it first with terms
+     * of their own.
      *
      * <p>Best effort, and never fatal: the debt is already recorded. A gateway
      * from before #131 answers 404/405, which the client logs; an outage or a

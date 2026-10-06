@@ -76,6 +76,13 @@ public class PurchaseConfiguration {
         return new PurchaseDischargeService(purchases, fulfilment, Duration.ofSeconds(claimLeaseSeconds));
     }
 
+    /** Re-asks about ISSUED rows whose discharge could not be verified (PA-2). */
+    @Bean
+    public IssuedPurchaseRecheck issuedPurchaseRecheck(
+            PurchaseDischargeService discharges, GatewayFulfilmentClient fulfilment) {
+        return new IssuedPurchaseRecheck(discharges, fulfilment);
+    }
+
     /**
      * The listener the webhook hands paid purchases to.
      *

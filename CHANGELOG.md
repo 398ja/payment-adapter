@@ -14,6 +14,14 @@
   gateway's bare `fulfilled` is treated as unverifiable (503), not as a discharge. Purchases
   recorded before this change register the first time discharge sees `reason: unregistered`.
   See `docs/reference/purchase-fulfilment.md`.
+- **`ISSUED` purchases whose discharge could not be verified are now re-checked** (#260
+  review). `IssuedPurchaseRecheck` re-runs discharge for `ISSUED` rows with back-off (15 min,
+  50 per sweep, 14-day horizon). Before this, a 503 from `/discharge` left the row `ISSUED`
+  for good, so "safe in either deploy order" was not true.
+- A late registration that times out, fails or meets an older core (404/405) now makes the
+  discharge `UNVERIFIABLE` (503), not `REFUSED` with the issuer blamed.
+- Registration now happens after the recording transaction commits, so the HTTP call no
+  longer holds a DB transaction open.
 
 ## [0.17.3] - 2026-10-05
 

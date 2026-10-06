@@ -223,4 +223,24 @@ class RecordingPurchaseListenerTest {
 
         assertTrue(!captureSaved().isLivemode());
     }
+
+    @Test
+    void registersOnlyAfterTheRecordingTransactionCommits() {
+        // PA-5. The PUT is an HTTP call of up to the client timeout. Made
+        // inside the transaction it holds a DB connection that long, and a
+        // rollback after a 201 leaves a binding for a row that never existed.
+        // With a transaction active, registration waits for the commit.
+        when(purchases.findByEventId("evt_1")).thenReturn(Optional.empty());
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            listener.onPurchasePaid(paid(Map.of("buyer_pubkey", BUYER)));
+            verify(fulfilment, never()).register(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+
+            org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
+            verify(fulfilment).register(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
 }

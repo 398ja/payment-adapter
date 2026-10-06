@@ -331,4 +331,84 @@ class PurchaseDischargeServiceTest {
                 service.claim("evt_missing", "w1"));
         verify(purchases, never()).claim(any(), any(), any(), any(), any(), any());
     }
+
+    @Test
+    void theFullAmountSentToSomebodyElseDoesNotDischarge() {
+        // The squatting case, isolated. Every fact is right except who was
+        // paid: the full 2500 GBP of the right stall's coupons went to SELF,
+        // not the buyer. Only the recipient check stands between this and a
+        // discharge, so this test fails if that check is removed.
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, SELF, 2500L, "GBP", null));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+        assertEquals(1, owed.getAttempts());
+    }
+
+    @Test
+    void aLateRegistrationThatCouldNotBeMadeIsUnverifiableNotRefused() {
+        // The gateway says "unregistered" and our PUT to fix that times out or
+        // gets a 5xx. Nothing was learned about the issuer, so the issuer must
+        // not be blamed and no attempt counted: try again later.
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.NOT_FULFILLED, null, null, 0L, null, "unregistered"));
+        when(fulfilment.register(REQUEST, BUYER, STALL, 2500L, "GBP"))
+                .thenReturn(GatewayFulfilmentClient.Registration.FAILED);
+
+        assertEquals(PurchaseDischargeService.Result.UNVERIFIABLE,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(0, owed.getAttempts());
+    }
+
+    @Test
+    void aGatewayWithoutRegistrationIsUnverifiableNotRefused() {
+        // Same, against a core older than #131 whose PUT answers 404/405.
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.NOT_FULFILLED, null, null, 0L, null, "unregistered"));
+        when(fulfilment.register(REQUEST, BUYER, STALL, 2500L, "GBP"))
+                .thenReturn(GatewayFulfilmentClient.Registration.UNSUPPORTED);
+
+        assertEquals(PurchaseDischargeService.Result.UNVERIFIABLE,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(0, owed.getAttempts());
+    }
+
+    @Test
+    void theSweepDischargesAnIssuedRowOnceTheGatewayCanConfirmIt() {
+        // PA-2. The issuer's one discharge got 503 (old core, outage), so its
+        // failure report parked the row in ISSUED, where nothing retried it.
+        // The sweep asks again; once the gateway can confirm, the debt closes
+        // without anyone minting a second coupon.
+        owed.setStatus(StripePurchase.Status.ISSUED);
+        owed.setVoucherId("voucher-1");
+        owed.setStallPubkey(STALL);
+        when(purchases.findIssuedDueForRecheck(eq(StripePurchase.Status.ISSUED), any(), any(), any()))
+                .thenReturn(java.util.List.of(owed));
+        gatewaySays(Fulfilment.FULFILLED, STALL);
+
+        assertEquals(1, service.recheckIssued(java.time.Instant.now()));
+        assertEquals(StripePurchase.Status.DISCHARGED, owed.getStatus());
+        assertEquals("voucher-1", owed.getVoucherId());
+    }
+
+    @Test
+    void theSweepBacksOffARowItStillCannotVerify() {
+        // Still unverifiable: the row stays ISSUED (never back to OWED, which
+        // would mint again) but its clock moves on, so the next sweep looks at
+        // other rows first instead of hammering the same batch.
+        owed.setStatus(StripePurchase.Status.ISSUED);
+        owed.setVoucherId("voucher-1");
+        java.time.Instant before = java.time.Instant.parse("2026-01-01T00:00:00Z");
+        owed.setUpdatedAt(before);
+        when(purchases.findIssuedDueForRecheck(eq(StripePurchase.Status.ISSUED), any(), any(), any()))
+                .thenReturn(java.util.List.of(owed));
+        gatewaySays(Fulfilment.UNKNOWN, null);
+
+        assertEquals(0, service.recheckIssued(java.time.Instant.now()));
+        assertEquals(StripePurchase.Status.ISSUED, owed.getStatus());
+        assertEquals(0, owed.getAttempts(), "an outage is not the issuer's failure");
+        org.junit.jupiter.api.Assertions.assertTrue(owed.getUpdatedAt().isAfter(before));
+    }
 }
