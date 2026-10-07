@@ -114,7 +114,8 @@ public class GatewayFulfilmentClient {
                     body.hasNonNull("amount") && body.get("amount").canConvertToLong()
                             ? body.get("amount").asLong() : null,
                     text(body, "unit"),
-                    text(body, "reason"));
+                    text(body, "reason"),
+                    text(body, "creatorPubkey"));
         } catch (Exception e) {
             // Unreachable means UNKNOWN. ADR 0009: a network problem never
             // discharges a debt and never accuses a merchant of not issuing.
@@ -133,14 +134,24 @@ public class GatewayFulfilmentClient {
      * ADR 0009 makes that check explicit.
      *
      * @param fulfilment the verdict, including the UNKNOWN that means "do not act"
-     * @param issuerId   who the gateway says issued, or null when it did not say
+     * @param issuerId      who the gateway says issued, or null when it did not say
+     * @param creatorPubkey the key that registered the request's terms (imani-gateway-core#131,
+     *                      fb2b76a), or null from a core that does not say. Registration is
+     *                      first-writer-wins and open to any NIP-98 key, so the terms are only
+     *                      this service's own when this is {@link #publicKeyHex()}.
      */
     public record Answer(Fulfilment fulfilment, String issuerId, String recipientPubkey,
-                         Long amount, String unit, String reason) {
+                         Long amount, String unit, String reason, String creatorPubkey) {
 
         /** The two-fact answer, as a gateway older than imani-gateway-core#131 gives it. */
         public Answer(Fulfilment fulfilment, String issuerId) {
-            this(fulfilment, issuerId, null, null, null, null);
+            this(fulfilment, issuerId, null, null, null, null, null);
+        }
+
+        /** The answer from a core with registration but before it named the registering key. */
+        public Answer(Fulfilment fulfilment, String issuerId, String recipientPubkey,
+                      Long amount, String unit, String reason) {
+            this(fulfilment, issuerId, recipientPubkey, amount, unit, reason, null);
         }
 
         /** gateway-core#131's reason for a request nobody registered. */

@@ -61,9 +61,12 @@ leave a binding for a row that does not exist.
 ## Why late registration is safe
 
 The id is not secret by discharge time: the issuer's delivery DM carries it to
-the buyer. A squatter who registers first gets our PUT a 409, and every answer
-is compared against this row's own recipient, amount, unit and stall, so the
-worst case is a debt left for a manual check, on the squatter's own purchase.
+the buyer. A squatter who registers different terms first gets our PUT a 409.
+One who registers identical terms gets it a 200, so the answer's
+`creatorPubkey` (imani-gateway-core#131, fb2b76a) must also be this service's
+own key; an answer without it is unverifiable. Every answer is compared against
+this row's own recipient, amount, unit and stall, so the worst case is a debt
+left for a manual check, on the squatter's own purchase.
 
 ## Rollout
 

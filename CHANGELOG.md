@@ -22,6 +22,12 @@
   discharge `UNVERIFIABLE` (503), not `REFUSED` with the issuer blamed.
 - Registration now happens after the recording transaction commits, so the HTTP call no
   longer holds a DB transaction open.
+- **Only requests this service registered itself discharge a purchase**
+  (imani-gateway-core#131, fb2b76a). Registration is first-writer-wins and open to any NIP-98
+  key, so a squatter could register a request's terms first and our `PUT` would get 200.
+  `PurchaseDischargeService` now also requires the answer's `creatorPubkey` to equal this
+  service's signing key, refusing otherwise. An answer without `creatorPubkey` (older core)
+  is `UNVERIFIABLE` (503), as for any answer lacking the facts to check.
 
 ## [0.17.3] - 2026-10-05
 

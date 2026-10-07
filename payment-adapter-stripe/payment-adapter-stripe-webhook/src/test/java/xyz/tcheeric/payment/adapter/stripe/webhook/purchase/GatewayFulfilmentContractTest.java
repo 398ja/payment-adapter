@@ -58,6 +58,8 @@ class GatewayFulfilmentContractTest {
     private HttpServer server;
     private boolean old;
     private final Map<String, JsonNode> bindings = new ConcurrentHashMap<>();
+    /** Who registered each id first: the NIP-98 event's pubkey, as core#131 (fb2b76a) answers it. */
+    private final Map<String, String> creators = new ConcurrentHashMap<>();
     private final List<Map<String, Object>> sends = new ArrayList<>();
     private final List<String> seen = new ArrayList<>();
 
@@ -198,6 +200,10 @@ class GatewayFulfilmentContractTest {
             seen.add(payloadMatches(auth, body) ? "PUT payload-ok" : "PUT payload-bad");
             JsonNode terms = MAPPER.readTree(body);
             JsonNode existing = bindings.putIfAbsent(id, terms);
+            if (existing == null) {
+                creators.put(id, MAPPER.readTree(Base64.getDecoder().decode(auth.substring("Nostr ".length())))
+                        .get("pubkey").asText());
+            }
             reply(exchange, existing == null ? 201 : existing.equals(terms) ? 200 : 409, null);
             return;
         }
@@ -224,7 +230,8 @@ class GatewayFulfilmentContractTest {
         boolean paid = total >= terms.get("amount").asLong();
         Map<String, Object> answer = new java.util.HashMap<>(Map.of(
                 "fulfilled", paid, "issuerId", terms.get("issuerId").asText(), "amount", total,
-                "unit", terms.get("unit").asText(), "requested", terms.get("amount").asLong()));
+                "unit", terms.get("unit").asText(), "requested", terms.get("amount").asLong(),
+                "creatorPubkey", creators.get(id)));
         if (total > 0) {
             answer.put("recipientPubkey", terms.get("recipientPubkey").asText());
             answer.put("sendId", "s1");

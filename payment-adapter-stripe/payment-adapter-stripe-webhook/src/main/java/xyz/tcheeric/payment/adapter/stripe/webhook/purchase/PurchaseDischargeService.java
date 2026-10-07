@@ -168,9 +168,15 @@ public class PurchaseDischargeService {
         // (imani-gateway-core#131). A gateway that says "fulfilled" without
         // them is one from before #131, whose answer a 1-sat send to oneself
         // could produce: not an accusation, so UNVERIFIABLE, but no discharge.
-        String mismatch = mismatch(purchase, answer);
+        // The terms must also be OURS. Registration is first-writer-wins and
+        // open to any NIP-98 key, so a squatter can register matching terms
+        // first and our PUT is answered 200. core#131 (fb2b76a) names the
+        // registering key; a core that does not cannot say whose terms these
+        // are, which is unverifiable like the missing facts above.
+        String mismatch = mismatch(purchase, answer, fulfilment.publicKeyHex());
         if (mismatch != null) {
-            if (answer.recipientPubkey() == null || answer.amount() == null || answer.unit() == null) {
+            if (answer.recipientPubkey() == null || answer.amount() == null || answer.unit() == null
+                    || answer.creatorPubkey() == null) {
                 log.info("Gateway confirmed {} without the facts to check; leaving it owed", eventId);
                 return Result.UNVERIFIABLE;
             }
@@ -214,11 +220,18 @@ public class PurchaseDischargeService {
      *
      * <p>Recipient, amount, unit and stall must all be the purchase's own. Any
      * of them missing is a reason too: the check is only as strong as its
-     * weakest fact.
+     * weakest fact. So must the registering key: only terms this service
+     * registered itself ({@code ownKey}) count.
      */
-    static String mismatch(StripePurchase purchase, GatewayFulfilmentClient.Answer answer) {
+    static String mismatch(StripePurchase purchase, GatewayFulfilmentClient.Answer answer, String ownKey) {
         if (answer.recipientPubkey() == null || answer.amount() == null || answer.unit() == null) {
             return "the answer carries no recipient, amount or unit";
+        }
+        if (answer.creatorPubkey() == null) {
+            return "the answer does not say who registered the request";
+        }
+        if (ownKey == null || !ownKey.equalsIgnoreCase(answer.creatorPubkey())) {
+            return "registered by " + answer.creatorPubkey() + ", not this service";
         }
         if (purchase.getRecipientPubkey() == null
                 || !purchase.getRecipientPubkey().equalsIgnoreCase(answer.recipientPubkey())) {

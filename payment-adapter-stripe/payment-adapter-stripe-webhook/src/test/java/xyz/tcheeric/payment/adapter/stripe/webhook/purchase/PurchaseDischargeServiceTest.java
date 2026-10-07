@@ -37,6 +37,9 @@ class PurchaseDischargeServiceTest {
     private static final String STALL = "b".repeat(64);
     private static final String BUYER = "a".repeat(64);
     private static final String SELF = "d".repeat(64);
+    /** This service's own registering key. */
+    private static final String OWN = "e".repeat(64);
+    private static final String SQUATTER = "f".repeat(64);
 
     @Mock private StripePurchaseRepository purchases;
     @Mock private GatewayFulfilmentClient fulfilment;
@@ -56,6 +59,7 @@ class PurchaseDischargeServiceTest {
         owed.setCurrency("gbp");
         when(purchases.findByEventId(EVENT)).thenReturn(Optional.of(owed));
         when(purchases.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(fulfilment.publicKeyHex()).thenReturn(OWN);
     }
 
     /** What gateway-core#131 says for a real payment: the verdict and the facts behind it. */
@@ -64,7 +68,8 @@ class PurchaseDischargeServiceTest {
                 verdict == Fulfilment.FULFILLED ? BUYER : null,
                 verdict == Fulfilment.FULFILLED ? 2500L : null,
                 verdict == Fulfilment.FULFILLED ? "GBP" : null,
-                verdict == Fulfilment.FULFILLED ? null : "unpaid"));
+                verdict == Fulfilment.FULFILLED ? null : "unpaid",
+                OWN));
     }
 
     private void gatewaySays(GatewayFulfilmentClient.Answer answer) {
@@ -77,7 +82,7 @@ class PurchaseDischargeServiceTest {
         // sat of the stall's coupons to THEMSELF, tagged with it. Even if a
         // gateway called that "fulfilled", it went to the wrong person for the
         // wrong amount, so the buyer's debt stands and somebody is told.
-        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, SELF, 1L, "GBP", null));
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, SELF, 1L, "GBP", null, OWN));
 
         assertEquals(PurchaseDischargeService.Result.REFUSED,
                 service.discharge(EVENT, "voucher-1", STALL));
@@ -88,7 +93,7 @@ class PurchaseDischargeServiceTest {
     @Test
     void refusesAnUnderpaymentToTheRightBuyer() {
         // Right person, not enough value. Still owed.
-        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2499L, "GBP", null));
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2499L, "GBP", null, OWN));
 
         assertEquals(PurchaseDischargeService.Result.REFUSED,
                 service.discharge(EVENT, "voucher-1", STALL));
@@ -98,7 +103,7 @@ class PurchaseDischargeServiceTest {
     @Test
     void refusesAPaymentInAnotherCurrency() {
         // 2500 of some other unit is not 2500 pence.
-        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "EUR", null));
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "EUR", null, OWN));
 
         assertEquals(PurchaseDischargeService.Result.REFUSED,
                 service.discharge(EVENT, "voucher-1", STALL));
@@ -109,7 +114,7 @@ class PurchaseDischargeServiceTest {
         // The row knows its stall. An answer naming another one does not
         // close this debt, even when the caller names no issuer.
         owed.setStallPubkey(STALL);
-        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, "c".repeat(64), BUYER, 2500L, "GBP", null));
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, "c".repeat(64), BUYER, 2500L, "GBP", null, OWN));
 
         assertEquals(PurchaseDischargeService.Result.REFUSED,
                 service.discharge(EVENT, "voucher-1", null));
@@ -136,13 +141,43 @@ class PurchaseDischargeServiceTest {
         owed.setStallPubkey(STALL);
         when(fulfilment.check(REQUEST)).thenReturn(
                 new GatewayFulfilmentClient.Answer(Fulfilment.NOT_FULFILLED, null, null, 0L, null, "unregistered"),
-                new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null));
+                new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, OWN));
         when(fulfilment.register(REQUEST, BUYER, STALL, 2500L, "GBP"))
                 .thenReturn(GatewayFulfilmentClient.Registration.REGISTERED);
 
         assertEquals(PurchaseDischargeService.Result.DISCHARGED,
                 service.discharge(EVENT, "voucher-1", STALL));
         verify(fulfilment).register(REQUEST, BUYER, STALL, 2500L, "GBP");
+    }
+
+    @Test
+    void aRequestASquatterRegisteredFirstDoesNotDischarge() {
+        // Somebody who saw the request id registered it first, naming this
+        // purchase's own buyer, stall, amount and unit, so our PUT came back
+        // 200 "already registered" and every fact in the answer matches. The
+        // terms are still not ours: creatorPubkey names the squatter
+        // (imani-gateway-core#131, fb2b76a). The debt stands.
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(
+                Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, SQUATTER));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+        assertEquals(1, owed.getAttempts());
+    }
+
+    @Test
+    void anAnswerThatDoesNotNameItsRegistrantIsUnverifiable() {
+        // A core with registration but before creatorPubkey cannot say whose
+        // terms these are. Not confirmed, but nobody is accused either.
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null));
+
+        assertEquals(PurchaseDischargeService.Result.UNVERIFIABLE,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+        assertEquals(0, owed.getAttempts());
     }
 
     @Test
@@ -339,7 +374,7 @@ class PurchaseDischargeServiceTest {
         // not the buyer. Only the recipient check stands between this and a
         // discharge, so this test fails if that check is removed.
         owed.setStallPubkey(STALL);
-        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, SELF, 2500L, "GBP", null));
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, SELF, 2500L, "GBP", null, OWN));
 
         assertEquals(PurchaseDischargeService.Result.REFUSED,
                 service.discharge(EVENT, "voucher-1", STALL));
