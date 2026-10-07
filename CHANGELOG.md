@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-07
+
 ### Security
 
 - **Stripe coupon purchases register their payment request and discharge only on matching
