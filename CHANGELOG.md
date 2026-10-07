@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Security
+
+- **Stripe coupon purchases register their payment request and discharge only on matching
+  facts** (imani-gateway-core#131, imani-wallet#160 review). `RecordingPurchaseListener` now
+  calls `PUT /api/v1/atomic/fulfilment/{id}` with `{recipientPubkey, issuerId, amount, unit}`
+  as soon as the debt is recorded, and `PurchaseDischargeService` discharges only when the
+  gateway's answer names the buyer, the stall, the purchase's unit and at least its amount.
+  Previously a 1-sat send to oneself carrying the request id could discharge a buyer's debt.
+  A 404/405 from an older gateway is logged and the purchase is still recorded; such a
+  gateway's bare `fulfilled` is treated as unverifiable (503), not as a discharge. Purchases
+  recorded before this change register the first time discharge sees `reason: unregistered`.
+  See `docs/reference/purchase-fulfilment.md`.
+- **`ISSUED` purchases whose discharge could not be verified are now re-checked** (#260
+  review). `IssuedPurchaseRecheck` re-runs discharge for `ISSUED` rows with back-off (15 min,
+  50 per sweep, 14-day horizon). Before this, a 503 from `/discharge` left the row `ISSUED`
+  for good, so "safe in either deploy order" was not true.
+- A late registration that times out, fails or meets an older core (404/405) now makes the
+  discharge `UNVERIFIABLE` (503), not `REFUSED` with the issuer blamed.
+- Registration now happens after the recording transaction commits, so the HTTP call no
+  longer holds a DB transaction open.
+- **Only requests this service registered itself discharge a purchase**
+  (imani-gateway-core#131, fb2b76a). Registration is first-writer-wins and open to any NIP-98
+  key, so a squatter could register a request's terms first and our `PUT` would get 200.
+  `PurchaseDischargeService` now also requires the answer's `creatorPubkey` to equal this
+  service's signing key, refusing otherwise. An answer without `creatorPubkey` (older core)
+  is `UNVERIFIABLE` (503), as for any answer lacking the facts to check.
+
 ## [0.17.3] - 2026-10-05
 
 ### Fixed

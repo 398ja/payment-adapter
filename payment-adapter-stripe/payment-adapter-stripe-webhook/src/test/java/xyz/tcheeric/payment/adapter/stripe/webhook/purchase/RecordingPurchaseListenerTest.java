@@ -39,12 +39,13 @@ class RecordingPurchaseListenerTest {
 
     @Mock private StripePurchaseRepository purchases;
     @Mock private ConnectedStripeAccountRepository accounts;
+    @Mock private GatewayFulfilmentClient fulfilment;
 
     private RecordingPurchaseListener listener;
 
     @BeforeEach
     void setUp() {
-        listener = new RecordingPurchaseListener(purchases, accounts);
+        listener = new RecordingPurchaseListener(purchases, accounts, fulfilment);
         ConnectedStripeAccount account = new ConnectedStripeAccount();
         account.setMerchantPubkey(STALL);
         account.setStripeAccountId(ACCOUNT);
@@ -78,6 +79,59 @@ class RecordingPurchaseListenerTest {
         StripePurchase saved = captureSaved();
         assertNull(saved.getStallPubkey());
         assertEquals(StripePurchase.Status.OWED, saved.getStatus(), "still owed");
+    }
+
+    @Test
+    void registersTheRequestTermsAsSoonAsTheDebtIsRecorded() {
+        // imani-gateway-core#131 counts a send only against registered terms.
+        // Registering here, before the issuer ever sees the id, binds it to
+        // THIS buyer, stall, amount and currency, and nobody can register it
+        // first with terms of their own.
+        when(purchases.findByEventId("evt_1")).thenReturn(Optional.empty());
+        when(fulfilment.register(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any()))
+                .thenReturn(GatewayFulfilmentClient.Registration.REGISTERED);
+
+        listener.onPurchasePaid(paid(Map.of("buyer_pubkey", BUYER)));
+
+        StripePurchase saved = captureSaved();
+        verify(fulfilment).register(saved.getPaymentRequestId(), BUYER, STALL, saved.getAmountMinor(),
+                saved.getCurrency().toUpperCase(java.util.Locale.ROOT));
+    }
+
+    @Test
+    void recordsTheDebtEvenWhenTheGatewayHasNoRegistration() {
+        // A gateway from before #131 answers 404/405. The client logs it; the
+        // debt is recorded regardless, because that is the promise to the buyer.
+        when(purchases.findByEventId("evt_1")).thenReturn(Optional.empty());
+        when(fulfilment.register(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any()))
+                .thenReturn(GatewayFulfilmentClient.Registration.UNSUPPORTED);
+
+        listener.onPurchasePaid(paid(Map.of("buyer_pubkey", BUYER)));
+
+        assertEquals(StripePurchase.Status.OWED, captureSaved().getStatus());
+    }
+
+    @Test
+    void recordsTheDebtEvenWhenRegistrationThrows() {
+        // Belt and braces: whatever registration does, the row is already saved.
+        when(purchases.findByEventId("evt_1")).thenReturn(Optional.empty());
+        when(fulfilment.register(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any()))
+                .thenThrow(new IllegalStateException("boom"));
+
+        listener.onPurchasePaid(paid(Map.of("buyer_pubkey", BUYER)));
+
+        assertEquals(StripePurchase.Status.OWED, captureSaved().getStatus());
+    }
+
+    @Test
+    void skipsRegistrationWithoutABuyerKey() {
+        // No buyer pubkey means there is no recipient to bind. Discharge will
+        // stay manual for this one; registering a guess would be worse.
+        when(purchases.findByEventId("evt_1")).thenReturn(Optional.empty());
+
+        listener.onPurchasePaid(paid(Map.of()));
+
+        verify(fulfilment, never()).register(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
     }
 
     private StripePurchaseListener.PaidPurchase paid(Map<String, String> metadata) {
@@ -168,5 +222,25 @@ class RecordingPurchaseListenerTest {
         listener.onPurchasePaid(testMode);
 
         assertTrue(!captureSaved().isLivemode());
+    }
+
+    @Test
+    void registersOnlyAfterTheRecordingTransactionCommits() {
+        // PA-5. The PUT is an HTTP call of up to the client timeout. Made
+        // inside the transaction it holds a DB connection that long, and a
+        // rollback after a 201 leaves a binding for a row that never existed.
+        // With a transaction active, registration waits for the commit.
+        when(purchases.findByEventId("evt_1")).thenReturn(Optional.empty());
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            listener.onPurchasePaid(paid(Map.of("buyer_pubkey", BUYER)));
+            verify(fulfilment, never()).register(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+
+            org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
+            verify(fulfilment).register(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 }

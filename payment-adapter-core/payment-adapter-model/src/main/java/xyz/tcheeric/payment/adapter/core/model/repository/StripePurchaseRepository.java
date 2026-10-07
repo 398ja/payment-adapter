@@ -78,4 +78,22 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
             @Param("until") Instant until,
             @Param("owed") StripePurchase.Status owed,
             @Param("issuing") StripePurchase.Status issuing);
+
+    /**
+     * ISSUED rows whose discharge is worth asking about again, least recently
+     * looked at first (payment-adapter#260 review, PA-2).
+     *
+     * <p>Bounded on both ends: only rows not touched since {@code dueBefore}
+     * (back-off), and only rows created after {@code notBefore} (a row nobody
+     * could verify for that long needs a person, not another request). The
+     * page caps one sweep.
+     */
+    @Query("select p from StripePurchase p where p.status = :issued"
+            + " and p.updatedAt < :dueBefore and p.createdAt > :notBefore"
+            + " order by p.updatedAt asc")
+    List<StripePurchase> findIssuedDueForRecheck(
+            @Param("issued") StripePurchase.Status issued,
+            @Param("dueBefore") Instant dueBefore,
+            @Param("notBefore") Instant notBefore,
+            org.springframework.data.domain.Pageable page);
 }

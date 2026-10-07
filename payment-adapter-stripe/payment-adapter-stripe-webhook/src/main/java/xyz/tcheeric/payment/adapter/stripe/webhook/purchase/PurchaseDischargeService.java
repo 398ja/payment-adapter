@@ -124,6 +124,26 @@ public class PurchaseDischargeService {
 
         GatewayFulfilmentClient.Answer answer = fulfilment.check(purchase.getPaymentRequestId());
 
+        if (answer.fulfilment() == Fulfilment.NOT_FULFILLED && answer.unregistered()) {
+            // Recorded before registration existed, or while the gateway was
+            // unreachable. Register now and ask again.
+            GatewayFulfilmentClient.Registration late = registerLate(purchase);
+            if (late == GatewayFulfilmentClient.Registration.REGISTERED
+                    || late == GatewayFulfilmentClient.Registration.ALREADY_REGISTERED) {
+                answer = fulfilment.check(purchase.getPaymentRequestId());
+            } else if (late == GatewayFulfilmentClient.Registration.FAILED
+                    || late == GatewayFulfilmentClient.Registration.UNSUPPORTED) {
+                // The PUT timed out, got a 5xx, or this core has no PUT yet.
+                // That says nothing about the issuer's work: same as an
+                // outage, not a refusal (payment-adapter#260 review, PA-3).
+                log.info("Could not register purchase {} late ({}); leaving it for a retry", eventId, late);
+                return Result.UNVERIFIABLE;
+            }
+            // null (no buyer key or stall: cannot ever be registered) and
+            // CONFLICT (somebody else's terms won) fall through to REFUSED:
+            // retrying cannot help, and a person needs to look.
+        }
+
         if (answer.fulfilment() == Fulfilment.UNKNOWN) {
             // Deliberately NOT recorded as a failed attempt. Nothing was
             // learned about the issuer's work, so counting it would make an
@@ -141,6 +161,30 @@ public class PurchaseDischargeService {
             purchase.setUpdatedAt(Instant.now());
             purchases.save(purchase);
             log.warn("Refused discharge of {}: no completed send answers its request", eventId);
+            return Result.REFUSED;
+        }
+
+        // The facts behind the verdict must be the ones this purchase is owed
+        // (imani-gateway-core#131). A gateway that says "fulfilled" without
+        // them is one from before #131, whose answer a 1-sat send to oneself
+        // could produce: not an accusation, so UNVERIFIABLE, but no discharge.
+        // The terms must also be OURS. Registration is first-writer-wins and
+        // open to any NIP-98 key, so a squatter can register matching terms
+        // first and our PUT is answered 200. core#131 (fb2b76a) names the
+        // registering key; a core that does not cannot say whose terms these
+        // are, which is unverifiable like the missing facts above.
+        String mismatch = mismatch(purchase, answer, fulfilment.publicKeyHex());
+        if (mismatch != null) {
+            if (answer.recipientPubkey() == null || answer.amount() == null || answer.unit() == null
+                    || answer.creatorPubkey() == null) {
+                log.info("Gateway confirmed {} without the facts to check; leaving it owed", eventId);
+                return Result.UNVERIFIABLE;
+            }
+            purchase.setAttempts(purchase.getAttempts() + 1);
+            purchase.setLastFailure("gateway answer does not match the purchase: " + mismatch);
+            purchase.setUpdatedAt(Instant.now());
+            purchases.save(purchase);
+            log.warn("Refused discharge of {}: {}", eventId, mismatch);
             return Result.REFUSED;
         }
 
@@ -169,6 +213,124 @@ public class PurchaseDischargeService {
 
         log.info("Discharged purchase {} on confirmed issuance", eventId);
         return Result.DISCHARGED;
+    }
+
+    /**
+     * Why this answer cannot close this purchase, or null when it can.
+     *
+     * <p>Recipient, amount, unit and stall must all be the purchase's own. Any
+     * of them missing is a reason too: the check is only as strong as its
+     * weakest fact. So must the registering key: only terms this service
+     * registered itself ({@code ownKey}) count.
+     */
+    static String mismatch(StripePurchase purchase, GatewayFulfilmentClient.Answer answer, String ownKey) {
+        if (answer.recipientPubkey() == null || answer.amount() == null || answer.unit() == null) {
+            return "the answer carries no recipient, amount or unit";
+        }
+        if (answer.creatorPubkey() == null) {
+            return "the answer does not say who registered the request";
+        }
+        if (ownKey == null || !ownKey.equalsIgnoreCase(answer.creatorPubkey())) {
+            return "registered by " + answer.creatorPubkey() + ", not this service";
+        }
+        if (purchase.getRecipientPubkey() == null
+                || !purchase.getRecipientPubkey().equalsIgnoreCase(answer.recipientPubkey())) {
+            return "paid to " + answer.recipientPubkey() + ", not the buyer";
+        }
+        if (purchase.getAmountMinor() == null || answer.amount() < purchase.getAmountMinor()) {
+            return "paid " + answer.amount() + " of " + purchase.getAmountMinor();
+        }
+        if (purchase.getCurrency() == null || !unitOf(purchase.getCurrency()).equalsIgnoreCase(answer.unit())) {
+            return "paid in " + answer.unit() + ", not " + purchase.getCurrency();
+        }
+        if (purchase.getStallPubkey() != null
+                && (answer.issuerId() == null || !purchase.getStallPubkey().equalsIgnoreCase(answer.issuerId()))) {
+            return "issued by " + answer.issuerId() + ", not the stall";
+        }
+        return null;
+    }
+
+    /** The unit a currency is registered under: Stripe's lower-case ISO code, upper-cased. */
+    static String unitOf(String currency) {
+        return currency == null ? null : currency.trim().toUpperCase(java.util.Locale.ROOT);
+    }
+
+    /**
+     * Register a purchase the listener could not, and say what happened.
+     *
+     * <p>Safe after the fact, though not because the id is secret: by
+     * discharge time the issuer has already sent the buyer a DM carrying it
+     * (imani-wallet {@code delivery.ts}), so the buyer, or anyone who reads
+     * that DM, can register first. What makes it safe is that core binds the
+     * creator into the terms, so a squatter's registration answers our PUT
+     * with 409, and {@link #mismatch} compares any later answer against this
+     * row's own recipient, amount, unit and stall, never against echoed
+     * terms. The worst a squatter achieves is a debt left for a person to
+     * check, and only against their own purchase.
+     *
+     * @return the gateway's answer, or null when the row lacks the facts to register
+     */
+    private GatewayFulfilmentClient.Registration registerLate(StripePurchase purchase) {
+        if (purchase.getRecipientPubkey() == null || purchase.getStallPubkey() == null
+                || purchase.getAmountMinor() == null || purchase.getCurrency() == null) {
+            return null;
+        }
+        return fulfilment.register(
+                purchase.getPaymentRequestId(), purchase.getRecipientPubkey(), purchase.getStallPubkey(),
+                purchase.getAmountMinor(), unitOf(purchase.getCurrency()));
+    }
+
+    /** How long a re-checked ISSUED row rests before it is asked about again. */
+    static final Duration RECHECK_BACKOFF = Duration.ofMinutes(15);
+    /** After this, an unverifiable ISSUED row needs a person, not another request. */
+    static final Duration RECHECK_HORIZON = Duration.ofDays(14);
+    /** Rows per sweep, so one sweep cannot flood the gateway. */
+    static final int RECHECK_BATCH = 50;
+
+    /**
+     * Ask again about coupons that exist but whose discharge was never
+     * confirmed (payment-adapter#260 review, PA-2).
+     *
+     * <p>The issuer calls {@code /discharge} once, right after minting. A 503
+     * (old core, outage, failed late registration) makes it report a failure
+     * naming the voucher, which parks the row in ISSUED: correctly, because
+     * OWED would mint again. Before this sweep nothing ever asked about an
+     * ISSUED row again, so "unverifiable, try later" meant "never". Now every
+     * ISSUED row is re-discharged with back-off until it closes, is refused,
+     * or ages past {@link #RECHECK_HORIZON}. That is what makes the rollout
+     * safe in either deploy order: rows recorded against an old core close by
+     * themselves once core#131 is live.
+     *
+     * <p>No status ever moves backwards here. A row that still cannot be
+     * verified stays ISSUED with its clock moved on, and no attempt is counted.
+     *
+     * @return how many rows were discharged
+     */
+    public int recheckIssued(Instant now) {
+        int discharged = 0;
+        for (StripePurchase row : purchases.findIssuedDueForRecheck(StripePurchase.Status.ISSUED,
+                now.minus(RECHECK_BACKOFF), now.minus(RECHECK_HORIZON),
+                org.springframework.data.domain.PageRequest.of(0, RECHECK_BATCH))) {
+            Result result;
+            try {
+                // The issuer is not on the line, so no issuer id to compare:
+                // the row's own stall is still checked by mismatch().
+                result = discharge(row.getEventId(), row.getVoucherId(), null);
+            } catch (RuntimeException e) {
+                log.warn("Re-check of issued purchase {} failed: {}", row.getEventId(), e.getMessage());
+                result = Result.UNVERIFIABLE;
+            }
+            if (result == Result.DISCHARGED) {
+                discharged++;
+            } else if (row.getStatus() == StripePurchase.Status.ISSUED) {
+                row.setUpdatedAt(Instant.now());
+                purchases.save(row);
+            }
+        }
+        if (discharged > 0) {
+            log.info("Re-check discharged {} issued purchase(s)", discharged);
+        }
+        return discharged;
     }
 
     /**

@@ -99,4 +99,22 @@ class StripePurchaseClaimTest {
         assertThat(purchases.findClaimable(OWED, ISSUING, now))
                 .extracting(StripePurchase::getEventId).containsExactly("evt_owed");
     }
+
+    @Test
+    void theIssuedRecheckFindsOnlyIssuedRowsThatAreDueAndNotTooOld() {
+        // PA-2. The sweep must see an ISSUED row once it has rested past the
+        // back-off, and must never see OWED/ISSUING rows (those mint) or
+        // rows it has just looked at.
+        persist("evt_issued", StripePurchase.Status.ISSUED, null);
+
+        Instant dueBefore = now.minusSeconds(30);
+        Instant notBefore = now.minusSeconds(3600);
+        org.springframework.data.domain.Pageable page = org.springframework.data.domain.PageRequest.of(0, 50);
+        assertThat(purchases.findIssuedDueForRecheck(StripePurchase.Status.ISSUED, dueBefore, notBefore, page))
+                .extracting(StripePurchase::getEventId).containsExactly("evt_issued");
+        assertThat(purchases.findIssuedDueForRecheck(StripePurchase.Status.ISSUED, now.minusSeconds(120), notBefore, page))
+                .as("just looked at: backing off").isEmpty();
+        assertThat(purchases.findIssuedDueForRecheck(StripePurchase.Status.ISSUED, dueBefore, now, page))
+                .as("older than the horizon: needs a person").isEmpty();
+    }
 }

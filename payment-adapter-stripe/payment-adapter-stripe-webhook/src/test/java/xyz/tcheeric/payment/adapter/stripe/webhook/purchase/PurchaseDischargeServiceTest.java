@@ -35,6 +35,11 @@ class PurchaseDischargeServiceTest {
     private static final String EVENT = "evt_1";
     private static final String REQUEST = "0123456789abcdef0123456789abcdef";
     private static final String STALL = "b".repeat(64);
+    private static final String BUYER = "a".repeat(64);
+    private static final String SELF = "d".repeat(64);
+    /** This service's own registering key. */
+    private static final String OWN = "e".repeat(64);
+    private static final String SQUATTER = "f".repeat(64);
 
     @Mock private StripePurchaseRepository purchases;
     @Mock private GatewayFulfilmentClient fulfilment;
@@ -49,13 +54,130 @@ class PurchaseDischargeServiceTest {
         owed.setEventId(EVENT);
         owed.setPaymentRequestId(REQUEST);
         owed.setStatus(StripePurchase.Status.OWED);
+        owed.setRecipientPubkey(BUYER);
+        owed.setAmountMinor(2500L);
+        owed.setCurrency("gbp");
         when(purchases.findByEventId(EVENT)).thenReturn(Optional.of(owed));
         when(purchases.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(fulfilment.publicKeyHex()).thenReturn(OWN);
     }
 
+    /** What gateway-core#131 says for a real payment: the verdict and the facts behind it. */
     private void gatewaySays(Fulfilment verdict, String issuerId) {
-        when(fulfilment.check(REQUEST))
-                .thenReturn(new GatewayFulfilmentClient.Answer(verdict, issuerId));
+        gatewaySays(new GatewayFulfilmentClient.Answer(verdict, issuerId,
+                verdict == Fulfilment.FULFILLED ? BUYER : null,
+                verdict == Fulfilment.FULFILLED ? 2500L : null,
+                verdict == Fulfilment.FULFILLED ? "GBP" : null,
+                verdict == Fulfilment.FULFILLED ? null : "unpaid",
+                OWN));
+    }
+
+    private void gatewaySays(GatewayFulfilmentClient.Answer answer) {
+        when(fulfilment.check(REQUEST)).thenReturn(answer);
+    }
+
+    @Test
+    void aOneSatSendToSelfDoesNotDischarge() {
+        // The imani-wallet#160 attack. Somebody who saw the request id sends 1
+        // sat of the stall's coupons to THEMSELF, tagged with it. Even if a
+        // gateway called that "fulfilled", it went to the wrong person for the
+        // wrong amount, so the buyer's debt stands and somebody is told.
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, SELF, 1L, "GBP", null, OWN));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+        assertEquals(1, owed.getAttempts());
+    }
+
+    @Test
+    void refusesAnUnderpaymentToTheRightBuyer() {
+        // Right person, not enough value. Still owed.
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2499L, "GBP", null, OWN));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+    }
+
+    @Test
+    void refusesAPaymentInAnotherCurrency() {
+        // 2500 of some other unit is not 2500 pence.
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "EUR", null, OWN));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED,
+                service.discharge(EVENT, "voucher-1", STALL));
+    }
+
+    @Test
+    void refusesWhenTheStallOnTheRowDidNotIssue() {
+        // The row knows its stall. An answer naming another one does not
+        // close this debt, even when the caller names no issuer.
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, "c".repeat(64), BUYER, 2500L, "GBP", null, OWN));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED,
+                service.discharge(EVENT, "voucher-1", null));
+    }
+
+    @Test
+    void doesNotTrustABareFulfilledFromAGatewayBeforeRegistration() {
+        // Before imani-gateway-core#131 the answer was a bare boolean that a
+        // 1-sat self-send could produce. With no facts to check, nothing is
+        // discharged, but nobody is accused either: it stays owed, unverifiable.
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL));
+
+        assertEquals(PurchaseDischargeService.Result.UNVERIFIABLE,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+        assertEquals(0, owed.getAttempts());
+    }
+
+    @Test
+    void registersAPurchaseTheListenerCouldNotThenAsksAgain() {
+        // Recorded before registration existed, or while the gateway was down.
+        // The gateway says "unregistered", so discharge registers the terms
+        // and asks once more.
+        owed.setStallPubkey(STALL);
+        when(fulfilment.check(REQUEST)).thenReturn(
+                new GatewayFulfilmentClient.Answer(Fulfilment.NOT_FULFILLED, null, null, 0L, null, "unregistered"),
+                new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, OWN));
+        when(fulfilment.register(REQUEST, BUYER, STALL, 2500L, "GBP"))
+                .thenReturn(GatewayFulfilmentClient.Registration.REGISTERED);
+
+        assertEquals(PurchaseDischargeService.Result.DISCHARGED,
+                service.discharge(EVENT, "voucher-1", STALL));
+        verify(fulfilment).register(REQUEST, BUYER, STALL, 2500L, "GBP");
+    }
+
+    @Test
+    void aRequestASquatterRegisteredFirstDoesNotDischarge() {
+        // Somebody who saw the request id registered it first, naming this
+        // purchase's own buyer, stall, amount and unit, so our PUT came back
+        // 200 "already registered" and every fact in the answer matches. The
+        // terms are still not ours: creatorPubkey names the squatter
+        // (imani-gateway-core#131, fb2b76a). The debt stands.
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(
+                Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, SQUATTER));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+        assertEquals(1, owed.getAttempts());
+    }
+
+    @Test
+    void anAnswerThatDoesNotNameItsRegistrantIsUnverifiable() {
+        // A core with registration but before creatorPubkey cannot say whose
+        // terms these are. Not confirmed, but nobody is accused either.
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null));
+
+        assertEquals(PurchaseDischargeService.Result.UNVERIFIABLE,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+        assertEquals(0, owed.getAttempts());
     }
 
     @Test
@@ -243,5 +365,85 @@ class PurchaseDischargeServiceTest {
         assertEquals(PurchaseDischargeService.ClaimResult.UNKNOWN_PURCHASE,
                 service.claim("evt_missing", "w1"));
         verify(purchases, never()).claim(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void theFullAmountSentToSomebodyElseDoesNotDischarge() {
+        // The squatting case, isolated. Every fact is right except who was
+        // paid: the full 2500 GBP of the right stall's coupons went to SELF,
+        // not the buyer. Only the recipient check stands between this and a
+        // discharge, so this test fails if that check is removed.
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, SELF, 2500L, "GBP", null, OWN));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+        assertEquals(1, owed.getAttempts());
+    }
+
+    @Test
+    void aLateRegistrationThatCouldNotBeMadeIsUnverifiableNotRefused() {
+        // The gateway says "unregistered" and our PUT to fix that times out or
+        // gets a 5xx. Nothing was learned about the issuer, so the issuer must
+        // not be blamed and no attempt counted: try again later.
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.NOT_FULFILLED, null, null, 0L, null, "unregistered"));
+        when(fulfilment.register(REQUEST, BUYER, STALL, 2500L, "GBP"))
+                .thenReturn(GatewayFulfilmentClient.Registration.FAILED);
+
+        assertEquals(PurchaseDischargeService.Result.UNVERIFIABLE,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(0, owed.getAttempts());
+    }
+
+    @Test
+    void aGatewayWithoutRegistrationIsUnverifiableNotRefused() {
+        // Same, against a core older than #131 whose PUT answers 404/405.
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.NOT_FULFILLED, null, null, 0L, null, "unregistered"));
+        when(fulfilment.register(REQUEST, BUYER, STALL, 2500L, "GBP"))
+                .thenReturn(GatewayFulfilmentClient.Registration.UNSUPPORTED);
+
+        assertEquals(PurchaseDischargeService.Result.UNVERIFIABLE,
+                service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(0, owed.getAttempts());
+    }
+
+    @Test
+    void theSweepDischargesAnIssuedRowOnceTheGatewayCanConfirmIt() {
+        // PA-2. The issuer's one discharge got 503 (old core, outage), so its
+        // failure report parked the row in ISSUED, where nothing retried it.
+        // The sweep asks again; once the gateway can confirm, the debt closes
+        // without anyone minting a second coupon.
+        owed.setStatus(StripePurchase.Status.ISSUED);
+        owed.setVoucherId("voucher-1");
+        owed.setStallPubkey(STALL);
+        when(purchases.findIssuedDueForRecheck(eq(StripePurchase.Status.ISSUED), any(), any(), any()))
+                .thenReturn(java.util.List.of(owed));
+        gatewaySays(Fulfilment.FULFILLED, STALL);
+
+        assertEquals(1, service.recheckIssued(java.time.Instant.now()));
+        assertEquals(StripePurchase.Status.DISCHARGED, owed.getStatus());
+        assertEquals("voucher-1", owed.getVoucherId());
+    }
+
+    @Test
+    void theSweepBacksOffARowItStillCannotVerify() {
+        // Still unverifiable: the row stays ISSUED (never back to OWED, which
+        // would mint again) but its clock moves on, so the next sweep looks at
+        // other rows first instead of hammering the same batch.
+        owed.setStatus(StripePurchase.Status.ISSUED);
+        owed.setVoucherId("voucher-1");
+        java.time.Instant before = java.time.Instant.parse("2026-01-01T00:00:00Z");
+        owed.setUpdatedAt(before);
+        when(purchases.findIssuedDueForRecheck(eq(StripePurchase.Status.ISSUED), any(), any(), any()))
+                .thenReturn(java.util.List.of(owed));
+        gatewaySays(Fulfilment.UNKNOWN, null);
+
+        assertEquals(0, service.recheckIssued(java.time.Instant.now()));
+        assertEquals(StripePurchase.Status.ISSUED, owed.getStatus());
+        assertEquals(0, owed.getAttempts(), "an outage is not the issuer's failure");
+        org.junit.jupiter.api.Assertions.assertTrue(owed.getUpdatedAt().isAfter(before));
     }
 }

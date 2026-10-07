@@ -56,6 +56,17 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
     private final ConnectedStripeAccountRepository accounts;
 
     /**
+     * Registers each new payment request's terms with gateway-core
+     * (imani-gateway-core#131). Null in tests and wiring that predate it, which
+     * simply skips registration.
+     */
+    private final GatewayFulfilmentClient fulfilment;
+
+    public RecordingPurchaseListener(StripePurchaseRepository purchases, ConnectedStripeAccountRepository accounts) {
+        this(purchases, accounts, null);
+    }
+
+    /**
      * {@inheritDoc}
      *
      * <p>Transactional, because "recorded" has to mean committed. A row written
@@ -102,6 +113,55 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
         log.info("Recorded purchase {} owed by account {} ({} {})",
                 purchase.eventId(), purchase.connectedAccountId(),
                 purchase.amountMinor(), purchase.currency());
+
+        // After commit, not inside the transaction (payment-adapter#260
+        // review, PA-5). The PUT can take the client timeout, which would hold
+        // a DB connection that long, and a rollback after a 201 would leave a
+        // binding for a row that never existed. The cost is a window of
+        // milliseconds in which the committed row is visible on /owed before
+        // it is registered. That is covered: discharge registers late on
+        // "unregistered", and the id reaches nobody but the issuer before its
+        // delivery DM, which comes after a mint.
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            register(row);
+                        }
+                    });
+        } else {
+            register(row);
+        }
+    }
+
+    /**
+     * Bind the new request to this purchase's terms, as soon as its id exists.
+     *
+     * <p>gateway-core#131 counts a send only when it went to the registered
+     * recipient, of the registered issuer and unit, for at least the registered
+     * amount. Registering as soon as the row commits, before the issuer has minted or
+     * delivered anything, means nobody else can register it first with terms
+     * of their own.
+     *
+     * <p>Best effort, and never fatal: the debt is already recorded. A gateway
+     * from before #131 answers 404/405, which the client logs; an outage or a
+     * purchase with no buyer key or no known stall is left for
+     * {@link PurchaseDischargeService} to register at discharge.
+     */
+    private void register(StripePurchase row) {
+        if (fulfilment == null || row.getRecipientPubkey() == null || row.getStallPubkey() == null
+                || row.getAmountMinor() == null || row.getCurrency() == null) {
+            return;
+        }
+        try {
+            GatewayFulfilmentClient.Registration outcome = fulfilment.register(
+                    row.getPaymentRequestId(), row.getRecipientPubkey(), row.getStallPubkey(),
+                    row.getAmountMinor(), PurchaseDischargeService.unitOf(row.getCurrency()));
+            log.info("Payment request for purchase {}: {}", row.getEventId(), outcome);
+        } catch (RuntimeException e) {
+            log.warn("Could not register the payment request for purchase {}: {}", row.getEventId(), e.getMessage());
+        }
     }
 
     /**
