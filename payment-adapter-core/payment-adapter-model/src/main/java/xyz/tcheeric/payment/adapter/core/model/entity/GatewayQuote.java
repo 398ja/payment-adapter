@@ -115,8 +115,9 @@ public class GatewayQuote implements GatewayEntity {
      * When re-delivery stopped being attempted, or {@code null} while it is still trying.
      *
      * <p><strong>Giving up is not abandoning.</strong> The row stays {@code PAID} with
-     * {@code mintNotifiedAt} null, so {@code payment_adapter_paid_unforwarded} still counts
-     * it and an operator must still act. What stops is only the traffic that cannot succeed.
+     * {@code mintNotifiedAt} null, so {@code payment_adapter_forward_given_up} counts it
+     * (and, since #259, {@code payment_adapter_paid_unforwarded} no longer does) and an
+     * operator must still act. What stops is only the traffic that cannot succeed.
      *
      * <p>A separate column rather than a state, because a quote that has been given up on is
      * in exactly the same financial position as one still being retried. Collapsing them would

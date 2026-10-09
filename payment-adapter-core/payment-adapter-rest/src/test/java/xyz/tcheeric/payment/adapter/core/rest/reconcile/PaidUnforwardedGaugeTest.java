@@ -97,6 +97,29 @@ class PaidUnforwardedGaugeTest {
                 .isEqualTo(7.0);
     }
 
+    /**
+     * 398ja/payment-adapter#259: the two series are disjoint. Given-up rows are exported on their
+     * own series, so paid-unforwarded can read zero (and its alert resolve) while the liability
+     * the sweep has stopped retrying stays visible.
+     */
+    @Test
+    @DisplayName("exports the given-up liability on its own series, independent of paid-unforwarded")
+    void exportsGivenUpIndependently() {
+        when(quotes.countPaidButNotForwarded()).thenReturn(0L);
+        when(quotes.countForwardGivenUp()).thenReturn(3L);
+
+        gauge().pollTick();
+
+        assertThat(exported())
+                .as("given-up rows must not keep the paid-unforwarded alert firing")
+                .isZero();
+        var givenUp = registry.find(PaidUnforwardedGauge.GIVEN_UP_METRIC_NAME).gauge();
+        assertThat(givenUp).as("the liability series must exist").isNotNull();
+        assertThat(givenUp.value())
+                .as("the liability must stay visible on its own series (#246)")
+                .isEqualTo(3.0);
+    }
+
     /** Without a repository the poll does nothing rather than failing on every tick. */
     @Test
     @DisplayName("does nothing when the repository is not wired")

@@ -212,6 +212,35 @@ class PaidUnforwardedEndToEndIT {
                 .isGreaterThanOrEqualTo(0.0);
     }
 
+    /**
+     * 398ja/payment-adapter#259 through the real scrape: a given-up payment leaves
+     * paid-unforwarded for forward_given_up, and a zero-amount one leaves both. Before the fix
+     * these rows held paid-unforwarded above zero forever, so its alert could never resolve.
+     */
+    @Test
+    @DisplayName("given-up and zero-amount rows do not hold paid-unforwarded up on the scrape")
+    void givenUpAndZeroAmountLeavePaidUnforwarded() {
+        gauge.pollTick();
+        double baseGivenUp = valueOnScrape(PaidUnforwardedGauge.GIVEN_UP_METRIC_NAME);
+        double baseUnforwarded = gaugeValueOnScrape();
+
+        GatewayQuote givenUp = persistQuote(State.PAID, Instant.now().minus(Duration.ofHours(2)), null);
+        givenUp.setForwardGaveUpAt(Instant.now());
+        quotes.save(givenUp);
+        GatewayQuote zero = persistQuote(State.PAID, Instant.now().minus(Duration.ofHours(2)), null);
+        zero.setAmount(0);
+        zero.setForwardGaveUpAt(Instant.now());
+        quotes.save(zero);
+        gauge.pollTick();
+
+        assertThat(gaugeValueOnScrape() - baseUnforwarded)
+                .as("rows the sweep will never retry cannot keep the paging alert firing")
+                .isZero();
+        assertThat(valueOnScrape(PaidUnforwardedGauge.GIVEN_UP_METRIC_NAME) - baseGivenUp)
+                .as("the positive-amount given-up row is still a visible liability; the zero one owes nothing")
+                .isEqualTo(1.0);
+    }
+
     private String scrapeBody() {
         ResponseEntity<String> response = restTemplate.getForEntity(
                 "http://localhost:" + managementPort + "/actuator/prometheus", String.class);
@@ -222,8 +251,12 @@ class PaidUnforwardedEndToEndIT {
     }
 
     private double gaugeValueOnScrape() {
+        return valueOnScrape(PaidUnforwardedGauge.METRIC_NAME);
+    }
+
+    private double valueOnScrape(String metric) {
         Matcher matcher = Pattern.compile(
-                        "^" + Pattern.quote(PaidUnforwardedGauge.METRIC_NAME) + "(?:\\{[^}]*})?\\s+([0-9.E+-]+)$",
+                        "^" + Pattern.quote(metric) + "(?:\\{[^}]*})?\\s+([0-9.E+-]+)$",
                         Pattern.MULTILINE)
                 .matcher(scrapeBody());
         // -1 rather than 0 for an absent family: absent and zero must never be conflated here,
