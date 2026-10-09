@@ -2,6 +2,7 @@ package xyz.tcheeric.payment.adapter.core.rest.repository;
 
 import java.time.Instant;
 import java.util.UUID;
+import org.springframework.data.domain.Limit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -117,6 +118,38 @@ class QuoteRepositoryForwardingGaugeQueriesTest {
 
         assertThat(unforwarded()).isZero();
         assertThat(givenUp()).isZero();
+    }
+
+    @Test
+    @DisplayName("the sweep skips zero-amount rows (the mint refuses them) but keeps positive and null amounts")
+    void sweepSkipsZeroAmountRows() {
+        String zero = persistForSweep(0);
+        String negative = persistForSweep(-5);
+        String positive = persistForSweep(30);
+        String unknown = persistForSweep(null);
+
+        var ids = quotes.findPaidButNotForwarded(Instant.now().plusSeconds(60), Limit.of(1000)).stream()
+                .map(GatewayQuote::getQuoteId)
+                .toList();
+
+        assertThat(ids)
+                .as("a zero-amount forward is refused as invalid_amount every time, so retrying it is noise (#262 review L2)")
+                .doesNotContain(zero, negative)
+                .contains(positive, unknown);
+    }
+
+    private String persistForSweep(Integer amount) {
+        GatewayQuote q = new GatewayQuote();
+        q.setQuoteId(UUID.randomUUID().toString());
+        q.setInvoiceId(UUID.randomUUID().toString());
+        q.setUnit("sat");
+        q.setDirection(Direction.RECEIVE);
+        q.setState(State.PAID);
+        q.setAmount(amount);
+        q.setCreatedAt(Instant.now().minusSeconds(3600));
+        entityManager.persist(q);
+        entityManager.flush();
+        return q.getQuoteId();
     }
 
     @Test

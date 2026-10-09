@@ -70,6 +70,10 @@ public interface QuoteRepository extends PagingAndSortingRepository<GatewayQuote
      * {@code mintNotifiedAt}, and {@code countForwardGivenUp} counts them, so the liability stays
      * visible; only the traffic stops. See 398ja/payment-adapter#246 and #259.
      *
+     * <p><strong>Excludes zero-amount rows</strong> ({@code amount <= 0}), the same filter the
+     * gauges use. The mint refuses them as {@code invalid_amount} every time, so retrying them
+     * only produced refused webhooks. A {@code null} amount is still retried.
+     *
      * <p>{@code @RestResource(exported = false)}: this repository is published over Spring Data
      * REST, and a query listing every payment the mint has not acknowledged is an inventory of
      * where value is currently unaccounted for. It is for the reconciler, not for callers.
@@ -77,6 +81,7 @@ public interface QuoteRepository extends PagingAndSortingRepository<GatewayQuote
     @RestResource(exported = false)
     @Query("select q from quote q where q.state = xyz.tcheeric.payment.adapter.core.model.entity.enums.State.PAID "
             + "and q.mintNotifiedAt is null and q.forwardGaveUpAt is null "
+            + "and (q.amount is null or q.amount > 0) "
             + "and q.createdAt < :confirmedBefore order by q.createdAt")
     List<GatewayQuote> findPaidButNotForwarded(@Param("confirmedBefore") Instant confirmedBefore,
                                                Limit limit);
