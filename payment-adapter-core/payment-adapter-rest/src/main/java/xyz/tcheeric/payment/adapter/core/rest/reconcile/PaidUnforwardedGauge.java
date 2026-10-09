@@ -38,9 +38,10 @@ public class PaidUnforwardedGauge {
     static final String METRIC_NAME = "payment_adapter_paid_unforwarded";
 
     /**
-     * The subset the sweep has stopped retrying (398ja/payment-adapter#246).
+     * The rows the sweep has stopped retrying (398ja/payment-adapter#246). Disjoint from
+     * {@link #METRIC_NAME} since #259, which counts only rows still being retried.
      *
-     * <p>Separate from the total because the two want different responses. A rising
+     * <p>Separate because the two want different responses. A rising
      * paid-unforwarded count may be a transient the sweep will clear by itself; a non-zero
      * given-up count never will, and nothing else in the system raises it again.
      */
@@ -63,9 +64,9 @@ public class PaidUnforwardedGauge {
             // tell a healthy zero from a series that does not exist yet.
             Gauge.builder(GIVEN_UP_METRIC_NAME, forwardGivenUp, AtomicLong::get)
                     .description("Settled payments the reconciler has stopped re-delivering after "
-                            + "repeated refusals. The money is still owed and still counted by "
-                            + METRIC_NAME + "; only the retry traffic has stopped. These will not "
-                            + "resolve themselves.")
+                            + "repeated refusals. The money is still owed; only the retry traffic has stopped, "
+                            + "and these are no longer counted by " + METRIC_NAME + ". These "
+                            + "will not resolve themselves.")
                     .register(registry);
         }
     }

@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`payment_adapter_paid_unforwarded` can resolve again: it no longer counts given-up or
+  zero-amount quotes ([#259](https://github.com/398ja/payment-adapter/issues/259)).**
+  `countPaidButNotForwarded` now counts only `PAID` quotes with no `mint_notified_at` that the
+  sweep is still retrying (`forward_gave_up_at IS NULL`) and that owe something
+  (`amount IS NULL OR amount > 0`). Before this change, the nine zero-amount k6 rows from
+  2026-09-23 held the critical `PaymentAdapterPaidUnforwarded` alert firing on staging
+  indefinitely, under a broad silence that would also have muted a real regression.
+  - Given-up rows are still a liability (#246). They are now counted only by
+    `payment_adapter_forward_given_up`, so the two gauges are disjoint. imani-deploy alerts on
+    that gauge separately, at lower severity.
+  - Zero-amount rows owe the mint nothing and the mint refuses them (`invalid_amount`), so they
+    are excluded from both gauges. A `null` amount is still counted, because an unknown amount
+    is not the same as nothing owed.
+  - **Operators:** after deploying, `payment_adapter_paid_unforwarded` and
+    `payment_adapter_forward_given_up` on staging should both read 0. Then the staging silence
+    on `PaymentAdapterPaidUnforwarded` can be expired. Any existing dashboard that read
+    `paid_unforwarded` as "including given-up" should sum the two series instead.
+
 ## [0.18.0] - 2026-10-07
 
 ### Security

@@ -148,8 +148,8 @@ public class PaidQuoteForwardReconciler {
             // staging, which buried every other signal in two services' logs while adding
             // nothing. The money is unchanged either way; only the noise stops.
             //
-            // The row stays PAID with mintNotifiedAt null, so paid-unforwarded still counts
-            // it and countForwardGivenUp raises it separately as the operator's problem.
+            // The row stays PAID with mintNotifiedAt null. It moves from paid-unforwarded to
+            // countForwardGivenUp, which raises it as the operator's problem (#259).
             if (maxAttempts > 0 && quote.getForwardAttempts() >= maxAttempts) {
                 quote.setForwardGaveUpAt(Instant.now());
                 quotes.save(quote);

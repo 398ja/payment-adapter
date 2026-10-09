@@ -67,8 +67,12 @@ public interface QuoteRepository extends PagingAndSortingRepository<GatewayQuote
      * <p><strong>Excludes quotes the sweep has given up on</strong>
      * ({@code forwardGaveUpAt is not null}), which is what stops a payment the mint can never
      * accept from being re-delivered forever. Those rows are still {@code PAID} with no
-     * {@code mintNotifiedAt}, so {@code countPaidButNotForwarded} still counts them and the
-     * liability stays visible; only the traffic stops. See 398ja/payment-adapter#246.
+     * {@code mintNotifiedAt}, and {@code countForwardGivenUp} counts them, so the liability stays
+     * visible; only the traffic stops. See 398ja/payment-adapter#246 and #259.
+     *
+     * <p><strong>Excludes zero-amount rows</strong> ({@code amount <= 0}), the same filter the
+     * gauges use. The mint refuses them as {@code invalid_amount} every time, so retrying them
+     * only produced refused webhooks. A {@code null} amount is still retried.
      *
      * <p>{@code @RestResource(exported = false)}: this repository is published over Spring Data
      * REST, and a query listing every payment the mint has not acknowledged is an inventory of
@@ -77,6 +81,7 @@ public interface QuoteRepository extends PagingAndSortingRepository<GatewayQuote
     @RestResource(exported = false)
     @Query("select q from quote q where q.state = xyz.tcheeric.payment.adapter.core.model.entity.enums.State.PAID "
             + "and q.mintNotifiedAt is null and q.forwardGaveUpAt is null "
+            + "and (q.amount is null or q.amount > 0) "
             + "and q.createdAt < :confirmedBefore order by q.createdAt")
     List<GatewayQuote> findPaidButNotForwarded(@Param("confirmedBefore") Instant confirmedBefore,
                                                Limit limit);
@@ -93,17 +98,32 @@ public interface QuoteRepository extends PagingAndSortingRepository<GatewayQuote
      *
      * <p>Unbounded by time, unlike the sweep: the gauge counts the standing liability, while the
      * grace period belongs to the thing taking action.
+     *
+     * <p><strong>Only rows the sweep is still working on</strong> (398ja/payment-adapter#259).
+     * Two kinds of row are excluded, because counting them made the alert unable to resolve:
+     * <ul>
+     *   <li>Given-up rows ({@code forwardGaveUpAt is not null}). The sweep never retries them,
+     *       so nothing could bring this count down. They are still owed and are counted by
+     *       {@link #countForwardGivenUp()}, which has its own alert.</li>
+     *   <li>Zero-amount rows ({@code amount <= 0}). They owe the mint nothing, and the mint
+     *       refuses them by design ({@code invalid_amount}), so they can never be delivered.
+     *       Nine k6 load-test rows of this kind kept the staging alert firing from 2026-09-23.
+     *       A {@code null} amount is still counted: an unknown amount does not mean nothing
+     *       is owed.</li>
+     * </ul>
      */
     @RestResource(exported = false)
     @Query("select count(q) from quote q where q.state = xyz.tcheeric.payment.adapter.core.model.entity.enums.State.PAID "
-            + "and q.mintNotifiedAt is null")
+            + "and q.mintNotifiedAt is null and q.forwardGaveUpAt is null "
+            + "and (q.amount is null or q.amount > 0)")
     long countPaidButNotForwarded();
 
     /**
      * Settled payments the sweep has GIVEN UP on (398ja/payment-adapter#246).
      *
-     * <p>A subset of {@link #countPaidButNotForwarded()}, and the more urgent one: these will
-     * not resolve themselves. Every other stranded payment is still being re-delivered and may
+     * <p>Disjoint from {@link #countPaidButNotForwarded()} since #259: a row is either still being
+     * retried (counted there) or given up on (counted here), never both. These will not resolve
+     * themselves. Zero-amount rows are excluded for the same reason as there: they owe nothing. Every other stranded payment is still being re-delivered and may
      * yet succeed after a mint restart or a network partition heals; these have been refused
      * enough times that the adapter has stopped asking, which means the refusal is structural.
      *
@@ -113,6 +133,7 @@ public interface QuoteRepository extends PagingAndSortingRepository<GatewayQuote
      */
     @RestResource(exported = false)
     @Query("select count(q) from quote q where q.state = xyz.tcheeric.payment.adapter.core.model.entity.enums.State.PAID "
-            + "and q.mintNotifiedAt is null and q.forwardGaveUpAt is not null")
+            + "and q.mintNotifiedAt is null and q.forwardGaveUpAt is not null "
+            + "and (q.amount is null or q.amount > 0)")
     long countForwardGivenUp();
 }
