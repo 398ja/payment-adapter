@@ -180,6 +180,14 @@
                     </execution>
                 </executions>
             </plugin>
+            <!-- Binds the managed failsafe executions so the *IT tests in this module
+                 (PaidUnforwardedEndToEndIT, PaymentControllerIT, GatewayRestCreateEntitiesIT)
+                 run in `mvn verify`. Without this, surefire skips them by name and failsafe
+                 is never declared, so they ran nowhere. They need only H2, no containers. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+            </plugin>
         </plugins>
     </build>
 
