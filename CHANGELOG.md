@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-10-09
+
 ### Fixed
 
 - **`payment_adapter_paid_unforwarded` can resolve again: it no longer counts given-up or
