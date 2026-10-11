@@ -160,10 +160,8 @@
                         <image>eclipse-temurin:21-jre</image>
                     </from>
                     <to>
-                        <image>docker.398ja.xyz/payment-adapter-rest:latest</image>
-                        <tags>
-                            <tag>${project.version}</tag>
-                        </tags>
+                        <!-- Release pushes ONLY the version tag. Never :latest (staging pulls it). -->
+                        <image>docker.398ja.xyz/payment-adapter-rest:${project.version}</image>
                     </to>
                     <container>
                         <ports>
