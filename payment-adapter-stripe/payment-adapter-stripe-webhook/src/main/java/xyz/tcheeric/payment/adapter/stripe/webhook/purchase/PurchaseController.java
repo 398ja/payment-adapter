@@ -72,6 +72,46 @@ public class PurchaseController {
     }
 
     /**
+     * One stall's purchases with what a refund or dispute left on them (payment-adapter#267), for
+     * the wallet's Refunded / Partly refunded / Disputed badge (imani-wallet#277).
+     *
+     * <p>Internal, like every route here: behind the purchase API token. The caller (the
+     * gateway serving the stall) authenticates the stall and asks only for its own pubkey, the
+     * same split as {@code /api/v1/stripe/connect/accounts/{merchantPubkey}}.
+     */
+    @GetMapping("/stall/{stallPubkey}")
+    public List<PurchaseRefundState> byStall(@PathVariable String stallPubkey) {
+        return purchases.findByStallPubkeyOrderByCreatedAtDesc(stallPubkey.toLowerCase(),
+                        org.springframework.data.domain.PageRequest.of(0, MAX_BATCH))
+                .stream()
+                .map(PurchaseRefundState::of)
+                .toList();
+    }
+
+    /**
+     * @param refundedAmountMinor Stripe's cumulative refunded total, 0 when never refunded
+     * @param disputed            a dispute was opened
+     * @param reversedAt          when the latest refund or dispute was recorded, or null
+     */
+    public record PurchaseRefundState(
+            String eventId,
+            String voucherId,
+            String status,
+            Long amountMinor,
+            String currency,
+            long refundedAmountMinor,
+            boolean disputed,
+            Instant reversedAt) {
+
+        static PurchaseRefundState of(StripePurchase p) {
+            return new PurchaseRefundState(p.getEventId(), p.getVoucherId(), p.getStatus().name(),
+                    p.getAmountMinor(), p.getCurrency(),
+                    p.getRefundedAmountMinor() == null ? 0L : p.getRefundedAmountMinor(),
+                    p.isDisputed(), p.getReversedAt());
+        }
+    }
+
+    /**
      * Claim one purchase before minting for it (imani-wallet#96).
      *
      * <ul>

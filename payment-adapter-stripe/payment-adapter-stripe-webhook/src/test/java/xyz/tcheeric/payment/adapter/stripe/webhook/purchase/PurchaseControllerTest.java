@@ -272,4 +272,29 @@ class PurchaseControllerTest {
         assertEquals(HttpStatus.CONFLICT, controller.discharge("evt_1",
                 new PurchaseController.DischargeRequest("v1", null)).getStatusCode());
     }
+
+    @Test
+    void listsAStallsPurchasesWithTheirRefundFacts() {
+        // imani-wallet#277 badges read these: refunded total, disputed, and when. A row never
+        // refunded reads 0, not null, so "Partly refunded" is a plain comparison.
+        StripePurchase refunded = new StripePurchase();
+        refunded.setEventId("evt_r");
+        refunded.setStatus(StripePurchase.Status.DISCHARGED);
+        refunded.setAmountMinor(500L);
+        refunded.setRefundedAmountMinor(200L);
+        refunded.setReversedAt(java.time.Instant.parse("2026-10-15T20:02:46Z"));
+        StripePurchase plain = new StripePurchase();
+        plain.setEventId("evt_p");
+        plain.setStatus(StripePurchase.Status.OWED);
+        plain.setDisputed(true);
+        when(purchases.findByStallPubkeyOrderByCreatedAtDesc(eq("b".repeat(64)), any()))
+                .thenReturn(List.of(refunded, plain));
+
+        List<PurchaseController.PurchaseRefundState> result = controller.byStall("B".repeat(64));
+
+        assertEquals(200L, result.get(0).refundedAmountMinor());
+        assertEquals(java.time.Instant.parse("2026-10-15T20:02:46Z"), result.get(0).reversedAt());
+        assertEquals(0L, result.get(1).refundedAmountMinor());
+        assertEquals(true, result.get(1).disputed());
+    }
 }

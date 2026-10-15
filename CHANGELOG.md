@@ -24,6 +24,8 @@
   Migration V16 adds `refunded_amount_minor`, `disputed`, `reversed_at`.
   Purchase refunds and disputes are counted in `imani_payments{source=card,status=refunded|disputed}`
   like the mint path's (#268).
+  `GET /api/v1/purchases/stall/{stallPubkey}` (purchase API token) lists a stall's purchases with
+  `refundedAmountMinor` (0 when none), `disputed` and `reversedAt`, for imani-wallet#277's badges.
 
 ## [0.20.0] - 2026-10-15
 
