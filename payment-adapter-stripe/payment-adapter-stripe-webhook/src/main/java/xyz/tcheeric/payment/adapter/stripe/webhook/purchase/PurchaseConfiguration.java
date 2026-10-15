@@ -31,6 +31,13 @@ public class PurchaseConfiguration {
     @Value("${purchase.api.token:}")
     private String apiToken;
 
+    /**
+     * The operator's token for {@code /resolve} (review of #280). Must differ from the issuer's;
+     * unset (or equal) refuses every resolve, and nothing else changes.
+     */
+    @Value("${purchase.operator.token:}")
+    private String operatorToken;
+
     /** Where to ask whether a coupon was really issued. */
     @Value("${purchase.gateway.base-url:}")
     private String gatewayBaseUrl;
@@ -64,6 +71,10 @@ public class PurchaseConfiguration {
     @Value("${purchase.claim.lease-seconds:600}")
     private long claimLeaseSeconds;
 
+    /** Lapsed leases before a row is parked as stale_issuing (#273). */
+    @Value("${purchase.claim.max-lease-expiries:3}")
+    private int maxLeaseExpiries;
+
     @Bean
     public GatewayFulfilmentClient gatewayFulfilmentClient() {
         return new GatewayFulfilmentClient(
@@ -74,7 +85,8 @@ public class PurchaseConfiguration {
     public PurchaseDischargeService purchaseDischargeService(
             StripePurchaseRepository purchases, GatewayFulfilmentClient fulfilment,
             org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> registry) {
-        return new PurchaseDischargeService(purchases, fulfilment, Duration.ofSeconds(claimLeaseSeconds))
+        return new PurchaseDischargeService(purchases, fulfilment, Duration.ofSeconds(claimLeaseSeconds),
+                maxLeaseExpiries)
                 .withMetrics(new xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics(registry.getIfAvailable()));
     }
 
@@ -84,6 +96,14 @@ public class PurchaseConfiguration {
             StripePurchaseRepository purchases,
             org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> registry) {
         return new PaidUnissuedGauge(purchases, registry.getIfAvailable());
+    }
+
+    /** #273: card purchases waiting for a person, by reason. */
+    @Bean
+    public NeedsAttentionGauge needsAttentionGauge(
+            StripePurchaseRepository purchases,
+            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> registry) {
+        return new NeedsAttentionGauge(purchases, registry.getIfAvailable());
     }
 
     /** Re-asks about ISSUED rows whose discharge could not be verified (PA-2). */
@@ -117,7 +137,7 @@ public class PurchaseConfiguration {
     @Bean
     public FilterRegistrationBean<PurchaseApiTokenFilter> purchaseApiTokenFilter() {
         FilterRegistrationBean<PurchaseApiTokenFilter> registration = new FilterRegistrationBean<>();
-        registration.setFilter(new PurchaseApiTokenFilter(apiToken));
+        registration.setFilter(new PurchaseApiTokenFilter(apiToken, operatorToken));
         /*
          * Registered on EVERYTHING, and the filter decides.
          *

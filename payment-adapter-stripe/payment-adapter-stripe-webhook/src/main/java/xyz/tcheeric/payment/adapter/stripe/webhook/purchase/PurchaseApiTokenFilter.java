@@ -56,13 +56,37 @@ public class PurchaseApiTokenFilter implements Filter {
 
     private final byte[] expected;
 
+    /**
+     * The operator's token for {@code POST /{eventId}/resolve} (review of #280), or null.
+     *
+     * <p>A resolve closes a parked debt WITHOUT the gateway check ({@code discharged}), or silences
+     * a refund or dispute ({@code acknowledge}). The issuer never needs either, so its token must not
+     * carry them: a leaked issuer token would otherwise close any parked purchase by fiat. Unset, or
+     * equal to the issuer's token, refuses every resolve (503), like an unset issuer token.
+     */
+    private final byte[] operator;
+
     public PurchaseApiTokenFilter(String token) {
+        this(token, null);
+    }
+
+    public PurchaseApiTokenFilter(String token, String operatorToken) {
         this.expected = token == null || token.isBlank()
                 ? null
                 : token.getBytes(StandardCharsets.UTF_8);
         if (expected == null) {
             log.warn("No purchase API token configured; /api/v1/purchases will refuse every request");
         }
+        byte[] op = operatorToken == null || operatorToken.isBlank()
+                ? null
+                : operatorToken.getBytes(StandardCharsets.UTF_8);
+        if (op != null && expected != null && MessageDigest.isEqual(op, expected)) {
+            log.warn("The purchase operator token equals the issuer's; /resolve will refuse every request");
+            op = null;
+        } else if (op == null) {
+            log.warn("No purchase operator token configured; /api/v1/purchases/*/resolve will refuse every request");
+        }
+        this.operator = op;
     }
 
     /**
@@ -88,9 +112,48 @@ public class PurchaseApiTokenFilter implements Filter {
      * the other direction serves every stall's debts to anyone.
      */
     private static boolean isProtected(HttpServletRequest http) {
-        String path = http.getRequestURI();
+        String path = normalisedPath(http);
         if (path == null) {
             return true;
+        }
+        return path.equals(PROTECTED_PREFIX)
+                || path.startsWith(PROTECTED_PREFIX + "/")
+                || path.contains(PROTECTED_PREFIX + "/")
+                || path.endsWith(PROTECTED_PREFIX);
+    }
+
+    /**
+     * Whether this is an operator route (review of #280): any segment that reads {@code resolve}
+     * once matrix parameters ({@code ;x=y}) and case are set aside. Errs towards the operator side:
+     * the cost is a 401 to the issuer on a route it never uses.
+     */
+    private static boolean isOperatorRoute(HttpServletRequest http) {
+        String path = normalisedPath(http);
+        if (path == null) {
+            return true;
+        }
+        for (String segment : path.split("/")) {
+            int semi = segment.indexOf(';');
+            String bare = (semi >= 0 ? segment.substring(0, semi) : segment).trim();
+            if (bare.equalsIgnoreCase("resolve")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** {@code GET /api/v1/purchases/attention}, exactly: the one read the operator's token also opens. */
+    private static boolean isAttentionList(HttpServletRequest http) {
+        String path = normalisedPath(http);
+        return "GET".equals(http.getMethod())
+                && (PROTECTED_PREFIX + "/attention").equals(path);
+    }
+
+    /** The decoded, slash-normalised path without the context path, or null when unclassifiable. */
+    private static String normalisedPath(HttpServletRequest http) {
+        String path = http.getRequestURI();
+        if (path == null) {
+            return null;
         }
 
         String context = http.getContextPath();
@@ -109,7 +172,7 @@ public class PurchaseApiTokenFilter implements Filter {
             } while (!path.equals(previous) && ++guard < 4);
         } catch (IllegalArgumentException e) {
             // Malformed encoding. Cannot be classified, so it is protected.
-            return true;
+            return null;
         }
 
         // Normalise so `/api/v1/purchases/../purchases/owed` and a trailing
@@ -119,10 +182,30 @@ public class PurchaseApiTokenFilter implements Filter {
             path = path.replace("//", "/");
         }
 
-        return path.equals(PROTECTED_PREFIX)
-                || path.startsWith(PROTECTED_PREFIX + "/")
-                || path.contains(PROTECTED_PREFIX + "/")
-                || path.endsWith(PROTECTED_PREFIX);
+        // Matrix parameters (`;x=y`) on ANY segment, and dot segments. Spring strips the first
+        // and Tomcat resolves the second before routing, so `/api;x/v1/purchases/owed` and
+        // `/api/v1/purchases;a=b/owed` reach the controller. Left in, they hid the prefix and the
+        // whole guard was skipped, token or none (second review of #280).
+        java.util.Deque<String> segments = new java.util.ArrayDeque<>();
+        for (String segment : path.split("/", -1)) {
+            int semi = segment.indexOf(';');
+            String bare = semi >= 0 ? segment.substring(0, semi) : segment;
+            if (bare.equals(".")) {
+                continue;
+            }
+            if (bare.equals("..")) {
+                if (segments.size() > 1) {
+                    segments.removeLast();
+                }
+                continue;
+            }
+            segments.addLast(bare);
+        }
+        path = String.join("/", segments);
+        while (path.contains("//")) {
+            path = path.replace("//", "/");
+        }
+        return path;
     }
 
     @Override
@@ -135,11 +218,20 @@ public class PurchaseApiTokenFilter implements Filter {
             return;
         }
 
-        if (expected == null) {
+        if (normalisedPath(http) == null) {
+            // Cannot be classified, so nor can it be told issuer from operator: refused outright.
+            ((HttpServletResponse) response).sendError(HttpServletResponse.SC_UNAUTHORIZED);
+            return;
+        }
+
+        boolean operatorRoute = isOperatorRoute(http);
+        byte[] wanted = operatorRoute ? operator : expected;
+
+        if (wanted == null) {
             // Refusing, not allowing. A misconfigured deployment must fail
             // visibly rather than serve every stall's sales to anyone.
             ((HttpServletResponse) response).sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE,
-                    "purchase API is not configured");
+                    operatorRoute ? "purchase operator API is not configured" : "purchase API is not configured");
             return;
         }
 
@@ -154,7 +246,11 @@ public class PurchaseApiTokenFilter implements Filter {
         // Constant-time. A length-then-content comparison leaks the token one
         // byte at a time to anyone willing to measure, and this token guards
         // the ability to mark debts discharged.
-        if (!MessageDigest.isEqual(expected, presented)) {
+        // On an operator route only the operator's token counts; the issuer's is refused. The
+        // parked list (GET /attention) is read by both: the issuer's queue, the operator's console.
+        boolean admitted = MessageDigest.isEqual(wanted, presented)
+                || (operator != null && isAttentionList(http) && MessageDigest.isEqual(operator, presented));
+        if (!admitted) {
             ((HttpServletResponse) response).sendError(HttpServletResponse.SC_UNAUTHORIZED);
             return;
         }

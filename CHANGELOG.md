@@ -11,6 +11,14 @@
   (`Schnorr.sign(id, key, auxRand)`), which is what `Nip98AuthFilter` verifies. New
   `GatewayFulfilmentSignatureTest` verifies the GET and PUT headers exactly as the gateways do
   and cross-checks a nostr-tools vector.
+- **The purchase API's token guard was skipped by a matrix parameter on an upper segment
+  (second review of #280; present since the guard landed in cce2530).** Spring strips `;x=y`
+  from every path segment before routing, but the guard matched the prefix on the raw decoded
+  path, so `GET /api;x/v1/purchases/owed` or `/api/v1/purchases;a=b/owed` listed every stall's
+  debts with **no token**, and `POST /api;a/v1/purchases/{id}/resolve` let the issuer's token (or
+  none) resolve. The guard now strips matrix parameters and resolves `.`/`..` segments before it
+  classifies. Pinned by `PurchaseApiGuardRoutingTest`, which drives the real Tomcat and router
+  over a raw socket.
 - **A Stripe outage at card checkout held the buyer ~2 minutes and then answered 400
   ([#274](https://github.com/398ja/payment-adapter/issues/274) PA part, card atomicity audit S9).**
   The Checkout create call is bounded (`stripe.checkout-connect-timeout-ms` 5000,
@@ -31,6 +39,37 @@
   Migration V16 adds `refunded_amount_minor`, `disputed`, `reversed_at`.
   Purchase refunds and disputes are counted in `imani_payments{source=card,status=refunded|disputed}`
   like the mint path's (#268).
+
+### Added
+
+- **NEEDS_ATTENTION for card purchases ([#273](https://github.com/398ja/payment-adapter/issues/273),
+  card atomicity audit U7).** A purchase nothing automatic can safely move on is parked in status
+  `NEEDS_ATTENTION` with a reason: `gateway_unrecorded` (gc 409 UNRECORDED, gc#232: mint state
+  unknown, never retried), `delivery_exhausted` (for imani-wallet#274) or `stale_issuing` (the
+  claim lease lapsed `purchase.claim.max-lease-expiries` times, default 3; the claim parks the
+  row instead of handing it out). The claim and `/owed` never match a parked row, and a failure
+  report never moves it.
+  - `POST /api/v1/purchases/{eventId}/attention` `{reason, detail?, worker?, voucherId?}`, for
+    purchase-issuer: 200 parked (idempotent, first reason stands), 400 unknown or derived reason,
+    404, 409 closed or held by another worker's live claim, 503 lost an optimistic lock (retry).
+  - `POST /api/v1/purchases/{eventId}/resolve` `{action, voucherId?, operator?, note?}`, operator:
+    `retry` (back to OWED, or ISSUED when a coupon exists, or REFUNDED when no coupon exists and
+    the payment was refunded while parked; refused for `gateway_unrecorded`), `discharged`
+    (delivered by hand, names the voucher; 400 if it differs from one the row already records),
+    `acknowledge` (a refund or dispute after issue; no status change). 200 (idempotent), 400, 404,
+    409, 503. No refund or revoke action (#265).
+  - `GET /api/v1/purchases/attention`: parked rows, oldest first.
+  - **New configuration `PURCHASE_OPERATOR_TOKEN` (`purchase.operator.token`)**: `/resolve` takes
+    ONLY this token, never the issuer's `PURCHASE_API_TOKEN`, so a leaked issuer token cannot close
+    a parked debt without the gateway check. It also reads `GET /attention`, nothing else. Unset,
+    or equal to the issuer's token, answers 503 to every `/resolve` (the issuer is unaffected).
+  - Gauge `imani_payments_card_needs_attention{reason}`, every reason bound at zero, a failed
+    poll holds the last values (#268). `refunded_after_issue` and `disputed` count unacknowledged
+    refund/dispute facts on rows with a coupon (informational, the status never changes).
+  - `imani_payments_paid_unissued` keeps counting NEEDS_ATTENTION rows: the buyer still holds
+    nothing confirmed.
+  - Migration V17 adds `attention_reason`, `attention_detail`, `attention_at`, `lease_expiries`,
+    `resolved_by`, `resolution_note`, `resolved_at`, `reversal_acknowledged_at`.
 
 ## [0.20.0] - 2026-10-15
 

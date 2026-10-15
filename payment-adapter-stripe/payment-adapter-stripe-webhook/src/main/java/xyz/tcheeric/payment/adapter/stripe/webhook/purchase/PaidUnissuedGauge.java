@@ -17,6 +17,12 @@ import xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseReposito
  * <p>The customer has paid and holds nothing: every status but {@code DISCHARGED} counts, an
  * {@code ISSUED} row included, because a coupon that never reached the buyer is not one they have.
  *
+ * <p>{@code NEEDS_ATTENTION} rows count too (#273), on purpose: the buyer still holds nothing
+ * confirmed, and parking a row for a person must not make it vanish from "paid, not issued".
+ * The two gauges overlap; {@code imani_payments_card_needs_attention} says WHY, this says HOW MANY
+ * and how old. The refund and dispute series there are facts on issued coupons, not counted here
+ * unless the row is itself open.
+ *
  * <p>Re-derived from SQL, like {@code PaidUnforwardedGauge}, because this is state that must
  * survive a restart, not a moment. Both series are bound eagerly, so the alert sees a healthy zero
  * rather than an absent series, and a failed poll holds the last value rather than reporting a
