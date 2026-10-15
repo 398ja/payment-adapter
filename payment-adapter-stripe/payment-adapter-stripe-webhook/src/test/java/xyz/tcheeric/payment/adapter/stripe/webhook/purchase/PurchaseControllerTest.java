@@ -283,6 +283,8 @@ class PurchaseControllerTest {
                 .filter(java.util.Objects::nonNull)
                 .flatMap(g -> java.util.Arrays.stream(g.value()))
                 .toList();
-        assertEquals(List.of("/owed"), gets);
+        // #273 adds GET /attention: the issuer/operator's own cross-stall queue (same scope as
+        // /owed, same token), not a per-stall read a wallet or gateway would need the token for.
+        assertEquals(java.util.Set.of("/owed", "/attention"), new java.util.HashSet<>(gets));
     }
 }
