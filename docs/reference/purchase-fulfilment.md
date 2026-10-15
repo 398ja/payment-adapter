@@ -74,3 +74,33 @@ Safe in either order. Against an old core, registration is a logged 405 and
 discharge returns `UNVERIFIABLE`, so the issuer parks card purchases in
 `ISSUED`. Once core#131 is live, the re-check sweep registers them late and
 discharges them, with no manual step. New purchases register at recording.
+
+## NEEDS_ATTENTION (#273)
+
+A row nothing automatic can safely move on is parked. The claim and `/owed`
+never match it; a `/failure` report never moves it. All routes below are behind
+the purchase API token.
+
+| Reason | Set by | Meaning |
+| --- | --- | --- |
+| `gateway_unrecorded` | issuer, `POST /{eventId}/attention` | gc answered 409 UNRECORDED for the warrant nonce (gc#232). Mint state unknown: never retried. |
+| `delivery_exhausted` | issuer, `POST /{eventId}/attention` (with `voucherId`) | Delivery outbox gave up (imani-wallet#274). A coupon exists. |
+| `stale_issuing` | the claim | The lease lapsed `purchase.claim.max-lease-expiries` (3) times. |
+| `refunded_after_issue` | derived, gauge only | Refund recorded on a row with a coupon, not acknowledged. Status unchanged (#265). |
+| `disputed` | derived, gauge only | Dispute recorded, not acknowledged. Status unchanged (#265). |
+
+`POST /{eventId}/attention` `{reason, detail?, worker?, voucherId?}`: 200 parked
+(or already; first reason stands), 400 unknown/derived reason, 404, 409 closed or
+another worker holds the live claim, 503 optimistic lock lost (retry).
+
+`POST /{eventId}/resolve` `{action, voucherId?, operator?, note?}`:
+
+| Action | Effect |
+| --- | --- |
+| `retry` | OWED if no coupon, ISSUED if one exists; resets `lease_expiries`. 409 for `gateway_unrecorded`. |
+| `discharged` | DISCHARGED, naming the voucher (400 when neither the body nor the row has one). |
+| `acknowledge` | Marks the latest refund/dispute seen. No status change. 409 when there is none. |
+
+200 on success or repeat, 404, 409 when the row is not parked. `GET /attention`
+lists parked rows, oldest first. Gauge: `imani_payments_card_needs_attention{reason}`.
+`imani_payments_paid_unissued` still counts parked rows.

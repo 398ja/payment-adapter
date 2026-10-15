@@ -133,6 +133,28 @@ class StripePurchaseAttentionQueriesTest {
         assertThat(purchases.countUnacknowledgedDisputes()).isEqualTo(2);
     }
 
+    /**
+     * A park read before another worker's claim must not overwrite that claim (@Version, review of
+     * #278): the claim's UPDATE bumps the version, so the stale park fails instead.
+     */
+    @Test
+    void aStaleParkCannotOverwriteAConcurrentClaim() {
+        persist("evt_owed", OWED, null);
+        StripePurchase stale = purchases.findByEventId("evt_owed").orElseThrow();
+        entityManager.detach(stale);
+
+        claim("evt_owed", now);
+
+        stale.setStatus(ATTENTION);
+        stale.setAttentionReason(AttentionReason.STALE_ISSUING);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
+            purchases.save(stale);
+            entityManager.flush();
+        }).isInstanceOf(org.springframework.orm.ObjectOptimisticLockingFailureException.class);
+        entityManager.clear();
+        assertThat(purchases.findByEventId("evt_owed").orElseThrow().getStatus()).isEqualTo(ISSUING);
+    }
+
     /** The operator's list: attention rows, oldest first. */
     @Test
     void listsAttentionRowsOldestFirst() {

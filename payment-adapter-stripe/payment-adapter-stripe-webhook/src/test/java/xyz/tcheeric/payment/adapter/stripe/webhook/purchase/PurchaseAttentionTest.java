@@ -320,6 +320,22 @@ class PurchaseAttentionTest {
         assertEquals(2.0, value(registry, "gateway_unrecorded"), "a failed poll is not a zero");
     }
 
+    /** A write lost to a concurrent writer (@Version) is retryable: 503, never a false 200. */
+    @Test
+    void aLostOptimisticLockIsRetryable() {
+        PurchaseDischargeService discharges = mock(PurchaseDischargeService.class);
+        PurchaseController controller = new PurchaseController(purchases, discharges);
+        org.springframework.orm.ObjectOptimisticLockingFailureException lost =
+                new org.springframework.orm.ObjectOptimisticLockingFailureException(StripePurchase.class, EVENT);
+        when(discharges.reportAttention(any(), any(), any(), any(), any())).thenThrow(lost);
+        when(discharges.resolve(any(), any(), any(), any(), any())).thenThrow(lost);
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, controller.attention(EVENT,
+                new PurchaseController.AttentionRequest("gateway_unrecorded", null, null, null)).getStatusCode());
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, controller.resolve(EVENT,
+                new PurchaseController.ResolveRequest("retry", null, "ops", null)).getStatusCode());
+    }
+
     /** Decision: a parked row is still paid and unissued, so paid_unissued keeps counting it. */
     @Test
     void paidUnissuedStillCountsParkedRows() {

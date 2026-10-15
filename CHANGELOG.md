@@ -32,6 +32,32 @@
   Purchase refunds and disputes are counted in `imani_payments{source=card,status=refunded|disputed}`
   like the mint path's (#268).
 
+### Added
+
+- **NEEDS_ATTENTION for card purchases ([#273](https://github.com/398ja/payment-adapter/issues/273),
+  card atomicity audit U7).** A purchase nothing automatic can safely move on is parked in status
+  `NEEDS_ATTENTION` with a reason: `gateway_unrecorded` (gc 409 UNRECORDED, gc#232: mint state
+  unknown, never retried), `delivery_exhausted` (for imani-wallet#274) or `stale_issuing` (the
+  claim lease lapsed `purchase.claim.max-lease-expiries` times, default 3; the claim parks the
+  row instead of handing it out). The claim and `/owed` never match a parked row, and a failure
+  report never moves it.
+  - `POST /api/v1/purchases/{eventId}/attention` `{reason, detail?, worker?, voucherId?}`, for
+    purchase-issuer: 200 parked (idempotent, first reason stands), 400 unknown or derived reason,
+    404, 409 closed or held by another worker's live claim, 503 lost an optimistic lock (retry).
+  - `POST /api/v1/purchases/{eventId}/resolve` `{action, voucherId?, operator?, note?}`, operator:
+    `retry` (back to OWED, or ISSUED when a coupon exists; refused for `gateway_unrecorded`),
+    `discharged` (delivered by hand, names the voucher), `acknowledge` (a refund or dispute after
+    issue; no status change). 200 (idempotent), 400, 404, 409, 503. No refund or revoke action (#265).
+  - `GET /api/v1/purchases/attention`: parked rows, oldest first.
+  - All behind the existing purchase API token; no new public surface.
+  - Gauge `imani_payments_card_needs_attention{reason}`, every reason bound at zero, a failed
+    poll holds the last values (#268). `refunded_after_issue` and `disputed` count unacknowledged
+    refund/dispute facts on rows with a coupon (informational, the status never changes).
+  - `imani_payments_paid_unissued` keeps counting NEEDS_ATTENTION rows: the buyer still holds
+    nothing confirmed.
+  - Migration V17 adds `attention_reason`, `attention_detail`, `attention_at`, `lease_expiries`,
+    `resolved_by`, `resolution_note`, `resolved_at`, `reversal_acknowledged_at`.
+
 ## [0.20.0] - 2026-10-15
 
 No migrations, no new required configuration.

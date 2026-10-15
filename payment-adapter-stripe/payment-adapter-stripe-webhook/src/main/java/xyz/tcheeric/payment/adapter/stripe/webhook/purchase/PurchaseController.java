@@ -168,6 +168,7 @@ public class PurchaseController {
      *   <li>400: no reason, an unknown one, or a derived one (refunded_after_issue, disputed).</li>
      *   <li>404: no such purchase.</li>
      *   <li>409: closed (discharged, refunded), or another worker holds the live claim.</li>
+     *   <li>503: the row changed underneath (optimistic lock); nothing written, retry.</li>
      * </ul>
      */
     @PostMapping("/{eventId}/attention")
@@ -179,8 +180,16 @@ public class PurchaseController {
         if (reason == null) {
             return ResponseEntity.badRequest().build();
         }
-        return switch (discharges.reportAttention(eventId, reason, request.detail(), request.worker(),
-                request.voucherId())) {
+        PurchaseDischargeService.AttentionResult result;
+        try {
+            result = discharges.reportAttention(eventId, reason, request.detail(), request.worker(),
+                    request.voucherId());
+        } catch (org.springframework.dao.OptimisticLockingFailureException e) {
+            // Another writer changed the row meanwhile (@Version, review of #278): nothing was
+            // written. Retryable, so 503 like an unverifiable discharge.
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+        return switch (result) {
             case RECORDED, ALREADY_RECORDED -> ResponseEntity.ok().build();
             case INVALID_REASON -> ResponseEntity.badRequest().build();
             case NOT_ALLOWED -> ResponseEntity.status(HttpStatus.CONFLICT).build();
@@ -197,6 +206,7 @@ public class PurchaseController {
      *   <li>400: unknown action, or {@code discharged} with no voucher to name.</li>
      *   <li>404: no such purchase.</li>
      *   <li>409: not parked (or nothing to acknowledge), or {@code retry} of gateway_unrecorded.</li>
+     *   <li>503: the row changed underneath (optimistic lock); nothing written, retry.</li>
      * </ul>
      */
     @PostMapping("/{eventId}/resolve")
@@ -208,7 +218,13 @@ public class PurchaseController {
         if (action == null) {
             return ResponseEntity.badRequest().build();
         }
-        return switch (discharges.resolve(eventId, action, request.voucherId(), request.operator(), request.note())) {
+        PurchaseDischargeService.ResolveResult result;
+        try {
+            result = discharges.resolve(eventId, action, request.voucherId(), request.operator(), request.note());
+        } catch (org.springframework.dao.OptimisticLockingFailureException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+        return switch (result) {
             case RESOLVED, ALREADY_RESOLVED -> ResponseEntity.ok().build();
             case INVALID -> ResponseEntity.badRequest().build();
             case NOT_ALLOWED -> ResponseEntity.status(HttpStatus.CONFLICT).build();
