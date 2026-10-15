@@ -214,6 +214,12 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
             metrics.webhook(Source.CARD, WebhookOutcome.DUPLICATE);
             RETRY.remove();
             throw e;
+        } catch (WebhookProcessingException e) {
+            // Refused before taking the mark (another delivery holds it). Answered 5xx, so it is a
+            // failed webhook; the mark is NOT ours to set FAILED, and this is no payment outcome.
+            metrics.webhook(Source.CARD, WebhookOutcome.FAILED);
+            RETRY.remove();
+            throw e;
         }
 
         try {
@@ -407,7 +413,13 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         try {
             return processedEventRepository.save(event);
         } catch (org.springframework.dao.DataIntegrityViolationException e) {
-            throw new WebhookDuplicateException("Concurrent Stripe webhook processing detected: " + payload.getEventId());
+            // Review of #275: another delivery of this event inserted the mark first and may still
+            // be working it, or may die before it commits a row. A 200 here would end Stripe's
+            // retries on the strength of work nobody has finished (the S5b loss by another door).
+            // A 5xx brings it back; by then the mark is PROCESSED (duplicate), fresh (5xx again)
+            // or stale (taken over).
+            throw new WebhookProcessingException("Stripe webhook " + payload.getEventId()
+                    + " is being processed concurrently; retry later", e);
         }
     }
 

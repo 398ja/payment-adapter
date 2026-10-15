@@ -89,6 +89,34 @@ class StripeWebhookCrashRecoveryTest {
     }
 
     @Test
+    void losingTheRaceToInsertTheMarkIsNotAcknowledgedAsDone() throws Exception {
+        // Review of #275. Two deliveries of a NEW event race; the loser's insert hits the primary
+        // key. Answering it "duplicate" (200) tells Stripe the event is done while the winner is
+        // still working, and if the winner then dies nothing ever retries: the S5b loss again.
+        when(processedEventRepository.findById("evt_crash")).thenReturn(Optional.empty());
+        when(processedEventRepository.save(any()))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("pk"));
+
+        assertThrows(WebhookProcessingException.class, () -> handler.handle(paidPurchase()));
+        verify(purchaseListener, never()).onPurchasePaid(any());
+    }
+
+    @Test
+    void aRefusedFreshMarkIsCountedAsAFailedWebhookAndLeftAlone() throws Exception {
+        // Review of #275 against #268: a delivery answered 5xx must reach a terminal webhook
+        // outcome, and must NOT overwrite the other replica's PROCESSING mark with FAILED.
+        io.micrometer.core.instrument.simple.SimpleMeterRegistry registry =
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        handler.setMeterRegistry(registry);
+        leftBehind(StripeWebhookProcessingStatus.PROCESSING, Instant.now().minusSeconds(5));
+
+        assertThrows(WebhookProcessingException.class, () -> handler.handle(paidPurchase()));
+
+        assertEquals(1.0, registry.get("imani.payment.webhooks").tag("outcome", "failed").counter().count());
+        verify(processedEventRepository, never()).save(any());
+    }
+
+    @Test
     void aProcessedEventIsStillADuplicate() throws Exception {
         leftBehind(StripeWebhookProcessingStatus.PROCESSED, Instant.now().minusSeconds(600));
 
