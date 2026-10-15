@@ -47,9 +47,14 @@ public final class PaymentMetrics {
      *
      * <p>{@code REFUSED} is a checkout we declined to create (no money moved), kept apart from
      * {@code FAILED} so a refused QR scan does not drag down the card success rate.
+     *
+     * <p>Each status is counted by exactly ONE service, so a sum across jobs never double counts:
+     * payment-adapter owns initiated to disputed and card issued/issue_failed; gateway-core owns
+     * cash issued, issue_failed and delivered; purchase-issuer reports its attempts on its own
+     * {@code imani_purchase_issuer_*} family rather than this one.
      */
     public enum Status {
-        INITIATED, REFUSED, SUCCEEDED, FAILED, CANCELLED, REFUNDED, DISPUTED, ISSUED, ISSUE_FAILED
+        INITIATED, REFUSED, SUCCEEDED, FAILED, CANCELLED, REFUNDED, DISPUTED, ISSUED, ISSUE_FAILED, DELIVERED
     }
 
     /** Why. A fixed set; anything unforeseen is {@code OTHER}, never free text. */
