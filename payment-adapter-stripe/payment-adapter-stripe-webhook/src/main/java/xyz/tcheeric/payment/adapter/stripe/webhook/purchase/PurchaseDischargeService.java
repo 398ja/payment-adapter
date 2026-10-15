@@ -11,6 +11,7 @@ import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Source;
 import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Stage;
 import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Status;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripePurchase;
+import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripePurchase.AttentionReason;
 import xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseRepository;
 
 /**
@@ -62,10 +63,24 @@ public class PurchaseDischargeService {
 
     public PurchaseDischargeService(
             StripePurchaseRepository purchases, GatewayFulfilmentClient fulfilment, Duration claimLease) {
+        this(purchases, fulfilment, claimLease, DEFAULT_MAX_LEASE_EXPIRIES);
+    }
+
+    public PurchaseDischargeService(StripePurchaseRepository purchases, GatewayFulfilmentClient fulfilment,
+            Duration claimLease, int maxLeaseExpiries) {
         this.purchases = purchases;
         this.fulfilment = fulfilment;
         this.claimLease = claimLease;
+        this.maxLeaseExpiries = maxLeaseExpiries;
     }
+
+    /**
+     * Lapsed leases tolerated before a row is parked as stale_issuing (#273). Three lapses of a
+     * 10-minute lease is half an hour of workers dying mid-mint: a person should look.
+     */
+    static final int DEFAULT_MAX_LEASE_EXPIRIES = 3;
+
+    private final int maxLeaseExpiries;
 
     /** The answer to a claim. */
     public enum ClaimResult {
@@ -86,16 +101,213 @@ public class PurchaseDischargeService {
      */
     @Transactional
     public ClaimResult claim(String eventId, String worker) {
-        if (purchases.findByEventId(eventId).isEmpty()) {
+        Optional<StripePurchase> found = purchases.findByEventId(eventId);
+        if (found.isEmpty()) {
             return ClaimResult.UNKNOWN_PURCHASE;
         }
         Instant now = Instant.now();
+        if (leaseLapsedTooOften(found.get(), now)) {
+            park(found.get(), AttentionReason.STALE_ISSUING,
+                    "claim lease lapsed " + found.get().getLeaseExpiries() + " times", null, now);
+            log.warn("Purchase {} parked: claim lease lapsed {} times", eventId, found.get().getLeaseExpiries());
+            return ClaimResult.NOT_CLAIMABLE;
+        }
         String who = worker == null || worker.isBlank()
                 ? "unnamed"
                 : worker.substring(0, Math.min(128, worker.length()));
         int updated = purchases.claim(eventId, who, now, now.plus(claimLease),
                 StripePurchase.Status.OWED, StripePurchase.Status.ISSUING);
         return updated == 1 ? ClaimResult.CLAIMED : ClaimResult.NOT_CLAIMABLE;
+    }
+
+    private boolean leaseLapsedTooOften(StripePurchase purchase, Instant now) {
+        return purchase.getStatus() == StripePurchase.Status.ISSUING
+                && purchase.getClaimedUntil() != null && purchase.getClaimedUntil().isBefore(now)
+                && purchase.getLeaseExpiries() >= maxLeaseExpiries;
+    }
+
+    private void park(StripePurchase purchase, AttentionReason reason, String detail, String voucherId, Instant now) {
+        purchase.setStatus(StripePurchase.Status.NEEDS_ATTENTION);
+        purchase.setAttentionReason(reason);
+        purchase.setAttentionDetail(truncate(detail));
+        purchase.setAttentionAt(now);
+        purchase.setClaimedUntil(null);
+        if (voucherId != null && !voucherId.isBlank() && purchase.getVoucherId() == null) {
+            purchase.setVoucherId(voucherId);
+        }
+        purchase.setUpdatedAt(now);
+        purchases.save(purchase);
+    }
+
+    private static String truncate(String text) {
+        return text == null ? null : text.substring(0, Math.min(500, text.length()));
+    }
+
+    /** The answer to an attention report (#273). */
+    public enum AttentionResult {
+        /** Parked now. */
+        RECORDED,
+        /** Already parked; the first reason stands. Idempotent success. */
+        ALREADY_RECORDED,
+        /** Closed (DISCHARGED, REFUNDED), or held by another worker's live claim. */
+        NOT_ALLOWED,
+        /** A derived reason (refunded_after_issue, disputed) the issuer cannot report. */
+        INVALID_REASON,
+        UNKNOWN_PURCHASE
+    }
+
+    /**
+     * The issuer reports that a purchase needs a person (#273): gc's 409 UNRECORDED, or a delivery
+     * that gave up. The row leaves every automatic queue and never goes back to OWED by itself.
+     *
+     * @param worker    when set, a lapsed worker cannot park a row another worker now holds
+     * @param voucherId the coupon that exists, when one does (delivery_exhausted)
+     */
+    @Transactional
+    public AttentionResult reportAttention(String eventId, AttentionReason reason, String detail,
+            String worker, String voucherId) {
+        if (reason == null || !reason.parksTheRow()) {
+            return AttentionResult.INVALID_REASON;
+        }
+        Optional<StripePurchase> found = purchases.findByEventId(eventId);
+        if (found.isEmpty()) {
+            return AttentionResult.UNKNOWN_PURCHASE;
+        }
+        StripePurchase purchase = found.get();
+        Instant now = Instant.now();
+        if (purchase.getStatus() == StripePurchase.Status.NEEDS_ATTENTION) {
+            return AttentionResult.ALREADY_RECORDED;
+        }
+        if (purchase.getStatus() == StripePurchase.Status.DISCHARGED
+                || purchase.getStatus() == StripePurchase.Status.REFUNDED
+                || heldByAnother(purchase, worker, now)) {
+            return AttentionResult.NOT_ALLOWED;
+        }
+        park(purchase, reason, detail, voucherId, now);
+        log.warn("Purchase {} needs attention: {} ({})", eventId, reason.wire(), detail);
+        return AttentionResult.RECORDED;
+    }
+
+    private static boolean heldByAnother(StripePurchase purchase, String worker, Instant now) {
+        return purchase.getStatus() == StripePurchase.Status.ISSUING
+                && worker != null && purchase.getClaimedBy() != null
+                && !worker.equals(purchase.getClaimedBy())
+                && purchase.getClaimedUntil() != null && purchase.getClaimedUntil().isAfter(now);
+    }
+
+    /** What an operator may do with a purchase (#273). There is no refund or revoke (#265). */
+    public enum ResolveAction {
+        /**
+         * Put it back: OWED when no coupon exists, ISSUED (delivery and recheck) when one does.
+         * Refused for gateway_unrecorded, whose mint state is unknown: use DISCHARGED once the
+         * coupon is found, or leave it parked.
+         */
+        RETRY,
+        /** Delivered by hand. Needs the coupon's id unless the row already carries one. */
+        DISCHARGED,
+        /** Seen the refund or dispute recorded after issue. Changes no status. */
+        ACKNOWLEDGE;
+
+        public static ResolveAction fromWire(String wire) {
+            if (wire == null) {
+                return null;
+            }
+            for (ResolveAction action : values()) {
+                if (action.name().equalsIgnoreCase(wire.trim())) {
+                    return action;
+                }
+            }
+            return null;
+        }
+    }
+
+    /** The answer to an operator's resolve (#273). */
+    public enum ResolveResult {
+        RESOLVED,
+        /** The same resolution already took effect. Idempotent success. */
+        ALREADY_RESOLVED,
+        /** Not parked (or nothing to acknowledge), or a retry of gateway_unrecorded. */
+        NOT_ALLOWED,
+        /** DISCHARGED with no voucher to name. */
+        INVALID,
+        UNKNOWN_PURCHASE
+    }
+
+    /**
+     * An operator moves a parked purchase on (#273). Only NEEDS_ATTENTION rows move; anything else
+     * is refused, so this is never a back door around the claim or the discharge check.
+     */
+    @Transactional
+    public ResolveResult resolve(String eventId, ResolveAction action, String voucherId,
+            String operator, String note) {
+        Optional<StripePurchase> found = purchases.findByEventId(eventId);
+        if (found.isEmpty()) {
+            return ResolveResult.UNKNOWN_PURCHASE;
+        }
+        StripePurchase purchase = found.get();
+        Instant now = Instant.now();
+        if (action == ResolveAction.ACKNOWLEDGE) {
+            return acknowledgeReversal(purchase, operator, note, now);
+        }
+        if (purchase.getStatus() != StripePurchase.Status.NEEDS_ATTENTION) {
+            return alreadyDone(purchase, action) ? ResolveResult.ALREADY_RESOLVED : ResolveResult.NOT_ALLOWED;
+        }
+        if (action == ResolveAction.RETRY
+                && purchase.getAttentionReason() == AttentionReason.GATEWAY_UNRECORDED) {
+            return ResolveResult.NOT_ALLOWED;
+        }
+        if (action == ResolveAction.DISCHARGED) {
+            String voucher = voucherId != null && !voucherId.isBlank() ? voucherId : purchase.getVoucherId();
+            if (voucher == null) {
+                return ResolveResult.INVALID;
+            }
+            purchase.setVoucherId(voucher);
+            purchase.setStatus(StripePurchase.Status.DISCHARGED);
+        } else {
+            purchase.setStatus(purchase.getVoucherId() == null
+                    ? StripePurchase.Status.OWED : StripePurchase.Status.ISSUED);
+            purchase.setLeaseExpiries(0);
+        }
+        log.warn("Purchase {} resolved by {}: {} from {} ({})", eventId, operator, action,
+                purchase.getAttentionReason(), note);
+        purchase.setAttentionReason(null);
+        purchase.setAttentionDetail(null);
+        purchase.setAttentionAt(null);
+        recordResolution(purchase, operator, note, now);
+        return ResolveResult.RESOLVED;
+    }
+
+    private static boolean alreadyDone(StripePurchase purchase, ResolveAction action) {
+        return purchase.getResolvedAt() != null
+                && (action == ResolveAction.DISCHARGED
+                        ? purchase.getStatus() == StripePurchase.Status.DISCHARGED
+                        : purchase.getStatus() == StripePurchase.Status.OWED
+                                || purchase.getStatus() == StripePurchase.Status.ISSUING
+                                || purchase.getStatus() == StripePurchase.Status.ISSUED);
+    }
+
+    private ResolveResult acknowledgeReversal(StripePurchase purchase, String operator, String note, Instant now) {
+        boolean reversed = purchase.isDisputed()
+                || (purchase.getRefundedAmountMinor() != null && purchase.getRefundedAmountMinor() > 0);
+        if (!reversed || purchase.getReversedAt() == null) {
+            return ResolveResult.NOT_ALLOWED;
+        }
+        if (purchase.getReversalAcknowledgedAt() != null
+                && !purchase.getReversalAcknowledgedAt().isBefore(purchase.getReversedAt())) {
+            return ResolveResult.ALREADY_RESOLVED;
+        }
+        purchase.setReversalAcknowledgedAt(now);
+        recordResolution(purchase, operator, note, now);
+        return ResolveResult.RESOLVED;
+    }
+
+    private void recordResolution(StripePurchase purchase, String operator, String note, Instant now) {
+        purchase.setResolvedBy(operator == null || operator.isBlank()
+                ? "unnamed" : operator.substring(0, Math.min(128, operator.length())));
+        purchase.setResolutionNote(truncate(note));
+        purchase.setResolvedAt(now);
+        purchase.setUpdatedAt(now);
+        purchases.save(purchase);
     }
 
     /** What happened to a discharge request, in terms the caller can act on. */
@@ -417,6 +629,12 @@ public class PurchaseDischargeService {
             if (purchase.getStatus() == StripePurchase.Status.REFUNDED) {
                 // Terminal (#267). Never back to OWED; a named coupon is recorded.
                 keepVoucherForRevocation(purchase, voucherId);
+                return;
+            }
+            if (purchase.getStatus() == StripePurchase.Status.NEEDS_ATTENTION) {
+                // Parked for a person (#273). Only /resolve moves it; a late report must not put
+                // a row whose mint state is unknown back in the mintable queue.
+                log.warn("Failure report for parked purchase {} ignored", eventId);
                 return;
             }
             purchase.setAttempts(purchase.getAttempts() + 1);

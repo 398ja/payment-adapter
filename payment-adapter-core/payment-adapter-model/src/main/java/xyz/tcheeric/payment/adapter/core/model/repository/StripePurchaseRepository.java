@@ -84,7 +84,10 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update StripePurchase p set p.status = :issuing, p.claimedUntil = :until,"
-            + " p.claimedBy = :worker, p.updatedAt = :now, p.version = p.version + 1"
+            + " p.claimedBy = :worker, p.updatedAt = :now, p.version = p.version + 1,"
+            // A takeover of a lapsed lease is counted (#273), so a row whose workers keep dying is
+            // parked as stale_issuing instead of handed out forever.
+            + " p.leaseExpiries = p.leaseExpiries + (case when p.status = :issuing then 1 else 0 end)"
             + " where p.eventId = :eventId"
             + " and (p.status = :owed or (p.status = :issuing and p.claimedUntil < :now))")
     int claim(
@@ -121,6 +124,29 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
      * {@code IN} is answered from {@code idx_stripe_purchase_status (status, created_at)}.
      */
     long countByStatusIn(java.util.Collection<StripePurchase.Status> statuses);
+
+    /**
+     * Parked purchases per reason, as {@code [AttentionReason, Long]} pairs, for
+     * {@code imani_payments_card_needs_attention} (#273). One grouped query per poll.
+     */
+    @Query("select p.attentionReason, count(p) from StripePurchase p where p.status = :status"
+            + " group by p.attentionReason")
+    List<Object[]> countByAttentionReason(@Param("status") StripePurchase.Status status);
+
+    /**
+     * Purchases refunded after a coupon exists that no operator has acknowledged since the latest
+     * reversal (#273). Informational: refunds of issued coupons are not supported (#265). A REFUNDED
+     * row whose in-flight mint landed carries a voucher, so it counts: a coupon with no money.
+     */
+    @Query("select count(p) from StripePurchase p where p.voucherId is not null"
+            + " and p.refundedAmountMinor > 0"
+            + " and (p.reversalAcknowledgedAt is null or p.reversalAcknowledgedAt < p.reversedAt)")
+    long countUnacknowledgedRefundsAfterIssue();
+
+    /** Disputed purchases no operator has acknowledged since the latest reversal (#273). */
+    @Query("select count(p) from StripePurchase p where p.disputed = true"
+            + " and (p.reversalAcknowledgedAt is null or p.reversalAcknowledgedAt < p.reversedAt)")
+    long countUnacknowledgedDisputes();
 
     /** When the oldest purchase in the given statuses was paid, or null when there is none. */
     @Query("select min(p.createdAt) from StripePurchase p where p.status in :statuses")

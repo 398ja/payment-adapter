@@ -105,7 +105,65 @@ public class StripePurchase {
          * discharged. A coupon that lands anyway (a mint already in flight)
          * is recorded in {@link #voucherId} for a person to see, and the status stays.
          */
-        REFUNDED
+        REFUNDED,
+        /**
+         * Nothing automatic can safely move this on (payment-adapter#273). The reason is in
+         * {@link #attentionReason}. Never claimed, never listed as owed; only an operator's
+         * {@code /resolve} moves it, back to OWED (nothing minted), ISSUED (a coupon exists), or
+         * DISCHARGED (delivered by hand).
+         */
+        NEEDS_ATTENTION
+    }
+
+    /**
+     * Why a purchase needs a person (payment-adapter#273). The wire name ({@link #wire()}) is the
+     * API value and the {@code reason} label of {@code imani_payments_card_needs_attention}.
+     */
+    public enum AttentionReason {
+        /**
+         * gc answered 409 UNRECORDED for the delegated-warrant nonce (gc#232): a first run never
+         * completed, so whether a coupon was minted is unknown. Never retried automatically.
+         */
+        GATEWAY_UNRECORDED(true),
+        /** The issuer's delivery outbox gave up (imani-wallet#274, U8). A coupon exists. */
+        DELIVERY_EXHAUSTED(true),
+        /** The claim lease lapsed too many times: workers keep dying mid-mint. */
+        STALE_ISSUING(true),
+        /** Refunded after a coupon exists. Informational: refunds are not supported (#265). */
+        REFUNDED_AFTER_ISSUE(false),
+        /** Disputed. Informational: disputes are not supported, nothing is revoked (#265). */
+        DISPUTED(false);
+
+        private final boolean parksTheRow;
+
+        AttentionReason(boolean parksTheRow) {
+            this.parksTheRow = parksTheRow;
+        }
+
+        /**
+         * True when the reason is a status (the row is NEEDS_ATTENTION); false when it is derived
+         * from Stripe facts on a row whose status does not change.
+         */
+        public boolean parksTheRow() {
+            return parksTheRow;
+        }
+
+        public String wire() {
+            return name().toLowerCase(java.util.Locale.ROOT);
+        }
+
+        /** The reason for a wire name, or null when there is none. */
+        public static AttentionReason fromWire(String wire) {
+            if (wire == null) {
+                return null;
+            }
+            for (AttentionReason reason : values()) {
+                if (reason.wire().equals(wire.trim().toLowerCase(java.util.Locale.ROOT))) {
+                    return reason;
+                }
+            }
+            return null;
+        }
     }
 
     @Id
@@ -253,6 +311,43 @@ public class StripePurchase {
     /** When the latest refund or dispute was recorded. */
     @Column(name = "reversed_at")
     private Instant reversedAt;
+
+    /** Why this is NEEDS_ATTENTION; null otherwise, and cleared on resolve (#273). */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "attention_reason", length = 32)
+    private AttentionReason attentionReason;
+
+    /** What the reporter said, for the operator. */
+    @Column(name = "attention_detail", length = 500)
+    private String attentionDetail;
+
+    /** When the row was parked. */
+    @Column(name = "attention_at")
+    private Instant attentionAt;
+
+    /**
+     * How many times a lapsed claim was taken over (#273). Past the limit the claim parks the row
+     * as {@link AttentionReason#STALE_ISSUING} instead of handing it out again.
+     */
+    @Column(name = "lease_expiries", nullable = false)
+    private int leaseExpiries;
+
+    /** Who last resolved an attention row, and what they said: the audit trail of a manual move. */
+    @Column(name = "resolved_by", length = 128)
+    private String resolvedBy;
+
+    @Column(name = "resolution_note", length = 500)
+    private String resolutionNote;
+
+    @Column(name = "resolved_at")
+    private Instant resolvedAt;
+
+    /**
+     * When an operator acknowledged the latest refund or dispute after issue. A later reversal
+     * ({@link #reversedAt} past this) raises it again.
+     */
+    @Column(name = "reversal_acknowledged_at")
+    private Instant reversalAcknowledgedAt;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;

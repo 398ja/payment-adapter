@@ -160,6 +160,111 @@ public class PurchaseController {
     }
 
     /**
+     * The issuer reports that a purchase needs a person (#273). Idempotent: a repeat answers 200
+     * and the first reason stands.
+     *
+     * <ul>
+     *   <li>200: parked (now or already). Stop working this purchase.</li>
+     *   <li>400: no reason, an unknown one, or a derived one (refunded_after_issue, disputed).</li>
+     *   <li>404: no such purchase.</li>
+     *   <li>409: closed (discharged, refunded), or another worker holds the live claim.</li>
+     * </ul>
+     */
+    @PostMapping("/{eventId}/attention")
+    public ResponseEntity<Void> attention(
+            @PathVariable String eventId,
+            @RequestBody(required = false) AttentionRequest request) {
+        StripePurchase.AttentionReason reason =
+                request == null ? null : StripePurchase.AttentionReason.fromWire(request.reason());
+        if (reason == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        return switch (discharges.reportAttention(eventId, reason, request.detail(), request.worker(),
+                request.voucherId())) {
+            case RECORDED, ALREADY_RECORDED -> ResponseEntity.ok().build();
+            case INVALID_REASON -> ResponseEntity.badRequest().build();
+            case NOT_ALLOWED -> ResponseEntity.status(HttpStatus.CONFLICT).build();
+            case UNKNOWN_PURCHASE -> ResponseEntity.notFound().build();
+        };
+    }
+
+    /**
+     * An operator moves a parked purchase on, or acknowledges a refund or dispute after issue
+     * (#273). Same token as every route here: an operator path, not a public one. Idempotent.
+     *
+     * <ul>
+     *   <li>200: done (now or already).</li>
+     *   <li>400: unknown action, or {@code discharged} with no voucher to name.</li>
+     *   <li>404: no such purchase.</li>
+     *   <li>409: not parked (or nothing to acknowledge), or {@code retry} of gateway_unrecorded.</li>
+     * </ul>
+     */
+    @PostMapping("/{eventId}/resolve")
+    public ResponseEntity<Void> resolve(
+            @PathVariable String eventId,
+            @RequestBody(required = false) ResolveRequest request) {
+        PurchaseDischargeService.ResolveAction action =
+                request == null ? null : PurchaseDischargeService.ResolveAction.fromWire(request.action());
+        if (action == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        return switch (discharges.resolve(eventId, action, request.voucherId(), request.operator(), request.note())) {
+            case RESOLVED, ALREADY_RESOLVED -> ResponseEntity.ok().build();
+            case INVALID -> ResponseEntity.badRequest().build();
+            case NOT_ALLOWED -> ResponseEntity.status(HttpStatus.CONFLICT).build();
+            case UNKNOWN_PURCHASE -> ResponseEntity.notFound().build();
+        };
+    }
+
+    /** Parked purchases, oldest first, for the operator console (#273). */
+    @GetMapping("/attention")
+    public List<AttentionPurchase> attentionList() {
+        return purchases.findByStatusOrderByCreatedAtAsc(StripePurchase.Status.NEEDS_ATTENTION).stream()
+                .limit(MAX_BATCH)
+                .map(AttentionPurchase::of)
+                .toList();
+    }
+
+    /** One parked purchase, with what the operator needs to decide. */
+    public record AttentionPurchase(
+            String eventId,
+            String reason,
+            String detail,
+            Instant attentionAt,
+            String voucherId,
+            String stallPubkey,
+            Long amountMinor,
+            String currency,
+            int attempts,
+            String lastFailure) {
+
+        static AttentionPurchase of(StripePurchase p) {
+            return new AttentionPurchase(p.getEventId(),
+                    p.getAttentionReason() == null ? null : p.getAttentionReason().wire(),
+                    p.getAttentionDetail(), p.getAttentionAt(), p.getVoucherId(), p.getStallPubkey(),
+                    p.getAmountMinor(), p.getCurrency(), p.getAttempts(), p.getLastFailure());
+        }
+    }
+
+    /**
+     * @param reason    {@code gateway_unrecorded}, {@code delivery_exhausted} or {@code stale_issuing}
+     * @param detail    free text for the operator, at most 500 characters kept
+     * @param worker    who is reporting; a lapsed worker cannot park a row another worker holds
+     * @param voucherId the coupon that exists, when one does
+     */
+    public record AttentionRequest(String reason, String detail, String worker, String voucherId) {
+    }
+
+    /**
+     * @param action    {@code retry}, {@code discharged} or {@code acknowledge}
+     * @param voucherId for {@code discharged}: the coupon delivered by hand, unless the row has one
+     * @param operator  who decided, kept on the row
+     * @param note      why, kept on the row
+     */
+    public record ResolveRequest(String action, String voucherId, String operator, String note) {
+    }
+
+    /**
      * One debt, in the terms the issuer needs and nothing more.
      *
      * <p>No Stripe session id and no charge object. The one payment handle
@@ -233,7 +338,6 @@ public class PurchaseController {
     public record DischargeRequest(String voucherId, String issuerId) {
     }
 
-    /**
     /**
      * @param reason    what went wrong, for whoever reads the row later
      * @param permanent true when retrying cannot help, e.g. a burnt credential
