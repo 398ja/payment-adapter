@@ -45,11 +45,16 @@
     purchase-issuer: 200 parked (idempotent, first reason stands), 400 unknown or derived reason,
     404, 409 closed or held by another worker's live claim, 503 lost an optimistic lock (retry).
   - `POST /api/v1/purchases/{eventId}/resolve` `{action, voucherId?, operator?, note?}`, operator:
-    `retry` (back to OWED, or ISSUED when a coupon exists; refused for `gateway_unrecorded`),
-    `discharged` (delivered by hand, names the voucher), `acknowledge` (a refund or dispute after
-    issue; no status change). 200 (idempotent), 400, 404, 409, 503. No refund or revoke action (#265).
+    `retry` (back to OWED, or ISSUED when a coupon exists, or REFUNDED when no coupon exists and
+    the payment was refunded while parked; refused for `gateway_unrecorded`), `discharged`
+    (delivered by hand, names the voucher; 400 if it differs from one the row already records),
+    `acknowledge` (a refund or dispute after issue; no status change). 200 (idempotent), 400, 404,
+    409, 503. No refund or revoke action (#265).
   - `GET /api/v1/purchases/attention`: parked rows, oldest first.
-  - All behind the existing purchase API token; no new public surface.
+  - **New configuration `PURCHASE_OPERATOR_TOKEN` (`purchase.operator.token`)**: `/resolve` takes
+    ONLY this token, never the issuer's `PURCHASE_API_TOKEN`, so a leaked issuer token cannot close
+    a parked debt without the gateway check. It also reads `GET /attention`, nothing else. Unset,
+    or equal to the issuer's token, answers 503 to every `/resolve` (the issuer is unaffected).
   - Gauge `imani_payments_card_needs_attention{reason}`, every reason bound at zero, a failed
     poll holds the last values (#268). `refunded_after_issue` and `disputed` count unacknowledged
     refund/dispute facts on rows with a coupon (informational, the status never changes).

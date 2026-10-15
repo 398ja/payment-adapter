@@ -263,6 +263,72 @@ class PurchaseControllerTest {
         verify(response, never()).sendError(anyInt());
     }
 
+    private static final String OPERATOR = "op3rator-token";
+
+    /**
+     * Review of #280: /resolve closes a parked debt without the gateway check, or silences a refund.
+     * The issuer never needs it, so a leaked issuer token must not open it, however disguised.
+     */
+    @Test
+    void theIssuerTokenCannotResolve() throws Exception {
+        PurchaseApiTokenFilter filter = new PurchaseApiTokenFilter(TOKEN, OPERATOR);
+        when(request.getMethod()).thenReturn("POST");
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + TOKEN);
+        String[] disguises = {
+            "/api/v1/purchases/evt_1/resolve",
+            "/api/v1/purchases/evt_1/%72esolve",
+            "/api/v1/purchases/evt_1/resolve;x=1",
+            "/api/v1/purchases/evt_1/Resolve",
+            "/api/v1//purchases/evt_1/resolve/",
+        };
+        for (String uri : disguises) {
+            when(request.getRequestURI()).thenReturn(uri);
+            filter.doFilter(request, response, chain);
+        }
+        verify(response, org.mockito.Mockito.times(disguises.length))
+                .sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        verify(chain, never()).doFilter(any(), any());
+    }
+
+    /** The operator's token opens /resolve and the parked list, and nothing the issuer does. */
+    @Test
+    void theOperatorTokenOpensResolveAndTheParkedListOnly() throws Exception {
+        PurchaseApiTokenFilter filter = new PurchaseApiTokenFilter(TOKEN, OPERATOR);
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + OPERATOR);
+
+        when(request.getMethod()).thenReturn("POST");
+        when(request.getRequestURI()).thenReturn("/api/v1/purchases/evt_1/resolve");
+        filter.doFilter(request, response, chain);
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRequestURI()).thenReturn("/api/v1/purchases/attention");
+        filter.doFilter(request, response, chain);
+        verify(chain, org.mockito.Mockito.times(2)).doFilter(request, response);
+
+        for (String uri : new String[] {"/api/v1/purchases/owed", "/api/v1/purchases/evt_1/claim",
+                "/api/v1/purchases/evt_1/discharge", "/api/v1/purchases/evt_1/attention"}) {
+            when(request.getMethod()).thenReturn(uri.endsWith("owed") ? "GET" : "POST");
+            when(request.getRequestURI()).thenReturn(uri);
+            filter.doFilter(request, response, chain);
+        }
+        verify(response, org.mockito.Mockito.times(4)).sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        verify(chain, org.mockito.Mockito.times(2)).doFilter(request, response);
+    }
+
+    /** No operator token, or one equal to the issuer's, refuses every resolve: loud, not open. */
+    @Test
+    void resolveIsRefusedWithoutADistinctOperatorToken() throws Exception {
+        when(request.getMethod()).thenReturn("POST");
+        when(request.getRequestURI()).thenReturn("/api/v1/purchases/evt_1/resolve");
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + TOKEN);
+
+        new PurchaseApiTokenFilter(TOKEN).doFilter(request, response, chain);
+        new PurchaseApiTokenFilter(TOKEN, TOKEN).doFilter(request, response, chain);
+
+        verify(response, org.mockito.Mockito.times(2))
+                .sendError(eq(HttpServletResponse.SC_SERVICE_UNAVAILABLE), anyString());
+        verify(chain, never()).doFilter(any(), any());
+    }
+
     @Test
     void aRefundedDischargeIsAConflictSoTheIssuerStops() {
         // #267: the issuer must not retry a discharge for a refunded payment.

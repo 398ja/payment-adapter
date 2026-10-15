@@ -31,6 +31,13 @@ public class PurchaseConfiguration {
     @Value("${purchase.api.token:}")
     private String apiToken;
 
+    /**
+     * The operator's token for {@code /resolve} (review of #280). Must differ from the issuer's;
+     * unset (or equal) refuses every resolve, and nothing else changes.
+     */
+    @Value("${purchase.operator.token:}")
+    private String operatorToken;
+
     /** Where to ask whether a coupon was really issued. */
     @Value("${purchase.gateway.base-url:}")
     private String gatewayBaseUrl;
@@ -130,7 +137,7 @@ public class PurchaseConfiguration {
     @Bean
     public FilterRegistrationBean<PurchaseApiTokenFilter> purchaseApiTokenFilter() {
         FilterRegistrationBean<PurchaseApiTokenFilter> registration = new FilterRegistrationBean<>();
-        registration.setFilter(new PurchaseApiTokenFilter(apiToken));
+        registration.setFilter(new PurchaseApiTokenFilter(apiToken, operatorToken));
         /*
          * Registered on EVERYTHING, and the filter decides.
          *

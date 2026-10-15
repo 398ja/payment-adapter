@@ -261,8 +261,18 @@ public class PurchaseDischargeService {
             if (voucher == null) {
                 return ResolveResult.INVALID;
             }
+            // The recorded id is the only handle on value already created (review of #280): an
+            // operator naming a different coupon must not erase it from the trail.
+            if (purchase.getVoucherId() != null && !purchase.getVoucherId().equals(voucher)) {
+                return ResolveResult.INVALID;
+            }
             purchase.setVoucherId(voucher);
             purchase.setStatus(StripePurchase.Status.DISCHARGED);
+        } else if (purchase.getVoucherId() == null && wasRefunded(purchase)) {
+            // Refunded while parked (review of #280): the listener leaves a parked row alone, so the
+            // retry puts it where the automatic flow would have, REFUNDED. Never OWED: a refund
+            // before issue never mints (#267).
+            purchase.setStatus(StripePurchase.Status.REFUNDED);
         } else {
             purchase.setStatus(purchase.getVoucherId() == null
                     ? StripePurchase.Status.OWED : StripePurchase.Status.ISSUED);
@@ -277,13 +287,18 @@ public class PurchaseDischargeService {
         return ResolveResult.RESOLVED;
     }
 
+    private static boolean wasRefunded(StripePurchase purchase) {
+        return purchase.getRefundedAmountMinor() != null && purchase.getRefundedAmountMinor() > 0;
+    }
+
     private static boolean alreadyDone(StripePurchase purchase, ResolveAction action) {
         return purchase.getResolvedAt() != null
                 && (action == ResolveAction.DISCHARGED
                         ? purchase.getStatus() == StripePurchase.Status.DISCHARGED
                         : purchase.getStatus() == StripePurchase.Status.OWED
                                 || purchase.getStatus() == StripePurchase.Status.ISSUING
-                                || purchase.getStatus() == StripePurchase.Status.ISSUED);
+                                || purchase.getStatus() == StripePurchase.Status.ISSUED
+                                || purchase.getStatus() == StripePurchase.Status.REFUNDED);
     }
 
     private ResolveResult acknowledgeReversal(StripePurchase purchase, String operator, String note, Instant now) {
@@ -297,6 +312,8 @@ public class PurchaseDischargeService {
             return ResolveResult.ALREADY_RESOLVED;
         }
         purchase.setReversalAcknowledgedAt(now);
+        log.warn("Purchase {} reversal acknowledged by {} (refunded {}, disputed {}): {}", purchase.getEventId(),
+                operator, purchase.getRefundedAmountMinor(), purchase.isDisputed(), note);
         recordResolution(purchase, operator, note, now);
         return ResolveResult.RESOLVED;
     }
@@ -633,8 +650,15 @@ public class PurchaseDischargeService {
             }
             if (purchase.getStatus() == StripePurchase.Status.NEEDS_ATTENTION) {
                 // Parked for a person (#273). Only /resolve moves it; a late report must not put
-                // a row whose mint state is unknown back in the mintable queue.
-                log.warn("Failure report for parked purchase {} ignored", eventId);
+                // a row whose mint state is unknown back in the mintable queue. A coupon it names
+                // is kept, though: for gateway_unrecorded it is the answer the operator needs
+                // (review of #280).
+                if (voucherId != null && !voucherId.isBlank() && purchase.getVoucherId() == null) {
+                    purchase.setVoucherId(voucherId);
+                    purchase.setUpdatedAt(Instant.now());
+                    purchases.save(purchase);
+                }
+                log.warn("Failure report for parked purchase {} ignored for status", eventId);
                 return;
             }
             purchase.setAttempts(purchase.getAttempts() + 1);

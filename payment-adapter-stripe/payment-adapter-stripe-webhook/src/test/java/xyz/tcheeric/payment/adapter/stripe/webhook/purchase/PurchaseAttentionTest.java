@@ -163,6 +163,17 @@ class PurchaseAttentionTest {
         assertEquals(StripePurchase.Status.NEEDS_ATTENTION, row.getStatus());
     }
 
+    /** Review of #280: a late report naming the coupon keeps it on the parked row, status unchanged. */
+    @Test
+    void aLateReportNamingACouponKeepsItOnTheParkedRow() {
+        park(AttentionReason.GATEWAY_UNRECORDED, null);
+
+        service.recordFailure(EVENT, "delivery failed", false, "v7", "w1", false);
+
+        assertEquals(StripePurchase.Status.NEEDS_ATTENTION, row.getStatus());
+        assertEquals("v7", row.getVoucherId());
+    }
+
     /** An operator retry of a row with no coupon puts it back in the queue and clears the reason. */
     @Test
     void anOperatorRetryOfANeverMintedRowReturnsItToOwed() {
@@ -185,6 +196,24 @@ class PurchaseAttentionTest {
         assertEquals(StripePurchase.Status.ISSUED, row.getStatus());
     }
 
+    /**
+     * Review of #280: a parked row with no coupon that is refunded meanwhile stays parked (the
+     * listener only moves OWED/ISSUING/BLOCKED to REFUNDED). An operator retry must not hand it to
+     * the mintable queue: a refund before issue never mints (#267). It lands where the automatic
+     * flow would have put it, REFUNDED.
+     */
+    @Test
+    void anOperatorRetryOfARefundedParkedRowNeverReturnsItToOwed() {
+        park(AttentionReason.STALE_ISSUING, null);
+        row.setRefundedAmountMinor(500L);
+        row.setReversedAt(Instant.now());
+
+        assertEquals(ResolveResult.RESOLVED, service.resolve(EVENT, ResolveAction.RETRY, null, "ops", "retry"));
+        assertEquals(StripePurchase.Status.REFUNDED, row.getStatus());
+        assertEquals("ops", row.getResolvedBy());
+        assertEquals(ResolveResult.ALREADY_RESOLVED, service.resolve(EVENT, ResolveAction.RETRY, null, "ops", null));
+    }
+
     /** gateway_unrecorded means the mint state is unknown: retrying could mint twice, so it is refused. */
     @Test
     void anUnrecordedMintIsNeverRetried() {
@@ -203,6 +232,21 @@ class PurchaseAttentionTest {
         assertEquals(ResolveResult.RESOLVED, service.resolve(EVENT, ResolveAction.DISCHARGED, "v9", "ops", "by hand"));
         assertEquals(StripePurchase.Status.DISCHARGED, row.getStatus());
         assertEquals("v9", row.getVoucherId());
+    }
+
+    /**
+     * Review of #280: the row's voucher id is the only handle on value already created. An operator
+     * naming a DIFFERENT coupon must not erase it from the trail; the same id (or none) is fine.
+     */
+    @Test
+    void anOperatorDischargeCannotReplaceTheRecordedVoucher() {
+        park(AttentionReason.DELIVERY_EXHAUSTED, "v1");
+
+        assertEquals(ResolveResult.INVALID, service.resolve(EVENT, ResolveAction.DISCHARGED, "v2", "ops", null));
+        assertEquals(StripePurchase.Status.NEEDS_ATTENTION, row.getStatus());
+        assertEquals("v1", row.getVoucherId());
+        assertEquals(ResolveResult.RESOLVED, service.resolve(EVENT, ResolveAction.DISCHARGED, "v1", "ops", null));
+        assertEquals("v1", row.getVoucherId());
     }
 
     /** Repeating a resolution that already took effect answers success and changes nothing. */

@@ -78,8 +78,10 @@ discharges them, with no manual step. New purchases register at recording.
 ## NEEDS_ATTENTION (#273)
 
 A row nothing automatic can safely move on is parked. The claim and `/owed`
-never match it; a `/failure` report never moves it. All routes below are behind
-the purchase API token.
+never match it; a `/failure` report never moves it. `/attention` (POST) and
+`GET /attention` take the issuer's purchase API token. `/resolve` takes only the
+operator's `PURCHASE_OPERATOR_TOKEN` (distinct from the issuer's; unset or equal
+answers 503), which also reads `GET /attention` and nothing else.
 
 | Reason | Set by | Meaning |
 | --- | --- | --- |
@@ -97,8 +99,8 @@ another worker holds the live claim, 503 optimistic lock lost (retry).
 
 | Action | Effect |
 | --- | --- |
-| `retry` | OWED if no coupon, ISSUED if one exists; resets `lease_expiries`. 409 for `gateway_unrecorded`. |
-| `discharged` | DISCHARGED, naming the voucher (400 when neither the body nor the row has one). |
+| `retry` | OWED if no coupon, ISSUED if one exists, REFUNDED if no coupon and the payment was refunded while parked; resets `lease_expiries`. 409 for `gateway_unrecorded`. |
+| `discharged` | DISCHARGED, naming the voucher (400 when neither the body nor the row has one, or the body names a different one than the row records). |
 | `acknowledge` | Marks the latest refund/dispute seen. No status change. 409 when there is none. |
 
 200 on success or repeat, 404, 409 when the row is not parked. `GET /attention`
