@@ -29,6 +29,16 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
     Optional<StripePurchase> findByEventId(String eventId);
 
     /**
+     * By Checkout Session, which is the PAYMENT rather than the event (card atomicity audit, S1c).
+     *
+     * <p>One paid session can arrive as two different events: {@code checkout.session.completed}
+     * with {@code payment_status=paid} and then {@code checkout.session.async_payment_succeeded},
+     * or an event Stripe re-creates. Keyed on the event id alone, each became its own debt and the
+     * issuer minted a coupon for each: two vouchers for one payment.
+     */
+    Optional<StripePurchase> findByCheckoutSessionId(String checkoutSessionId);
+
+    /**
      * Everything still owed, oldest first.
      *
      * <p>Oldest first because the longest-waiting customer is the one most

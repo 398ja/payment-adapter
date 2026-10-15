@@ -42,6 +42,14 @@ public class ProcessedStripeWebhookEvent {
     @Column(name = "processed_at")
     private Instant processedAt;
 
+    /**
+     * When the current PROCESSING mark was taken. A mark older than any honest run is a crash
+     * and may be taken over (card atomicity audit S5b, V15). Null on rows from before V15,
+     * which are read as stale.
+     */
+    @Column(name = "processing_started_at")
+    private Instant processingStartedAt;
+
     @Column(name = "last_error", length = 1024)
     private String lastError;
 }

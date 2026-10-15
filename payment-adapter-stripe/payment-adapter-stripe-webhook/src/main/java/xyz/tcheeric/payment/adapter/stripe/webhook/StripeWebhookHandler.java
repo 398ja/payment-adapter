@@ -78,6 +78,18 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
     }
 
     /**
+     * How long a PROCESSING mark may stand before it is read as a crash and taken over (S5b).
+     * Far above the slowest honest run: one DB transaction and a listener call, no network.
+     */
+    static final java.time.Duration DEFAULT_PROCESSING_STALE_AFTER = java.time.Duration.ofMinutes(2);
+
+    private java.time.Duration processingStaleAfter = DEFAULT_PROCESSING_STALE_AFTER;
+
+    void setProcessingStaleAfter(java.time.Duration processingStaleAfter) {
+        this.processingStaleAfter = processingStaleAfter;
+    }
+
+    /**
      * No-arg constructor required by ServiceLoader SPI.
      * Repositories must be injected via {@code @Autowired} setters before handling webhooks.
      * In a non-Spring environment, {@link #handle} will throw until repositories are set.
@@ -200,6 +212,12 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         } catch (WebhookDuplicateException e) {
             // Counted as a webhook, never as a payment: a redelivery is not a second sale.
             metrics.webhook(Source.CARD, WebhookOutcome.DUPLICATE);
+            RETRY.remove();
+            throw e;
+        } catch (WebhookProcessingException e) {
+            // Refused before taking the mark (another delivery holds it). Answered 5xx, so it is a
+            // failed webhook; the mark is NOT ours to set FAILED, and this is no payment outcome.
+            metrics.webhook(Source.CARD, WebhookOutcome.FAILED);
             RETRY.remove();
             throw e;
         }
@@ -354,13 +372,30 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         return new WebhookResult(true, null, State.PENDING, Map.of("ignored", true, "eventType", payload.getEventType()));
     }
 
-    private ProcessedStripeWebhookEvent startEventProcessing(StripeWebhookPayload payload) throws WebhookDuplicateException {
+    private ProcessedStripeWebhookEvent startEventProcessing(StripeWebhookPayload payload)
+            throws WebhookDuplicateException, WebhookProcessingException {
         Optional<ProcessedStripeWebhookEvent> existingEvent = processedEventRepository.findById(payload.getEventId());
         if (existingEvent.isPresent()) {
-            StripeWebhookProcessingStatus status = existingEvent.get().getProcessingStatus();
-            if (status == StripeWebhookProcessingStatus.PROCESSED
-                    || status == StripeWebhookProcessingStatus.PROCESSING) {
-                throw new WebhookDuplicateException("Stripe webhook already " + status.name().toLowerCase() + ": " + payload.getEventId());
+            ProcessedStripeWebhookEvent prior = existingEvent.get();
+            StripeWebhookProcessingStatus status = prior.getProcessingStatus();
+            if (status == StripeWebhookProcessingStatus.PROCESSED) {
+                throw new WebhookDuplicateException("Stripe webhook already processed: " + payload.getEventId());
+            }
+            if (status == StripeWebhookProcessingStatus.PROCESSING) {
+                // Card atomicity audit S5b. PROCESSING is committed BEFORE the work, so a
+                // process that dies mid-event leaves it behind. Answering that with "duplicate"
+                // (200) made Stripe stop retrying a paid purchase that was never recorded: a
+                // LOSS. A PROCESSING row older than the work could possibly take is a crash, and
+                // is taken over. A fresh one may still be running on another replica, so the
+                // delivery is refused (non-2xx) and Stripe comes back later, rather than being
+                // told the event is done when nobody knows that yet.
+                Instant started = prior.getProcessingStartedAt();
+                if (started != null && started.isAfter(Instant.now().minus(processingStaleAfter))) {
+                    throw new WebhookProcessingException("Stripe webhook " + payload.getEventId()
+                            + " is being processed elsewhere; retry later");
+                }
+                log.warn("Stripe webhook {} was left PROCESSING since {}; taking it over",
+                        payload.getEventId(), started);
             }
         }
 
@@ -373,11 +408,18 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         event.setLivemode(payload.isLivemode());
         event.setReceivedAt(defaultIfNull(event.getReceivedAt(), payload.getEventTimestamp()));
         event.setProcessingStatus(StripeWebhookProcessingStatus.PROCESSING);
+        event.setProcessingStartedAt(Instant.now());
         event.setLastError(null);
         try {
             return processedEventRepository.save(event);
         } catch (org.springframework.dao.DataIntegrityViolationException e) {
-            throw new WebhookDuplicateException("Concurrent Stripe webhook processing detected: " + payload.getEventId());
+            // Review of #275: another delivery of this event inserted the mark first and may still
+            // be working it, or may die before it commits a row. A 200 here would end Stripe's
+            // retries on the strength of work nobody has finished (the S5b loss by another door).
+            // A 5xx brings it back; by then the mark is PROCESSED (duplicate), fresh (5xx again)
+            // or stale (taken over).
+            throw new WebhookProcessingException("Stripe webhook " + payload.getEventId()
+                    + " is being processed concurrently; retry later", e);
         }
     }
 
