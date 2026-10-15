@@ -114,6 +114,26 @@ class StripeWebhookMetricsTest {
         assertEquals(1.0, webhooks("verified"));
     }
 
+    /**
+     * Review of #268: a failure that throws leaves the event FAILED, and Stripe retries it for up
+     * to three days. Each retry must not be another failed payment.
+     */
+    @Test
+    void aStripeRetryOfAFailedEventIsNotASecondFailure() throws Exception {
+        handler.setPurchaseListener(null);
+        assertThrows(WebhookProcessingException.class, () -> handler.handle(paid("evt_retry")));
+        ProcessedStripeWebhookEvent failed = new ProcessedStripeWebhookEvent();
+        failed.setEventId("evt_retry");
+        failed.setProcessingStatus(StripeWebhookProcessingStatus.FAILED);
+        when(processed.findById("evt_retry")).thenReturn(Optional.of(failed));
+
+        assertThrows(WebhookProcessingException.class, () -> handler.handle(paid("evt_retry")));
+        assertThrows(WebhookProcessingException.class, () -> handler.handle(paid("evt_retry")));
+
+        assertEquals(1.0, payments("failed", "no_listener"), "a Stripe retry is not a second failed payment");
+        assertEquals(3.0, webhooks("failed"), "each delivery is still a failed webhook");
+    }
+
     @Test
     void aListenerRefusalIsAFailedWebhookAndNoSale() throws Exception {
         doThrow(new IllegalStateException("db down")).when(listener).onPurchasePaid(any());

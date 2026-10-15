@@ -200,6 +200,7 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         } catch (WebhookDuplicateException e) {
             // Counted as a webhook, never as a payment: a redelivery is not a second sale.
             metrics.webhook(Source.CARD, WebhookOutcome.DUPLICATE);
+            RETRY.remove();
             throw e;
         }
 
@@ -224,8 +225,25 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
             metrics.webhook(Source.CARD, WebhookOutcome.FAILED);
             throw new WebhookProcessingException("Failed to process Stripe event " + payload.getEventId(), e);
         } finally {
+            RETRY.remove();
             metrics.duration(Source.CARD, PaymentMetrics.Stage.WEBHOOK,
                     java.time.Duration.ofNanos(System.nanoTime() - started));
+        }
+    }
+
+    /**
+     * Whether the event being handled on this thread was seen before and FAILED (review of #268).
+     *
+     * <p>A failure that throws leaves the event FAILED and Stripe retries it for up to three days.
+     * The payment failed once; each retry is another failed WEBHOOK, not another failed payment.
+     * Set by {@link #startEventProcessing}, cleared when {@link #handle} returns.
+     */
+    private static final ThreadLocal<Boolean> RETRY = new ThreadLocal<>();
+
+    /** Count a failed card payment, once per event: never again on Stripe's retries of it. */
+    private void recordFailed(StripeWebhookPayload payload, Reason reason) {
+        if (!Boolean.TRUE.equals(RETRY.get())) {
+            metrics.record(Source.CARD, Status.FAILED, reason, payload.getCurrency());
         }
     }
 
@@ -327,7 +345,7 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         // Not acted on, but two of them are the card's unhappy endings and belong in the count.
         switch (payload.getEventType()) {
             case "checkout.session.async_payment_failed", "payment_intent.payment_failed" ->
-                    metrics.record(Source.CARD, Status.FAILED, Reason.CARD_DECLINED, payload.getCurrency());
+                    recordFailed(payload, Reason.CARD_DECLINED);
             case "checkout.session.expired" ->
                     metrics.record(Source.CARD, Status.CANCELLED, Reason.EXPIRED, payload.getCurrency());
             default -> { }
@@ -346,6 +364,8 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
             }
         }
 
+        // Present here means FAILED (or RECEIVED): this delivery is a retry of a known event.
+        RETRY.set(existingEvent.isPresent());
         ProcessedStripeWebhookEvent event = existingEvent.orElseGet(ProcessedStripeWebhookEvent::new);
         event.setEventId(payload.getEventId());
         event.setEventType(payload.getEventType());
@@ -415,7 +435,7 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         }
 
         if (purchaseListener == null) {
-            metrics.record(Source.CARD, Status.FAILED, Reason.NO_LISTENER, payload.getCurrency());
+            recordFailed(payload, Reason.NO_LISTENER);
             throw new WebhookProcessingException(
                     "Paid coupon purchase on account " + payload.getConnectedAccountId()
                             + " but no StripePurchaseListener is configured; refusing to mark it processed");
@@ -473,11 +493,11 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
 
     private void validateAmountAndCurrency(StripeWebhookPayload payload, GatewayQuote quote) throws WebhookProcessingException {
         if (payload.getAmountTotal() != null && !payload.getAmountTotal().equals(quote.getAmount())) {
-            metrics.record(Source.CARD, Status.FAILED, Reason.AMOUNT_MISMATCH, payload.getCurrency());
+            recordFailed(payload, Reason.AMOUNT_MISMATCH);
             throw new WebhookProcessingException("Stripe amount mismatch for quote_ref=" + QuoteRef.of(quote.getQuoteId()));
         }
         if (StringUtils.isNotBlank(payload.getCurrency()) && !payload.getCurrency().equalsIgnoreCase(quote.getUnit())) {
-            metrics.record(Source.CARD, Status.FAILED, Reason.CURRENCY_MISMATCH, payload.getCurrency());
+            recordFailed(payload, Reason.CURRENCY_MISMATCH);
             throw new WebhookProcessingException("Stripe currency mismatch for quote_ref=" + QuoteRef.of(quote.getQuoteId()));
         }
     }
