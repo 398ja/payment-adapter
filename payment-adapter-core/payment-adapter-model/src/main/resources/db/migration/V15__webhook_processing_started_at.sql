@@ -1,0 +1,11 @@
+-- Card atomicity audit (2026-10-15), scenario S5b: a crash mid-webhook lost a paid purchase.
+--
+-- StripeWebhookHandler commits PROCESSING before it works, then answers every
+-- later delivery of a PROCESSING event with "duplicate" (200). A process that
+-- died between the two left the event PROCESSING forever, Stripe's retry was
+-- acknowledged, and the stripe_purchase row was never written. Reproduced on a
+-- local stack: redelivery -> 200 "already processing", rows=0.
+--
+-- The handler now stamps when the mark was taken and takes over a mark older
+-- than any honest run. NULL (rows from before this migration) is read as stale.
+ALTER TABLE processed_stripe_webhook_event ADD COLUMN IF NOT EXISTS processing_started_at TIMESTAMP WITH TIME ZONE;

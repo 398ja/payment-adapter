@@ -84,6 +84,19 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
             return;
         }
 
+        // The same PAYMENT under a different event id: completed-and-paid then
+        // async_payment_succeeded for one session. One payment is one debt, so
+        // the second announcement is acknowledged and records nothing (card
+        // atomicity audit S1c; V14 makes the session and pi_ unique as well).
+        if (purchase.checkoutSessionId() != null) {
+            var existing = purchases.findByCheckoutSessionId(purchase.checkoutSessionId());
+            if (existing.isPresent()) {
+                log.info("Purchase for session {} already recorded as {}; ignoring event {}",
+                        purchase.checkoutSessionId(), existing.get().getEventId(), purchase.eventId());
+                return;
+            }
+        }
+
         StripePurchase row = new StripePurchase();
         row.setEventId(purchase.eventId());
         row.setCheckoutSessionId(purchase.checkoutSessionId());

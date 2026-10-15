@@ -53,7 +53,8 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(name = "stripe_purchase", indexes = {
         @Index(name = "idx_stripe_purchase_event_id", columnList = "event_id", unique = true),
-        @Index(name = "idx_stripe_purchase_session", columnList = "checkout_session_id"),
+        @Index(name = "uq_stripe_purchase_session", columnList = "checkout_session_id", unique = true),
+        @Index(name = "uq_stripe_purchase_payment_intent", columnList = "payment_intent_id", unique = true),
         @Index(name = "idx_stripe_purchase_status", columnList = "status")
 })
 public class StripePurchase {
@@ -113,7 +114,11 @@ public class StripePurchase {
     @Column(name = "event_id", nullable = false, unique = true)
     private String eventId;
 
-    @Column(name = "checkout_session_id", nullable = false)
+    /**
+     * The Checkout Session that took the money. One payment, one row (V14): a session paid once is
+     * never two debts, whatever events announce it.
+     */
+    @Column(name = "checkout_session_id", nullable = false, unique = true)
     private String checkoutSessionId;
 
     /**

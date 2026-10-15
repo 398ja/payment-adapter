@@ -134,6 +134,22 @@ class RecordingPurchaseListenerTest {
         verify(fulfilment, never()).register(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
     }
 
+    @Test
+    void aSecondEventForTheSamePaidSessionRecordsNoSecondDebt() {
+        // Card atomicity audit S1c. completed-and-paid then async_payment_succeeded announce ONE
+        // payment under two event ids. Each used to become a debt, and the issuer minted a coupon
+        // per debt (harness: 2 rows, 2 vouchers, one pi_).
+        StripePurchase first = new StripePurchase();
+        first.setEventId("evt_completed");
+        when(purchases.findByEventId("evt_1")).thenReturn(Optional.empty());
+        when(purchases.findByCheckoutSessionId("cs_1")).thenReturn(Optional.of(first));
+
+        listener.onPurchasePaid(paid(Map.of("buyer_pubkey", BUYER)));
+
+        verify(purchases, never()).save(any());
+        verify(fulfilment, never()).register(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+    }
+
     private StripePurchaseListener.PaidPurchase paid(Map<String, String> metadata) {
         return new StripePurchaseListener.PaidPurchase(
                 "evt_1", "cs_1", "pi_1", ACCOUNT, 2500L, "gbp", metadata, true);
