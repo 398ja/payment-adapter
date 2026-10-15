@@ -22,6 +22,8 @@
   from a mint already in flight is recorded on the row), and a failure report never moves it
   back to OWED. Refunds of issued coupons are not supported yet (#265): recorded only.
   Migration V16 adds `refunded_amount_minor`, `disputed`, `reversed_at`.
+  Purchase refunds and disputes are counted in `imani_payments{source=card,status=refunded|disputed}`
+  like the mint path's (#268).
 
 ## [0.20.0] - 2026-10-15
 

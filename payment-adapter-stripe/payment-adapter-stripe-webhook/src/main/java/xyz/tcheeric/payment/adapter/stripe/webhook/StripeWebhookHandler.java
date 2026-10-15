@@ -548,6 +548,15 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
             }
         }
         markProcessed(eventRecord);
+        // Same counters as the mint path (#268). Only reached once per event: a redelivery is
+        // turned away as a duplicate by startEventProcessing.
+        if (disputed) {
+            metrics.record(Source.CARD, Status.DISPUTED, Reason.NONE, payload.getCurrency(), amountOf(payload));
+        } else {
+            metrics.record(Source.CARD, Status.REFUNDED, Reason.NONE, payload.getCurrency(),
+                    payload.getRefundedAmountMinor() != null
+                            ? Long.valueOf(payload.getRefundedAmountMinor()) : amountOf(payload));
+        }
         return new WebhookResult(true, payload.getPaymentIntentId(), State.PAID,
                 Map.of("eventType", payload.getEventType(), "purchase", true));
     }

@@ -203,4 +203,20 @@ class StripeWebhookMetricsTest {
 
         assertEquals(1.0, payments("failed", "card_declined"));
     }
+
+    @Test
+    void aRefundAndADisputeOnAPurchaseAreCountedOnce() throws Exception {
+        // #267 with the #268 pattern: a purchase refund or dispute is a card payment outcome, so it
+        // is counted like the mint path's, and a 2xx redelivery is turned away as a duplicate.
+        StripeWebhookPayload refund = paid("evt_r").toBuilder().eventType("charge.refunded")
+                .checkoutSessionId(null).refundedAmountMinor(500).build();
+        StripeWebhookPayload dispute = paid("evt_d").toBuilder().eventType("charge.dispute.created")
+                .checkoutSessionId(null).build();
+
+        handler.handle(refund);
+        handler.handle(dispute);
+
+        assertEquals(1.0, payments("refunded", "none"));
+        assertEquals(1.0, payments("disputed", "none"));
+    }
 }
