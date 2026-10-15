@@ -357,6 +357,54 @@ class StripeConnectServiceTest {
         });
     }
 
+    private static StripeAccountSnapshot snapshot(boolean onboardingComplete, boolean chargesEnabled) {
+        return new StripeAccountSnapshot("merchant-123", "acct_123", onboardingComplete, chargesEnabled,
+                false, true, "usd", List.of(), null, "US", "merchant@example.com");
+    }
+
+    private double connectEvents(io.micrometer.core.instrument.simple.SimpleMeterRegistry registry, String event) {
+        return registry.get("imani.stripe.connect.events").tag("event", event).counter().count();
+    }
+
+    @Test
+    void countsOnboardingStartedAndCompletedAndChargesGained() {
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        service.setMeterRegistry(registry);
+        when(accountRepository.findByMerchantPubkey("merchant-123")).thenReturn(Optional.empty());
+        when(stripeConnectClient.createConnectedAccount("merchant-123", "US")).thenReturn(snapshot(false, false));
+        when(accountRepository.save(any(ConnectedStripeAccount.class))).thenAnswer(i -> i.getArgument(0));
+
+        service.createOrResume("merchant-123", null, null);
+        assertThat(connectEvents(registry, "onboarding_started")).isEqualTo(1.0);
+        assertThat(connectEvents(registry, "onboarding_completed")).isZero();
+
+        ConnectedStripeAccount existing = existingAccount();
+        when(accountRepository.findByMerchantPubkey("merchant-123")).thenReturn(Optional.of(existing));
+        when(stripeConnectClient.retrieveAccount("acct_123")).thenReturn(snapshot(true, true));
+        service.getStatus("merchant-123");
+
+        assertThat(connectEvents(registry, "onboarding_completed")).isEqualTo(1.0);
+        assertThat(connectEvents(registry, "charges_enabled_gained")).isEqualTo(1.0);
+        assertThat(connectEvents(registry, "onboarding_started")).isEqualTo(1.0);
+    }
+
+    @Test
+    void countsChargesEnabledLostOnceAndNotOnARepeat() {
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        service.setMeterRegistry(registry);
+        ConnectedStripeAccount existing = existingAccount();
+        existing.setOnboardingComplete(true);
+        existing.setChargesEnabled(true);
+        when(accountRepository.findByMerchantPubkey("merchant-123")).thenReturn(Optional.of(existing));
+        when(accountRepository.save(any(ConnectedStripeAccount.class))).thenAnswer(i -> i.getArgument(0));
+        when(stripeConnectClient.retrieveAccount("acct_123")).thenReturn(snapshot(true, false));
+
+        service.getStatus("merchant-123");
+        service.getStatus("merchant-123");
+
+        assertThat(connectEvents(registry, "charges_enabled_lost")).isEqualTo(1.0);
+    }
+
     private ConnectedStripeAccount existingAccount() {
         ConnectedStripeAccount account = new ConnectedStripeAccount();
         account.setMerchantPubkey("merchant-123");

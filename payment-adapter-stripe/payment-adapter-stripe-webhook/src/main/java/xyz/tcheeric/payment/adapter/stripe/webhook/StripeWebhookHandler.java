@@ -1,6 +1,11 @@
 package xyz.tcheeric.payment.adapter.stripe.webhook;
 
 import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Reason;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Source;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Status;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.WebhookOutcome;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -57,6 +62,20 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
      * {@link #handlePaidPurchase}.
      */
     private StripePurchaseListener purchaseListener;
+
+    /**
+     * imani-deploy#210. Global registry by default, because this class is first built by
+     * ServiceLoader before Spring exists; Spring replaces it with the application's registry.
+     */
+    private PaymentMetrics metrics = new PaymentMetrics();
+
+    @Autowired(required = false)
+    public void setMeterRegistry(io.micrometer.core.instrument.MeterRegistry registry) {
+        this.metrics = new PaymentMetrics(registry);
+        this.metrics.preRegisterWebhooks(Source.CARD)
+                .preRegister(Source.CARD, Status.SUCCEEDED, Status.FAILED, Status.REFUNDED, Status.DISPUTED,
+                        Status.CANCELLED);
+    }
 
     /**
      * No-arg constructor required by ServiceLoader SPI.
@@ -123,6 +142,7 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
     @Override
     public StripeWebhookPayload parsePayload(HttpServletRequest request) throws WebhookParseException {
         String rawPayload = readBody(request);
+        metrics.webhook(Source.CARD, WebhookOutcome.RECEIVED);
         if (StringUtils.isBlank(rawPayload)) {
             throw new WebhookParseException("Empty Stripe webhook payload");
         }
@@ -161,30 +181,57 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         if (signatureVerifier == null) {
             throw new WebhookSignatureException("Stripe webhook handler is missing a signature verifier");
         }
-        signatureVerifier.verify(payload.getRawPayload(), request.getHeader("Stripe-Signature"));
+        try {
+            signatureVerifier.verify(payload.getRawPayload(), request.getHeader("Stripe-Signature"));
+        } catch (WebhookSignatureException e) {
+            metrics.webhook(Source.CARD, WebhookOutcome.SIGNATURE_REJECTED);
+            throw e;
+        }
+        metrics.webhook(Source.CARD, WebhookOutcome.VERIFIED);
     }
 
     @Override
     public WebhookResult handle(StripeWebhookPayload payload) throws WebhookProcessingException, WebhookDuplicateException {
+        long started = System.nanoTime();
         ensureDependencies();
-        ProcessedStripeWebhookEvent eventRecord = startEventProcessing(payload);
+        ProcessedStripeWebhookEvent eventRecord;
+        try {
+            eventRecord = startEventProcessing(payload);
+        } catch (WebhookDuplicateException e) {
+            // Counted as a webhook, never as a payment: a redelivery is not a second sale.
+            metrics.webhook(Source.CARD, WebhookOutcome.DUPLICATE);
+            throw e;
+        }
 
         try {
-            return switch (payload.getEventType()) {
+            WebhookResult result = switch (payload.getEventType()) {
                 case "checkout.session.completed", "checkout.session.async_payment_succeeded" -> handleSuccessfulCheckout(payload, eventRecord);
                 case "charge.refunded" -> handleChargeRefunded(payload, eventRecord);
                 case "charge.dispute.created" -> handleChargeDisputed(payload, eventRecord);
                 default -> handleIgnoredEvent(payload, eventRecord);
             };
+            metrics.webhook(Source.CARD, WebhookOutcome.PROCESSED);
+            return result;
         } catch (WebhookDuplicateException e) {
+            metrics.webhook(Source.CARD, WebhookOutcome.DUPLICATE);
             throw e;
         } catch (WebhookProcessingException e) {
             markFailed(eventRecord, e.getMessage());
+            metrics.webhook(Source.CARD, WebhookOutcome.FAILED);
             throw e;
         } catch (Exception e) {
             markFailed(eventRecord, e.getMessage());
+            metrics.webhook(Source.CARD, WebhookOutcome.FAILED);
             throw new WebhookProcessingException("Failed to process Stripe event " + payload.getEventId(), e);
+        } finally {
+            metrics.duration(Source.CARD, PaymentMetrics.Stage.WEBHOOK,
+                    java.time.Duration.ofNanos(System.nanoTime() - started));
         }
+    }
+
+    /** The amount of an event, as a long, or null. */
+    private static Long amountOf(StripeWebhookPayload payload) {
+        return payload.getAmountTotal() == null ? null : payload.getAmountTotal().longValue();
     }
 
     private WebhookResult handleSuccessfulCheckout(StripeWebhookPayload payload,
@@ -240,6 +287,7 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         paymentReferenceRepository.save(paymentReference);
 
         markProcessed(eventRecord);
+        metrics.record(Source.CARD, Status.SUCCEEDED, Reason.NONE, payload.getCurrency(), amountOf(payload));
         return WebhookResult.success(payment.getPaymentId(), State.PAID);
     }
 
@@ -248,6 +296,8 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         StripePaymentReference paymentReference = findPaymentReference(payload);
         paymentReference.setChargeId(defaultIfBlank(payload.getChargeId(), paymentReference.getChargeId()));
         paymentReference.setStripeStatus("refunded");
+        metrics.record(Source.CARD, Status.REFUNDED, Reason.NONE, payload.getCurrency(),
+                payload.getRefundedAmountMinor() != null ? Long.valueOf(payload.getRefundedAmountMinor()) : amountOf(payload));
         // Use amount_refunded (the actual refunded total), not the original charge amount.
         paymentReference.setRefundedAmountMinor(
                 payload.getRefundedAmountMinor() != null ? payload.getRefundedAmountMinor() : payload.getAmountTotal());
@@ -263,6 +313,7 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         StripePaymentReference paymentReference = findPaymentReference(payload);
         paymentReference.setChargeId(defaultIfBlank(payload.getChargeId(), paymentReference.getChargeId()));
         paymentReference.setStripeStatus("disputed");
+        metrics.record(Source.CARD, Status.DISPUTED, Reason.NONE, payload.getCurrency(), amountOf(payload));
         paymentReference.setDisputed(true);
         paymentReference.setLastEventId(payload.getEventId());
         paymentReference.setUpdatedAt(Instant.now());
@@ -273,6 +324,14 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
 
     private WebhookResult handleIgnoredEvent(StripeWebhookPayload payload,
                                              ProcessedStripeWebhookEvent eventRecord) {
+        // Not acted on, but two of them are the card's unhappy endings and belong in the count.
+        switch (payload.getEventType()) {
+            case "checkout.session.async_payment_failed", "payment_intent.payment_failed" ->
+                    metrics.record(Source.CARD, Status.FAILED, Reason.CARD_DECLINED, payload.getCurrency());
+            case "checkout.session.expired" ->
+                    metrics.record(Source.CARD, Status.CANCELLED, Reason.EXPIRED, payload.getCurrency());
+            default -> { }
+        }
         markProcessed(eventRecord);
         return new WebhookResult(true, null, State.PENDING, Map.of("ignored", true, "eventType", payload.getEventType()));
     }
@@ -356,6 +415,7 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         }
 
         if (purchaseListener == null) {
+            metrics.record(Source.CARD, Status.FAILED, Reason.NO_LISTENER, payload.getCurrency());
             throw new WebhookProcessingException(
                     "Paid coupon purchase on account " + payload.getConnectedAccountId()
                             + " but no StripePurchaseListener is configured; refusing to mark it processed");
@@ -381,6 +441,9 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         }
 
         markProcessed(eventRecord);
+        // Counted only once the debt is recorded. A redelivery never reaches here: it was
+        // turned away as a duplicate by startEventProcessing.
+        metrics.record(Source.CARD, Status.SUCCEEDED, Reason.NONE, payload.getCurrency(), amountOf(payload));
         return new WebhookResult(true, payload.getPaymentIntentId(), State.PAID,
                 Map.of("eventType", payload.getEventType(), "purchase", true));
     }
@@ -410,9 +473,11 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
 
     private void validateAmountAndCurrency(StripeWebhookPayload payload, GatewayQuote quote) throws WebhookProcessingException {
         if (payload.getAmountTotal() != null && !payload.getAmountTotal().equals(quote.getAmount())) {
+            metrics.record(Source.CARD, Status.FAILED, Reason.AMOUNT_MISMATCH, payload.getCurrency());
             throw new WebhookProcessingException("Stripe amount mismatch for quote_ref=" + QuoteRef.of(quote.getQuoteId()));
         }
         if (StringUtils.isNotBlank(payload.getCurrency()) && !payload.getCurrency().equalsIgnoreCase(quote.getUnit())) {
+            metrics.record(Source.CARD, Status.FAILED, Reason.CURRENCY_MISMATCH, payload.getCurrency());
             throw new WebhookProcessingException("Stripe currency mismatch for quote_ref=" + QuoteRef.of(quote.getQuoteId()));
         }
     }

@@ -72,8 +72,18 @@ public class PurchaseConfiguration {
 
     @Bean
     public PurchaseDischargeService purchaseDischargeService(
-            StripePurchaseRepository purchases, GatewayFulfilmentClient fulfilment) {
-        return new PurchaseDischargeService(purchases, fulfilment, Duration.ofSeconds(claimLeaseSeconds));
+            StripePurchaseRepository purchases, GatewayFulfilmentClient fulfilment,
+            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> registry) {
+        return new PurchaseDischargeService(purchases, fulfilment, Duration.ofSeconds(claimLeaseSeconds))
+                .withMetrics(new xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics(registry.getIfAvailable()));
+    }
+
+    /** imani-deploy#210: paid card purchases with no coupon confirmed yet. */
+    @Bean
+    public PaidUnissuedGauge paidUnissuedGauge(
+            StripePurchaseRepository purchases,
+            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> registry) {
+        return new PaidUnissuedGauge(purchases, registry.getIfAvailable());
     }
 
     /** Re-asks about ISSUED rows whose discharge could not be verified (PA-2). */

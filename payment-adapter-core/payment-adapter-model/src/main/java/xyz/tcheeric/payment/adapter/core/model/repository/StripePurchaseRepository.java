@@ -96,4 +96,11 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
             @Param("dueBefore") Instant dueBefore,
             @Param("notBefore") Instant notBefore,
             org.springframework.data.domain.Pageable page);
+
+    /** Purchases not yet DISCHARGED, for the paid-unissued gauge (imani-deploy#210). */
+    long countByStatusNot(StripePurchase.Status status);
+
+    /** When the oldest not-yet-DISCHARGED purchase was paid, or null when there is none. */
+    @Query("select min(p.createdAt) from StripePurchase p where p.status <> :status")
+    Instant findOldestCreatedAtByStatusNot(@Param("status") StripePurchase.Status status);
 }

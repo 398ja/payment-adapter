@@ -12,6 +12,10 @@ import xyz.tcheeric.payment.adapter.cash.nostr.event.CashCancelEvent;
 import xyz.tcheeric.payment.adapter.cash.nostr.event.CashInvoiceEvent;
 import xyz.tcheeric.payment.adapter.cash.nostr.event.CashReceiptEvent;
 import xyz.tcheeric.payment.adapter.cash.gateway.state.CashInvoiceStateMachine;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Reason;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Source;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Status;
 import xyz.tcheeric.payment.adapter.core.model.entity.CashInvoice;
 import xyz.tcheeric.payment.adapter.core.model.entity.CashReceipt;
 import xyz.tcheeric.payment.adapter.core.model.entity.enums.CashInvoiceStatus;
@@ -35,6 +39,7 @@ import java.util.UUID;
 @Service
 public class CashInvoiceService {
 
+
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     @Value("${cash.default.expiry:300}")
@@ -52,6 +57,23 @@ public class CashInvoiceService {
     private final NostrClient nostrClient;
     private final Nip44EncryptionService encryptionService;
     private final GatewayWebhookForwarder webhookForwarder;
+
+    /** imani-deploy#210. Global registry until Spring injects the application's. */
+    private PaymentMetrics metrics =
+            new PaymentMetrics();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setMeterRegistry(io.micrometer.core.instrument.MeterRegistry registry) {
+        this.metrics = new PaymentMetrics(registry)
+                .preRegister(CASH, Status.INITIATED, Status.SUCCEEDED, Status.CANCELLED);
+    }
+
+    private static final Source CASH = Source.CASH;
+
+    /** Expiry is noticed by the subscriber's sweep; it reports here so the label lives in one place. */
+    public void recordExpired(CashInvoice invoice) {
+        metrics.record(CASH, Status.CANCELLED, Reason.EXPIRED, invoice.getFiat());
+    }
 
     // Callback for subscribing new invoices to relay events
     private volatile java.util.function.Consumer<CashInvoice> invoiceCreatedCallback;
@@ -156,6 +178,7 @@ public class CashInvoiceService {
             }
         }
 
+        metrics.record(CASH, Status.INITIATED, Reason.NONE, fiat, amount == null ? null : amount.longValue());
         log.info("Created cash invoice: ref={}, expiresAt={}", ref, expiresAt);
         return invoice;
     }
@@ -252,6 +275,10 @@ public class CashInvoiceService {
             log.error("Error forwarding cash payment webhook for ref={}: {}", ref, e.getMessage(), e);
         }
 
+        metrics.record(CASH, Status.SUCCEEDED, Reason.NONE, invoice.getFiat(), (long) received);
+        if (invoice.getCreatedAt() != null) {
+            metrics.duration(CASH, PaymentMetrics.Stage.INVOICE_TO_CONFIRM, java.time.Duration.between(invoice.getCreatedAt(), Instant.now()));
+        }
         log.info("Cash receipt confirmed: ref={}, amountReceived={}", ref, received);
         return receipt;
     }
@@ -289,6 +316,10 @@ public class CashInvoiceService {
         // Dispose ephemeral key
         keyPair.dispose();
 
+        metrics.record(CASH, Status.CANCELLED,
+                reason != null && reason.contains("customer") ? Reason.CANCELLED_BY_CUSTOMER
+                        : Reason.CANCELLED_BY_MERCHANT,
+                invoice.getFiat());
         log.info("Cash invoice cancelled: ref={}", ref);
     }
 

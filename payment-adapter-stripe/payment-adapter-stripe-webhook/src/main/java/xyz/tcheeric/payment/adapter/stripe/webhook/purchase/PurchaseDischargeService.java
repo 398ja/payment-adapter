@@ -5,6 +5,11 @@ import java.time.Instant;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Reason;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Source;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Stage;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Status;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripePurchase;
 import xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseRepository;
 
@@ -38,6 +43,18 @@ public class PurchaseDischargeService {
      * gateway not having restarted in between.
      */
     private final Duration claimLease;
+
+    /** imani-deploy#210. Set by the configuration; global registry otherwise. */
+    private PaymentMetrics metrics = new PaymentMetrics();
+
+    public PurchaseDischargeService withMetrics(PaymentMetrics metrics) {
+        this.metrics = metrics.preRegister(Source.CARD, Status.ISSUED, Status.ISSUE_FAILED);
+        return this;
+    }
+
+    private void issueFailed(StripePurchase purchase, Reason reason) {
+        metrics.record(Source.CARD, Status.ISSUE_FAILED, reason, purchase.getCurrency());
+    }
 
     public PurchaseDischargeService(StripePurchaseRepository purchases, GatewayFulfilmentClient fulfilment) {
         this(purchases, fulfilment, Duration.ofMinutes(10));
@@ -161,6 +178,7 @@ public class PurchaseDischargeService {
             purchase.setUpdatedAt(Instant.now());
             purchases.save(purchase);
             log.warn("Refused discharge of {}: no completed send answers its request", eventId);
+            issueFailed(purchase, Reason.UNVERIFIABLE);
             return Result.REFUSED;
         }
 
@@ -185,6 +203,7 @@ public class PurchaseDischargeService {
             purchase.setUpdatedAt(Instant.now());
             purchases.save(purchase);
             log.warn("Refused discharge of {}: {}", eventId, mismatch);
+            issueFailed(purchase, Reason.UNVERIFIABLE);
             return Result.REFUSED;
         }
 
@@ -198,6 +217,7 @@ public class PurchaseDischargeService {
             purchases.save(purchase);
             log.warn("Refused discharge of {}: answered by {} rather than {}",
                     eventId, confirmedIssuer, issuerId);
+            issueFailed(purchase, Reason.UNVERIFIABLE);
             return Result.REFUSED;
         }
 
@@ -212,6 +232,12 @@ public class PurchaseDischargeService {
         purchases.save(purchase);
 
         log.info("Discharged purchase {} on confirmed issuance", eventId);
+        // Once per purchase: ALREADY_DISCHARGED returns above, so a repeated discharge (or a
+        // redelivered webhook, which never reaches this service) cannot count twice.
+        metrics.record(Source.CARD, Status.ISSUED, Reason.NONE, purchase.getCurrency(), purchase.getAmountMinor());
+        if (purchase.getCreatedAt() != null) {
+            metrics.duration(Source.CARD, Stage.PAID_TO_ISSUED, Duration.between(purchase.getCreatedAt(), Instant.now()));
+        }
         return Result.DISCHARGED;
     }
 
@@ -361,6 +387,9 @@ public class PurchaseDischargeService {
             }
             purchase.setAttempts(purchase.getAttempts() + 1);
             purchase.setLastFailure(reason == null ? null : reason.substring(0, Math.min(500, reason.length())));
+            // The reported text is free-form and never a label; only its shape picks the reason.
+            issueFailed(purchase, permanent ? Reason.BLOCKED
+                    : (voucherId != null && !voucherId.isBlank()) ? Reason.DELIVERY_FAILED : Reason.MINT_FAILED);
 
             Instant now = Instant.now();
             boolean heldByAnother = purchase.getStatus() == StripePurchase.Status.ISSUING

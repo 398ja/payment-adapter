@@ -1,6 +1,7 @@
 package xyz.tcheeric.payment.adapter.ln.webhook;
 
 import xyz.tcheeric.payment.adapter.core.common.QuoteRef;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.client.HttpClientErrorException;
@@ -158,8 +159,16 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
 
         forwardToMint(quote, payload);
 
+        LIGHTNING_METRICS.record(PaymentMetrics.Source.LIGHTNING, PaymentMetrics.Status.SUCCEEDED,
+                PaymentMetrics.Reason.NONE, "SAT", payload.amountSat() == null ? null : payload.amountSat().longValue());
         return WebhookResult.success(payment.getPaymentId(), State.CONFIRMED);
     }
+
+    /**
+     * imani-deploy#210. Global registry: this handler is built outside Spring's bean graph.
+     * Lightning is a live source only for mint-quote top-ups; voucher purchases no longer take sats.
+     */
+    private static final PaymentMetrics LIGHTNING_METRICS = new PaymentMetrics();
 
     /**
      * Confirms a payment into a RECEIVE quote, which has no {@link GatewayPayment} of its own.
@@ -187,6 +196,8 @@ public class PhoenixWebhookHandler implements WebhookHandler<PhoenixWebhookPaylo
 
         forwardToMint(quote, payload);
 
+        LIGHTNING_METRICS.record(PaymentMetrics.Source.LIGHTNING, PaymentMetrics.Status.SUCCEEDED,
+                PaymentMetrics.Reason.NONE, "SAT", payload.amountSat() == null ? null : payload.amountSat().longValue());
         return WebhookResult.success(quote.getQuoteId(), State.CONFIRMED);
     }
 

@@ -17,6 +17,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.ConnectEvent;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAccount;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ProcessedStripeWebhookEvent;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeWebhookProcessingStatus;
@@ -42,6 +44,14 @@ public class StripeConnectService {
     private final ConnectedStripeAccountRepository connectedStripeAccountRepository;
     private final ProcessedStripeWebhookEventRepository processedEventRepository;
     private final TransactionTemplate requiresNewTx;
+
+    /** imani-deploy#210. Connect lifecycle transitions, seen here first via account.updated. */
+    private PaymentMetrics metrics = new PaymentMetrics();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setMeterRegistry(io.micrometer.core.instrument.MeterRegistry registry) {
+        this.metrics = new PaymentMetrics(registry).preRegisterConnect();
+    }
 
     public StripeConnectService(
             StripeConnectProperties connectProperties,
@@ -246,6 +256,7 @@ public class StripeConnectService {
     private ConnectedStripeAccount saveSnapshot(String merchantPubkey, StripeAccountSnapshot snapshot) {
         ConnectedStripeAccount account = connectedStripeAccountRepository.findByMerchantPubkey(merchantPubkey)
                 .orElseGet(ConnectedStripeAccount::new);
+        recordTransitions(account, snapshot);
         account.setMerchantPubkey(merchantPubkey);
         account.setStripeAccountId(snapshot.stripeAccountId());
         account.setOnboardingComplete(snapshot.onboardingComplete());
@@ -264,6 +275,23 @@ public class StripeConnectService {
             account.setCreatedAt(Instant.now());
         }
         return connectedStripeAccountRepository.save(account);
+    }
+
+    /** Count what changed, comparing the stored row (a new one has an id-less default) with Stripe's. */
+    private void recordTransitions(ConnectedStripeAccount before, StripeAccountSnapshot after) {
+        boolean isNew = before.getStripeAccountId() == null;
+        if (isNew) {
+            metrics.connect(ConnectEvent.ONBOARDING_STARTED);
+        }
+        if (!before.isOnboardingComplete() && after.onboardingComplete()) {
+            metrics.connect(ConnectEvent.ONBOARDING_COMPLETED);
+        }
+        if (!isNew && before.isChargesEnabled() && !after.chargesEnabled()) {
+            metrics.connect(ConnectEvent.CHARGES_ENABLED_LOST);
+        }
+        if (!before.isChargesEnabled() && after.chargesEnabled()) {
+            metrics.connect(ConnectEvent.CHARGES_ENABLED_GAINED);
+        }
     }
 
     private StripeConnectAccountResponse toResponse(ConnectedStripeAccount account, String onboardingUrl) {
