@@ -111,6 +111,26 @@ class StripePurchaseClaimTest {
     }
 
     @Test
+    void aClaimInvalidatesACopyReadBeforeIt() {
+        // Second check of #278: the bulk claim bypasses @Version, so it must bump the version
+        // itself. Otherwise a writer holding a pre-claim copy (a late failure report from a worker
+        // whose lease lapsed) saves it over the claim, handing the row back to OWED mid-mint.
+        StripePurchase stale = purchases.findByEventId("evt_owed").orElseThrow();
+        entityManager.detach(stale);
+
+        assertThat(claim("evt_owed", "worker-a", now)).isEqualTo(1);
+        entityManager.clear();
+        assertThat(purchases.findByEventId("evt_owed").orElseThrow().getVersion())
+                .isGreaterThan(stale.getVersion());
+
+        stale.setStatus(OWED);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
+            purchases.save(stale);
+            entityManager.flush();
+        }).isInstanceOf(org.springframework.orm.ObjectOptimisticLockingFailureException.class);
+    }
+
+    @Test
     void findsAPurchaseByItsPaymentIntent() {
         // A charge.refunded carries only the charge's payment_intent to find its purchase by.
         StripePurchase row = purchases.findByEventId("evt_owed").orElseThrow();

@@ -448,6 +448,27 @@ class PurchaseDischargeServiceTest {
     }
 
     @Test
+    void theSweepNeverSavesItsOwnCopyOverARowThatChangedMeanwhile() {
+        // Second check of #278: the sweep read the row as ISSUED; by the time discharge() answers,
+        // a refund made it REFUNDED (fresh copy). Backing off must re-read, not save the stale copy.
+        StripePurchase swept = new StripePurchase();
+        swept.setEventId(EVENT);
+        swept.setPaymentRequestId(REQUEST);
+        swept.setStatus(StripePurchase.Status.ISSUED);
+        swept.setVoucherId("voucher-1");
+        owed.setStatus(StripePurchase.Status.REFUNDED);
+        owed.setVoucherId("voucher-1");
+        when(purchases.findIssuedDueForRecheck(eq(StripePurchase.Status.ISSUED), any(), any(), any()))
+                .thenReturn(java.util.List.of(swept));
+
+        assertEquals(0, service.recheckIssued(java.time.Instant.now()));
+
+        verify(purchases, never()).save(org.mockito.ArgumentMatchers.same(swept));
+        verify(purchases, never()).save(org.mockito.ArgumentMatchers.same(owed));
+        assertEquals(StripePurchase.Status.REFUNDED, owed.getStatus());
+    }
+
+    @Test
     void aRefundedRowIsNeverDischargedAndRecordsTheLateVoucher() {
         // payment-adapter#267: refunded while a mint was in flight. The coupon that landed has no
         // money behind it, so the row must not read as served; its id is recorded for a person.
