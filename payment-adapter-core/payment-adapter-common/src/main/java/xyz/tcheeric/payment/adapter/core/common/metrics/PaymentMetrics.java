@@ -49,9 +49,11 @@ public final class PaymentMetrics {
      * {@code FAILED} so a refused QR scan does not drag down the card success rate.
      *
      * <p>Each status is counted by exactly ONE service, so a sum across jobs never double counts:
-     * payment-adapter owns initiated to disputed and card issued/issue_failed; gateway-core owns
-     * cash issued, issue_failed and delivered; purchase-issuer reports its attempts on its own
-     * {@code imani_purchase_issuer_*} family rather than this one.
+     * payment-adapter owns card and lightning, initiated to disputed plus card issued/issue_failed;
+     * gateway-core owns the deployed cash funnel (its own /api/v1/cash invoice and saga).
+     * payment-adapter's cash module also counts {@code source=cash}, but it is not in the deployed
+     * payment-adapter-rest image, so the two never run side by side. purchase-issuer reports its
+     * attempts on its own {@code imani_purchase_issuer_*} family rather than this one.
      */
     public enum Status {
         INITIATED, REFUSED, SUCCEEDED, FAILED, CANCELLED, REFUNDED, DISPUTED, ISSUED, ISSUE_FAILED, DELIVERED
