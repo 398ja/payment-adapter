@@ -94,6 +94,18 @@ public class PurchaseCheckoutController {
             return ResponseEntity.badRequest().body(error("that is not a stall address"));
         }
 
+        // A buyer with no wallet is refused HERE, before any Checkout Session
+        // exists, so nothing can be charged (imani-wallet#267 item 2). Their
+        // coupon would be delivered by Cashlink (claim link), and that delivery
+        // is not wired yet: purchase-issuer would mint it and retry forever.
+        // A malformed key is refused the same way rather than silently becoming
+        // a guest, which is what buyerMetadata used to do.
+        String buyer = normalisedBuyer(request.buyerPubkey());
+        if (buyer == null) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                    .body(error(GUEST_REFUSED));
+        }
+
         Optional<ConnectedStripeAccount> found =
                 accounts.findByMerchantPubkey(request.stallPubkey().toLowerCase());
 
@@ -142,7 +154,7 @@ public class PurchaseCheckoutController {
                     // webhook. Validated before the card is charged and never
                     // typed into a Stripe form: a mistyped key at the moment
                     // money moves is a coupon minted to nobody.
-                    buyerMetadata(request.buyerPubkey()));
+                    Map.of("buyer_pubkey", buyer));
 
             return ResponseEntity.ok(new PurchaseResponse(session.getSessionUrl(), quoteId));
         } catch (RuntimeException e) {
@@ -154,22 +166,22 @@ public class PurchaseCheckoutController {
         }
     }
 
+    /** The words a guest sees. Shared with the wallet's Buy page. */
+    static final String GUEST_REFUSED = "Create a wallet first to buy a voucher by card";
+
     /**
-     * A buyer, only when there is a valid one.
+     * The buyer's key, lower-cased, or null when there is no valid one.
      *
-     * <p>Absent means "no wallet yet", which is a legitimate purchase that
-     * takes delivery by claim link rather than by DM. A malformed key is
-     * treated the same way, because a coupon sent to nobody is worse than a
-     * claim link.
+     * <p>Null covers both "no wallet yet" and a malformed key. Either way the
+     * coupon has nowhere to go until Cashlink delivery exists, so the caller
+     * refuses the purchase.
      */
-    private static Map<String, String> buyerMetadata(String buyerPubkey) {
+    private static String normalisedBuyer(String buyerPubkey) {
         if (buyerPubkey == null) {
-            return Map.of();
+            return null;
         }
         String trimmed = buyerPubkey.trim().toLowerCase();
-        return trimmed.matches("^[0-9a-f]{64}$")
-                ? Map.of("buyer_pubkey", trimmed)
-                : Map.of();
+        return trimmed.matches("^[0-9a-f]{64}$") ? trimmed : null;
     }
 
     private static Map<String, String> error(String message) {
@@ -179,7 +191,7 @@ public class PurchaseCheckoutController {
     /**
      * @param stallPubkey whose coupon is being bought
      * @param amountMinor the face value, in the stall's own currency
-     * @param buyerPubkey where to deliver, or null for a claim link
+     * @param buyerPubkey where to deliver. Required until Cashlink delivery exists.
      */
     public record PurchaseRequest(String stallPubkey, Long amountMinor, String buyerPubkey) {
     }

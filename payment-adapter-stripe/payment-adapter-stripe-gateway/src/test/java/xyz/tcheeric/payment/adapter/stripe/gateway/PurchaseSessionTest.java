@@ -36,10 +36,13 @@ class PurchaseSessionTest {
 
     private StripeCheckoutClient checkoutClient;
     private StripeCheckoutService checkoutService;
+    private StripeGatewayProperties properties;
 
     @BeforeEach
     void setUp() {
-        StripeGatewayProperties properties = new StripeGatewayProperties();
+        properties = new StripeGatewayProperties();
+        properties.setSuccessUrl("https://wallet.example/settings/payments?stripe=success");
+        properties.setCancelUrl("https://wallet.example/settings/payments?stripe=cancel");
         properties.setDefaultCurrency("USD");
         properties.setAllowedCurrencies(java.util.List.of("usd", "gbp"));
         properties.setCheckoutExpirySeconds(900);
@@ -134,5 +137,37 @@ class PurchaseSessionTest {
                 "q-11", 1, "Voucher", "GBP", ACCOUNT, null, null));
         assertThrows(StripeValidationException.class, () -> checkoutService.createPurchaseSession(
                 "q-12", 999999, "Voucher", "GBP", ACCOUNT, null, null));
+    }
+
+    @Test
+    void sendsTheBuyerToTheBuyerReturnPagesWhenConfigured() {
+        // The global success/cancel URLs land on the MERCHANT settings screen
+        // (imani-wallet#267 item 3). A buyer must come back to /buy/done.
+        properties.setPurchaseSuccessUrl("https://wallet.example/buy/done?session_id={CHECKOUT_SESSION_ID}");
+        properties.setPurchaseCancelUrl("https://wallet.example/buy/cancelled");
+        checkoutService.createPurchaseSession("q-13", 2500, "Voucher", "GBP", ACCOUNT, null, null);
+
+        StripeCheckoutRequest request = capture();
+        assertEquals("https://wallet.example/buy/done?session_id={CHECKOUT_SESSION_ID}", request.getSuccessUrl());
+        assertEquals("https://wallet.example/buy/cancelled", request.getCancelUrl());
+    }
+
+    @Test
+    void fallsBackToTheGlobalReturnUrlsWhenNoBuyerOnesAreSet() {
+        checkoutService.createPurchaseSession("q-14", 2500, "Voucher", "GBP", ACCOUNT, null, null);
+
+        StripeCheckoutRequest request = capture();
+        assertEquals("https://wallet.example/settings/payments?stripe=success", request.getSuccessUrl());
+        assertEquals("https://wallet.example/settings/payments?stripe=cancel", request.getCancelUrl());
+    }
+
+    @Test
+    void theMintQuoteFlowKeepsTheGlobalReturnUrls() {
+        properties.setPurchaseSuccessUrl("https://wallet.example/buy/done");
+        checkoutService.createCheckoutSession("q-15", 500, "Mint quote");
+
+        StripeCheckoutRequest request = capture();
+        assertNull(request.getSuccessUrl(), "null means the client uses stripe.success-url");
+        assertNull(request.getCancelUrl());
     }
 }

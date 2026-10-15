@@ -44,8 +44,10 @@ public class StripeSdkCheckoutClient implements StripeCheckoutClient {
         try {
             SessionCreateParams.Builder params = SessionCreateParams.builder()
                     .setMode(SessionCreateParams.Mode.PAYMENT)
-                    .setSuccessUrl(properties.getSuccessUrl())
-                    .setCancelUrl(properties.getCancelUrl())
+                    .setSuccessUrl(checkoutRequest.getSuccessUrl() != null
+                            ? checkoutRequest.getSuccessUrl() : properties.getSuccessUrl())
+                    .setCancelUrl(checkoutRequest.getCancelUrl() != null
+                            ? checkoutRequest.getCancelUrl() : properties.getCancelUrl())
                     .setExpiresAt(expirationEpochSeconds())
                     .setClientReferenceId(checkoutRequest.getQuoteId())
                     .putMetadata("quote_id", checkoutRequest.getQuoteId())

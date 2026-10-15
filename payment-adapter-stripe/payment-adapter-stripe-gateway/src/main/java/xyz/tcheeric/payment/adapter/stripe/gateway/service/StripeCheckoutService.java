@@ -98,7 +98,11 @@ public class StripeCheckoutService {
                 .description(sanitizeDescription(description))
                 .idempotencyKey(buildIdempotencyKey(quoteId))
                 .connectedAccountId(connectedAccountId)
-                .applicationFeeMinor(applicationFeeMinor);
+                .applicationFeeMinor(applicationFeeMinor)
+                // The buyer's own return pages, not the merchant settings
+                // screen the global URLs point at (imani-wallet#267).
+                .successUrl(properties.resolvedPurchaseSuccessUrl())
+                .cancelUrl(properties.resolvedPurchaseCancelUrl());
         if (metadata != null) {
             metadata.forEach(builder::metadata);
         }
