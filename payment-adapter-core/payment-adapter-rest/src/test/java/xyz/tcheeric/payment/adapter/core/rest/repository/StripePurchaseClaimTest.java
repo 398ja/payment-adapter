@@ -101,6 +101,26 @@ class StripePurchaseClaimTest {
     }
 
     @Test
+    void neverClaimsOrListsARefundedRow() {
+        // payment-adapter#267, harness S12: a payment refunded before issue must never be minted.
+        persist("evt_refunded", StripePurchase.Status.REFUNDED, null);
+
+        assertThat(claim("evt_refunded", "w", now)).isZero();
+        assertThat(purchases.findClaimable(OWED, ISSUING, now))
+                .extracting(StripePurchase::getEventId).containsExactly("evt_owed");
+    }
+
+    @Test
+    void findsAPurchaseByItsPaymentIntent() {
+        // A charge.refunded carries only the charge's payment_intent to find its purchase by.
+        StripePurchase row = purchases.findByEventId("evt_owed").orElseThrow();
+        row.setPaymentIntentId("pi_owed");
+        entityManager.persistAndFlush(row);
+
+        assertThat(purchases.findByPaymentIntentId("pi_owed")).map(StripePurchase::getEventId).contains("evt_owed");
+    }
+
+    @Test
     void theIssuedRecheckFindsOnlyIssuedRowsThatAreDueAndNotTooOld() {
         // PA-2. The sweep must see an ISSUED row once it has rested past the
         // back-off, and must never see OWED/ISSUING rows (those mint) or

@@ -97,7 +97,14 @@ public class StripePurchase {
          * stall that no longer exists. Needs a person, and stays visible until
          * one arrives.
          */
-        BLOCKED
+        BLOCKED,
+        /**
+         * The money went back before any coupon existed (payment-adapter#267,
+         * policy on #265). Terminal: never claimed, never minted, never
+         * discharged. A coupon that lands anyway (a mint already in flight)
+         * is recorded in {@link #voucherId} for a person to see, and the status stays.
+         */
+        REFUNDED
     }
 
     @Id
@@ -226,6 +233,25 @@ public class StripePurchase {
     /** Which worker holds the claim, for an operator reading the row. */
     @Column(name = "claimed_by", length = 128)
     private String claimedBy;
+
+    /**
+     * Cumulative {@code amount_refunded} Stripe reported, in minor units; null when never refunded.
+     *
+     * <p>Kept on every row, issued or not. Refunds are not supported yet (#265): after issue this is
+     * a record only, so backed = paid - refunded stays derivable.
+     */
+    @Column(name = "refunded_amount_minor")
+    private Long refundedAmountMinor;
+
+    /**
+     * The buyer opened a dispute. Recorded only: nothing acts on it (#265).
+     */
+    @Column(name = "disputed", nullable = false)
+    private boolean disputed;
+
+    /** When the latest refund or dispute was recorded. */
+    @Column(name = "reversed_at")
+    private Instant reversedAt;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;

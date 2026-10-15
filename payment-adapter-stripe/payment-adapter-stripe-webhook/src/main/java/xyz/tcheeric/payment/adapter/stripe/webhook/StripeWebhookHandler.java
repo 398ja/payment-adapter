@@ -329,6 +329,9 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
 
     private WebhookResult handleChargeRefunded(StripeWebhookPayload payload,
                                                ProcessedStripeWebhookEvent eventRecord) throws WebhookProcessingException {
+        if (isPurchase(payload)) {
+            return handleReversedPurchase(payload, eventRecord, false);
+        }
         StripePaymentReference paymentReference = findPaymentReference(payload);
         paymentReference.setChargeId(defaultIfBlank(payload.getChargeId(), paymentReference.getChargeId()));
         paymentReference.setStripeStatus("refunded");
@@ -346,6 +349,9 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
 
     private WebhookResult handleChargeDisputed(StripeWebhookPayload payload,
                                                ProcessedStripeWebhookEvent eventRecord) throws WebhookProcessingException {
+        if (isPurchase(payload)) {
+            return handleReversedPurchase(payload, eventRecord, true);
+        }
         StripePaymentReference paymentReference = findPaymentReference(payload);
         paymentReference.setChargeId(defaultIfBlank(payload.getChargeId(), paymentReference.getChargeId()));
         paymentReference.setStripeStatus("disputed");
@@ -506,6 +512,42 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         // Counted only once the debt is recorded. A redelivery never reaches here: it was
         // turned away as a duplicate by startEventProcessing.
         metrics.record(Source.CARD, Status.SUCCEEDED, Reason.NONE, payload.getCurrency(), amountOf(payload));
+        return new WebhookResult(true, payload.getPaymentIntentId(), State.PAID,
+                Map.of("eventType", payload.getEventType(), "purchase", true));
+    }
+
+    /**
+     * A refund or dispute on a coupon purchase (payment-adapter#267). A purchase has no
+     * {@code StripePaymentReference}, so the mint path's look-up answered 500 and Stripe retried
+     * it for three days, pushing the endpoint toward being disabled.
+     *
+     * <p>Always acknowledged when nothing is listening or the purchase is unknown: neither gets
+     * better with a retry. Refused (non-2xx, so Stripe redelivers) only when recording failed.
+     * A dispute's {@code payment_intent} sits on the dispute object, like a charge's.
+     */
+    private WebhookResult handleReversedPurchase(StripeWebhookPayload payload,
+                                                 ProcessedStripeWebhookEvent eventRecord,
+                                                 boolean disputed) throws WebhookProcessingException {
+        if (purchaseListener == null) {
+            log.warn("{} {} on account {} acknowledged: no StripePurchaseListener is configured",
+                    payload.getEventType(), payload.getEventId(), payload.getConnectedAccountId());
+        } else {
+            try {
+                purchaseListener.onPurchaseReversed(new StripePurchaseListener.ReversedPurchase(
+                        payload.getEventId(),
+                        payload.getPaymentIntentId(),
+                        payload.getChargeId(),
+                        payload.getConnectedAccountId(),
+                        disputed || payload.getRefundedAmountMinor() == null
+                                ? null : payload.getRefundedAmountMinor().longValue(),
+                        payload.getAmountTotal() == null ? null : payload.getAmountTotal().longValue(),
+                        disputed));
+            } catch (Exception e) {
+                throw new WebhookProcessingException(
+                        "Purchase listener could not record " + payload.getEventType() + " " + payload.getEventId(), e);
+            }
+        }
+        markProcessed(eventRecord);
         return new WebhookResult(true, payload.getPaymentIntentId(), State.PAID,
                 Map.of("eventType", payload.getEventType(), "purchase", true));
     }

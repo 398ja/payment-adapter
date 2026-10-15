@@ -446,4 +446,27 @@ class PurchaseDischargeServiceTest {
         assertEquals(0, owed.getAttempts(), "an outage is not the issuer's failure");
         org.junit.jupiter.api.Assertions.assertTrue(owed.getUpdatedAt().isAfter(before));
     }
+
+    @Test
+    void aRefundedRowIsNeverDischargedAndRecordsTheLateVoucher() {
+        // payment-adapter#267: refunded while a mint was in flight. The coupon that landed has no
+        // money behind it, so the row must not read as served; its id is recorded for a person.
+        owed.setStatus(StripePurchase.Status.REFUNDED);
+
+        assertEquals(PurchaseDischargeService.Result.REFUNDED, service.discharge(EVENT, "voucher-late", STALL));
+
+        assertEquals(StripePurchase.Status.REFUNDED, owed.getStatus());
+        assertEquals("voucher-late", owed.getVoucherId());
+        verify(fulfilment, never()).check(any());
+    }
+
+    @Test
+    void aFailureReportNeverSendsARefundedRowBackToOwed() {
+        // REFUNDED is terminal: back to OWED would mint for a refunded payment (S12).
+        owed.setStatus(StripePurchase.Status.REFUNDED);
+
+        service.recordFailure(EVENT, "mint refused", false, null);
+
+        assertEquals(StripePurchase.Status.REFUNDED, owed.getStatus());
+    }
 }

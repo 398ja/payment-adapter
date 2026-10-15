@@ -262,4 +262,14 @@ class PurchaseControllerTest {
         verify(chain).doFilter(request, response);
         verify(response, never()).sendError(anyInt());
     }
+
+    @Test
+    void aRefundedDischargeIsAConflictSoTheIssuerStops() {
+        // #267: the issuer must not retry a discharge for a refunded payment.
+        when(discharges.discharge(anyString(), anyString(), any()))
+                .thenReturn(PurchaseDischargeService.Result.REFUNDED);
+
+        assertEquals(HttpStatus.CONFLICT, controller.discharge("evt_1",
+                new PurchaseController.DischargeRequest("v1", null)).getStatusCode());
+    }
 }
