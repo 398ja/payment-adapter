@@ -34,7 +34,11 @@ public class PaidUnissuedGauge {
      * #268). Derived, so a status added later is counted rather than silently dropped.
      */
     static final java.util.Set<StripePurchase.Status> OPEN = java.util.Collections.unmodifiableSet(
-            java.util.EnumSet.complementOf(java.util.EnumSet.of(StripePurchase.Status.DISCHARGED)));
+            java.util.EnumSet.complementOf(java.util.EnumSet.of(
+                    StripePurchase.Status.DISCHARGED,
+                    // The buyer has their money back (#267): not "paid and holds nothing". Counting
+                    // it would fire CardPaidNotIssued 10 min after every pre-issue refund, forever.
+                    StripePurchase.Status.REFUNDED)));
 
     private final StripePurchaseRepository purchases;
     private final Clock clock;

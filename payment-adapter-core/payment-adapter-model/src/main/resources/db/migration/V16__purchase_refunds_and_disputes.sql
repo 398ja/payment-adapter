@@ -11,3 +11,6 @@
 ALTER TABLE stripe_purchase ADD COLUMN IF NOT EXISTS refunded_amount_minor BIGINT;
 ALTER TABLE stripe_purchase ADD COLUMN IF NOT EXISTS disputed BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE stripe_purchase ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMP WITH TIME ZONE;
+-- Optimistic lock (review of #278): the refund handler and a discharge both save the whole row,
+-- and a discharge holds its copy while it asks the gateway. Existing rows start at 0.
+ALTER TABLE stripe_purchase ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;

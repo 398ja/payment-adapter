@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.Data;
@@ -258,4 +259,14 @@ public class StripePurchase {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    /**
+     * Optimistic lock (review of #278). Every writer saves the whole row, and a discharge holds
+     * its copy for seconds while it asks the gateway. Without this, a refund recorded meanwhile
+     * (REFUNDED, already acknowledged to Stripe) is silently overwritten by the stale copy, or a
+     * refund handler's stale copy erases a discharge. The late writer now fails and retries.
+     */
+    @Version
+    @Column(name = "version", nullable = false)
+    private long version;
 }

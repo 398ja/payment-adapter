@@ -371,9 +371,15 @@ public class PurchaseDischargeService {
             }
             if (result == Result.DISCHARGED) {
                 discharged++;
-            } else if (row.getStatus() == StripePurchase.Status.ISSUED) {
-                row.setUpdatedAt(Instant.now());
-                purchases.save(row);
+            } else {
+                // Re-read: discharge() may have written the row (attempts, a REFUNDED voucher
+                // note), and saving this sweep's older copy would undo that (review of #278).
+                purchases.findByEventId(row.getEventId())
+                        .filter(fresh -> fresh.getStatus() == StripePurchase.Status.ISSUED)
+                        .ifPresent(fresh -> {
+                            fresh.setUpdatedAt(Instant.now());
+                            purchases.save(fresh);
+                        });
             }
         }
         if (discharged > 0) {

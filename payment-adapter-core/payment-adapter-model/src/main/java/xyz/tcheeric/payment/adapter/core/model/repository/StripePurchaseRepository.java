@@ -88,7 +88,7 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update StripePurchase p set p.status = :issuing, p.claimedUntil = :until,"
-            + " p.claimedBy = :worker, p.updatedAt = :now"
+            + " p.claimedBy = :worker, p.updatedAt = :now, p.version = p.version + 1"
             + " where p.eventId = :eventId"
             + " and (p.status = :owed or (p.status = :issuing and p.claimedUntil < :now))")
     int claim(
