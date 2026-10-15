@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-15
+
+### Added
+
+- **Buyer return URLs for coupon purchases (imani-wallet#267, #266).** New
+  `stripe.purchase-success-url` / `stripe.purchase-cancel-url` (`STRIPE_PURCHASE_SUCCESS_URL` /
+  `STRIPE_PURCHASE_CANCEL_URL`). Coupon purchases (`createPurchaseSession`) use them and fall back
+  to `stripe.success-url` / `stripe.cancel-url` when unset. The mint-quote Checkout flow and
+  Connect onboarding keep their own URLs.
+
+### Fixed
+
+- **A guest could pay by card and receive nothing (imani-wallet#267, #266).**
+  `POST /api/v1/checkout/purchase` now refuses a missing or malformed `buyerPubkey` (anything but
+  64 hex after trim/lower) with **422** "Create a wallet first to buy a voucher by card", before
+  the account lookup and before any Checkout Session exists. Cashlink (claim-link) delivery is
+  not wired for card purchases yet, so a guest buyer had no way to receive the coupon.
+
 ## [0.18.1] - 2026-10-09
 
 ### Fixed
