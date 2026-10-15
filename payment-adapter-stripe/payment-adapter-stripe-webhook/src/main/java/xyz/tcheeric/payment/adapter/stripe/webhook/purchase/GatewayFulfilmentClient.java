@@ -8,10 +8,12 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.HexFormat;
 import lombok.extern.slf4j.Slf4j;
+import nostr.crypto.schnorr.Schnorr;
 import nostr.id.Identity;
 
 /**
@@ -48,6 +50,7 @@ public class GatewayFulfilmentClient {
 
     /** NIP-98's kind for an HTTP authorization event. */
     private static final int KIND_HTTP_AUTH = 27235;
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final String baseUrl;
     private final Identity identity;
@@ -297,7 +300,15 @@ public class GatewayFulfilmentClient {
         event.put("kind", KIND_HTTP_AUTH);
         event.set("tags", tags);
         event.put("content", "");
-        event.put("sig", identity.sign(new EventId(id)).toString());
+        /*
+         * BIP-340 over the raw 32-byte id, as NIP-01 and the gateways' Nip98AuthFilter
+         * require. NOT identity.sign(...): nostr-java's Identity.sign hashes its input
+         * again and signs sha256(id), which every gateway rejects as "Invalid signature" (B2).
+         */
+        byte[] auxRand = new byte[32];
+        RANDOM.nextBytes(auxRand);
+        event.put("sig", HexFormat.of().formatHex(
+                Schnorr.sign(id, identity.getPrivateKey().getRawData(), auxRand)));
 
         return "Nostr " + Base64.getEncoder()
                 .encodeToString(MAPPER.writeValueAsBytes(event));
@@ -316,42 +327,5 @@ public class GatewayFulfilmentClient {
 
     private static String truncate(String value) {
         return value == null || value.length() <= 12 ? value : value.substring(0, 12) + "...";
-    }
-
-    /**
-     * The 32 bytes a NIP-98 event's signature covers.
-     *
-     * <p>{@code ISignable} is not a functional interface, so this cannot be a
-     * lambda. It carries the event id and nothing else, because that is the
-     * whole of what BIP-340 signs here.
-     */
-    private static final class EventId implements nostr.base.ISignable {
-
-        private final byte[] id;
-        private nostr.base.Signature signature;
-
-        private EventId(byte[] id) {
-            this.id = id;
-        }
-
-        @Override
-        public nostr.base.Signature getSignature() {
-            return signature;
-        }
-
-        @Override
-        public void setSignature(nostr.base.Signature signature) {
-            this.signature = signature;
-        }
-
-        @Override
-        public java.util.function.Consumer<nostr.base.Signature> getSignatureConsumer() {
-            return value -> this.signature = value;
-        }
-
-        @Override
-        public java.util.function.Supplier<java.nio.ByteBuffer> getByteArraySupplier() {
-            return () -> java.nio.ByteBuffer.wrap(id);
-        }
     }
 }

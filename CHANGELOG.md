@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- **Every fulfilment GET/PUT to gateway-core got 401 "Invalid signature" (B2,
+  imani-deploy#213/#214, PA#270).** `GatewayFulfilmentClient` signed its NIP-98 event with
+  nostr-java's `Identity.sign`, which signs sha256 of its input, so the signature covered
+  sha256(id) rather than the event id. It now signs the raw 32-byte NIP-01 id with BIP-340
+  (`Schnorr.sign(id, key, auxRand)`), which is what `Nip98AuthFilter` verifies. New
+  `GatewayFulfilmentSignatureTest` verifies the GET and PUT headers exactly as the gateways do
+  and cross-checks a nostr-tools vector.
 - **A Stripe outage at card checkout held the buyer ~2 minutes and then answered 400
   ([#274](https://github.com/398ja/payment-adapter/issues/274) PA part, card atomicity audit S9).**
   The Checkout create call is bounded (`stripe.checkout-connect-timeout-ms` 5000,
