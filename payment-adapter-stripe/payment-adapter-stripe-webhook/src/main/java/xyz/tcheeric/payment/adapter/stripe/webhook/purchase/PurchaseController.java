@@ -130,7 +130,8 @@ public class PurchaseController {
 
         return switch (result) {
             case DISCHARGED, ALREADY_DISCHARGED -> ResponseEntity.ok().build();
-            case REFUSED -> ResponseEntity.status(HttpStatus.CONFLICT).build();
+            // REFUNDED is a 409 too: the issuer must stop, and must not retry (#267).
+            case REFUSED, REFUNDED -> ResponseEntity.status(HttpStatus.CONFLICT).build();
             case UNVERIFIABLE -> ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
             case UNKNOWN_PURCHASE -> ResponseEntity.notFound().build();
         };

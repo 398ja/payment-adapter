@@ -101,6 +101,46 @@ class StripePurchaseClaimTest {
     }
 
     @Test
+    void neverClaimsOrListsARefundedRow() {
+        // payment-adapter#267, harness S12: a payment refunded before issue must never be minted.
+        persist("evt_refunded", StripePurchase.Status.REFUNDED, null);
+
+        assertThat(claim("evt_refunded", "w", now)).isZero();
+        assertThat(purchases.findClaimable(OWED, ISSUING, now))
+                .extracting(StripePurchase::getEventId).containsExactly("evt_owed");
+    }
+
+    @Test
+    void aClaimInvalidatesACopyReadBeforeIt() {
+        // Second check of #278: the bulk claim bypasses @Version, so it must bump the version
+        // itself. Otherwise a writer holding a pre-claim copy (a late failure report from a worker
+        // whose lease lapsed) saves it over the claim, handing the row back to OWED mid-mint.
+        StripePurchase stale = purchases.findByEventId("evt_owed").orElseThrow();
+        entityManager.detach(stale);
+
+        assertThat(claim("evt_owed", "worker-a", now)).isEqualTo(1);
+        entityManager.clear();
+        assertThat(purchases.findByEventId("evt_owed").orElseThrow().getVersion())
+                .isGreaterThan(stale.getVersion());
+
+        stale.setStatus(OWED);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
+            purchases.save(stale);
+            entityManager.flush();
+        }).isInstanceOf(org.springframework.orm.ObjectOptimisticLockingFailureException.class);
+    }
+
+    @Test
+    void findsAPurchaseByItsPaymentIntent() {
+        // A charge.refunded carries only the charge's payment_intent to find its purchase by.
+        StripePurchase row = purchases.findByEventId("evt_owed").orElseThrow();
+        row.setPaymentIntentId("pi_owed");
+        entityManager.persistAndFlush(row);
+
+        assertThat(purchases.findByPaymentIntentId("pi_owed")).map(StripePurchase::getEventId).contains("evt_owed");
+    }
+
+    @Test
     void theIssuedRecheckFindsOnlyIssuedRowsThatAreDueAndNotTooOld() {
         // PA-2. The sweep must see an ISSUED row once it has rested past the
         // back-off, and must never see OWED/ISSUING rows (those mint) or

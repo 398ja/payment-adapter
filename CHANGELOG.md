@@ -11,6 +11,19 @@
   reuses the idempotency key). `POST /api/v1/checkout/purchase` answers **503** with
   `Retry-After: 5` and `{"error":"card payments are briefly unavailable, try again"}` when Stripe
   is unreachable, times out, or answers 5xx/429. Stripe validation refusals keep the 400.
+- **A refund or dispute on a card coupon purchase answered 500, and a payment refunded before
+  issue was still minted ([#267](https://github.com/398ja/payment-adapter/issues/267), card
+  atomicity audit S8, S12).** `charge.refunded` and `charge.dispute.created` carrying an
+  `account` (a direct charge on the stall) now go to the purchase listener, are logged and
+  answered 2xx, including when the purchase is unknown. The row found by `payment_intent_id`
+  records Stripe's cumulative `refunded_amount_minor` (never decreases, so redeliveries are
+  no-ops) or `disputed`. A purchase refunded before any coupon exists (OWED, ISSUING, BLOCKED)
+  becomes **REFUNDED**: the claim and `/owed` never match it, `/discharge` answers 409 (a voucher
+  from a mint already in flight is recorded on the row), and a failure report never moves it
+  back to OWED. Refunds of issued coupons are not supported yet (#265): recorded only.
+  Migration V16 adds `refunded_amount_minor`, `disputed`, `reversed_at`.
+  Purchase refunds and disputes are counted in `imani_payments{source=card,status=refunded|disputed}`
+  like the mint path's (#268).
 
 ## [0.20.0] - 2026-10-15
 

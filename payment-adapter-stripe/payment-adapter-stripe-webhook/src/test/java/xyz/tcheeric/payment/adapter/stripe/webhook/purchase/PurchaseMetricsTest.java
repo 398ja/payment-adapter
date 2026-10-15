@@ -166,9 +166,11 @@ class PurchaseMetricsTest {
      * included. Pinned against the enum, not against OPEN itself.
      */
     @Test
-    void openIsEveryStatusButDischarged() {
+    void openIsEveryStatusButDischargedAndRefunded() {
+        // Review of #278: REFUNDED (money back before issue) is not "paid, holds nothing".
         EnumSet<StripePurchase.Status> expected = EnumSet.allOf(StripePurchase.Status.class);
         expected.remove(StripePurchase.Status.DISCHARGED);
+        expected.remove(StripePurchase.Status.REFUNDED);
         assertEquals(expected, PaidUnissuedGauge.OPEN);
     }
 }

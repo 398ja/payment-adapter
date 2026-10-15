@@ -262,4 +262,27 @@ class PurchaseControllerTest {
         verify(chain).doFilter(request, response);
         verify(response, never()).sendError(anyInt());
     }
+
+    @Test
+    void aRefundedDischargeIsAConflictSoTheIssuerStops() {
+        // #267: the issuer must not retry a discharge for a refunded payment.
+        when(discharges.discharge(anyString(), anyString(), any()))
+                .thenReturn(PurchaseDischargeService.Result.REFUNDED);
+
+        assertEquals(HttpStatus.CONFLICT, controller.discharge("evt_1",
+                new PurchaseController.DischargeRequest("v1", null)).getStatusCode());
+    }
+
+    @Test
+    void exposesNoPerStallReadBehindTheIssuerToken() {
+        // Review of #278: a per-stall purchase listing behind PURCHASE_API_TOKEN would push the token
+        // that can claim, discharge and fail every purchase out to a gateway or wallet. Re-add with
+        // imani-wallet#277, behind stall-scoped auth, and change this test deliberately.
+        java.util.List<String> gets = java.util.Arrays.stream(PurchaseController.class.getDeclaredMethods())
+                .map(m -> m.getAnnotation(org.springframework.web.bind.annotation.GetMapping.class))
+                .filter(java.util.Objects::nonNull)
+                .flatMap(g -> java.util.Arrays.stream(g.value()))
+                .toList();
+        assertEquals(List.of("/owed"), gets);
+    }
 }

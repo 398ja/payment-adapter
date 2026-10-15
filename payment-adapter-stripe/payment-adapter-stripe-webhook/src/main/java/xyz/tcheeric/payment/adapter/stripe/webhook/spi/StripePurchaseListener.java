@@ -48,6 +48,43 @@ public interface StripePurchaseListener {
     void onPurchasePaid(PaidPurchase purchase) throws Exception;
 
     /**
+     * Money went back to the buyer, or the buyer disputed the charge
+     * (payment-adapter#267, policy on #265).
+     *
+     * <p>Record it, durably and idempotently. A purchase not yet issued must
+     * never be issued after this; one already issued keeps its coupon here,
+     * and the facts are kept for whatever acts on them later (revocation,
+     * operator attention). The default does nothing, for a listener that
+     * predates refunds: the handler still acknowledges the event.
+     *
+     * @throws Exception to refuse the event so Stripe redelivers it. Only for
+     *                   a failure to record, never for "no such purchase"
+     */
+    default void onPurchaseReversed(ReversedPurchase reversal) throws Exception {
+    }
+
+    /**
+     * A refund or a dispute on a purchase's charge.
+     *
+     * @param eventId             Stripe's event id
+     * @param paymentIntentId     how the purchase is found: the charge's {@code payment_intent}
+     * @param chargeId            the charge, for an operator following the trail
+     * @param connectedAccountId  the stall's {@code acct_…}
+     * @param refundedAmountMinor cumulative {@code amount_refunded}, or null for a dispute
+     * @param amountMinor         the charge's own amount, or the dispute's
+     * @param disputed            true for {@code charge.dispute.created}
+     */
+    record ReversedPurchase(
+            String eventId,
+            String paymentIntentId,
+            String chargeId,
+            String connectedAccountId,
+            Long refundedAmountMinor,
+            Long amountMinor,
+            boolean disputed) {
+    }
+
+    /**
      * One paid purchase, in the terms the consequence needs.
      *
      * @param eventId          Stripe's event id, stable across redeliveries and

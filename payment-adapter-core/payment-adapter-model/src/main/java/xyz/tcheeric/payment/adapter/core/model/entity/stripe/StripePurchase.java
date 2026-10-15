@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.Data;
@@ -97,7 +98,14 @@ public class StripePurchase {
          * stall that no longer exists. Needs a person, and stays visible until
          * one arrives.
          */
-        BLOCKED
+        BLOCKED,
+        /**
+         * The money went back before any coupon existed (payment-adapter#267,
+         * policy on #265). Terminal: never claimed, never minted, never
+         * discharged. A coupon that lands anyway (a mint already in flight)
+         * is recorded in {@link #voucherId} for a person to see, and the status stays.
+         */
+        REFUNDED
     }
 
     @Id
@@ -227,9 +235,38 @@ public class StripePurchase {
     @Column(name = "claimed_by", length = 128)
     private String claimedBy;
 
+    /**
+     * Cumulative {@code amount_refunded} Stripe reported, in minor units; null when never refunded.
+     *
+     * <p>Kept on every row, issued or not. Refunds are not supported yet (#265): after issue this is
+     * a record only, so backed = paid - refunded stays derivable.
+     */
+    @Column(name = "refunded_amount_minor")
+    private Long refundedAmountMinor;
+
+    /**
+     * The buyer opened a dispute. Recorded only: nothing acts on it (#265).
+     */
+    @Column(name = "disputed", nullable = false)
+    private boolean disputed;
+
+    /** When the latest refund or dispute was recorded. */
+    @Column(name = "reversed_at")
+    private Instant reversedAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    /**
+     * Optimistic lock (review of #278). Every writer saves the whole row, and a discharge holds
+     * its copy for seconds while it asks the gateway. Without this, a refund recorded meanwhile
+     * (REFUNDED, already acknowledged to Stripe) is silently overwritten by the stale copy, or a
+     * refund handler's stale copy erases a discharge. The late writer now fails and retries.
+     */
+    @Version
+    @Column(name = "version", nullable = false)
+    private long version;
 }

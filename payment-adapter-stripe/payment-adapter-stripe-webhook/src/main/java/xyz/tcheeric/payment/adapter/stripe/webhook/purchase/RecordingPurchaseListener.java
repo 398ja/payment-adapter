@@ -149,6 +149,64 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
     }
 
     /**
+     * {@inheritDoc}
+     *
+     * <p>The owner's policy (#265): money back before any coupon exists means the row is
+     * REFUNDED and is never minted. After issue, only the facts are recorded: what happens to an
+     * issued coupon is still the owner's to decide. A dispute is recorded and changes no status.
+     *
+     * <p>Idempotent: amounts are Stripe's cumulative totals, so a redelivery writes the same
+     * values again. A purchase we never recorded is logged, not refused: refusing would only
+     * make Stripe retry an event nothing here can ever act on.
+     */
+    @Override
+    @Transactional
+    public void onPurchaseReversed(ReversedPurchase reversal) {
+        var found = reversal.paymentIntentId() == null
+                ? java.util.Optional.<StripePurchase>empty()
+                : purchases.findByPaymentIntentId(reversal.paymentIntentId());
+        if (found.isEmpty()) {
+            log.warn("{} {} for payment intent {} on account {} matches no recorded purchase; acknowledged",
+                    reversal.disputed() ? "Dispute" : "Refund", reversal.eventId(),
+                    reversal.paymentIntentId(), reversal.connectedAccountId());
+            return;
+        }
+        StripePurchase row = found.get();
+        if (reversal.disputed()) {
+            row.setDisputed(true);
+        } else {
+            // Stripe's amount_refunded is cumulative, so the larger figure is the truth whatever
+            // order the events arrive in, and a redelivery changes nothing.
+            long reported = reversal.refundedAmountMinor() != null
+                    ? reversal.refundedAmountMinor() : reversal.amountMinor() == null ? 0L : reversal.amountMinor();
+            long known = row.getRefundedAmountMinor() == null ? 0L : row.getRefundedAmountMinor();
+            row.setRefundedAmountMinor(Math.max(known, reported));
+            if (isUnissued(row)) {
+                row.setStatus(StripePurchase.Status.REFUNDED);
+                row.setClaimedUntil(null);
+            }
+        }
+        row.setReversedAt(Instant.now());
+        row.setUpdatedAt(Instant.now());
+        purchases.save(row);
+        log.info("Purchase {} {}: status {}, refunded {} of {}, disputed {}",
+                row.getEventId(), reversal.disputed() ? "disputed" : "refunded", row.getStatus(),
+                row.getRefundedAmountMinor(), row.getAmountMinor(), row.isDisputed());
+    }
+
+    /**
+     * No coupon exists yet. ISSUING counts: a mint may be in flight, and if it lands the
+     * discharge records its voucher without closing the row
+     * ({@link PurchaseDischargeService}). BLOCKED counts too: nothing was minted.
+     */
+    private static boolean isUnissued(StripePurchase row) {
+        return row.getVoucherId() == null
+                && (row.getStatus() == StripePurchase.Status.OWED
+                        || row.getStatus() == StripePurchase.Status.ISSUING
+                        || row.getStatus() == StripePurchase.Status.BLOCKED);
+    }
+
+    /**
      * Bind the new request to this purchase's terms, as soon as its id exists.
      *
      * <p>gateway-core#131 counts a send only when it went to the registered

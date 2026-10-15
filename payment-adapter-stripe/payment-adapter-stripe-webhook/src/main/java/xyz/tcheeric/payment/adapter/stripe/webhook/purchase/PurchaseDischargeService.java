@@ -108,6 +108,11 @@ public class PurchaseDischargeService {
         UNVERIFIABLE,
         /** Already closed by an earlier call. */
         ALREADY_DISCHARGED,
+        /**
+         * The payment was refunded before issue (#267). Not closed: the coupon the issuer names
+         * is kept on the row for an operator, and the issuer must not retry.
+         */
+        REFUNDED,
         /** No such purchase. */
         UNKNOWN_PURCHASE
     }
@@ -133,6 +138,15 @@ public class PurchaseDischargeService {
         // sale.
         if (purchase.getStatus() == StripePurchase.Status.DISCHARGED) {
             return Result.ALREADY_DISCHARGED;
+        }
+
+        // Refunded while a mint was in flight (#267). The coupon exists and has no money behind
+        // it, so the row must not read as served; its id is kept for an operator.
+        if (purchase.getStatus() == StripePurchase.Status.REFUNDED) {
+            keepVoucherForRevocation(purchase, voucherId);
+            log.warn("Refused discharge of {}: refunded before issue; voucher {} recorded",
+                    eventId, voucherId);
+            return Result.REFUNDED;
         }
 
         // An ISSUED purchase can still be discharged: the coupon exists and
@@ -306,6 +320,15 @@ public class PurchaseDischargeService {
                 purchase.getAmountMinor(), unitOf(purchase.getCurrency()));
     }
 
+    private void keepVoucherForRevocation(StripePurchase purchase, String voucherId) {
+        if (voucherId != null && !voucherId.isBlank() && purchase.getVoucherId() == null) {
+            purchase.setVoucherId(voucherId);
+            purchase.setLastFailure("refunded before issue, but a coupon was minted while the mint was in flight");
+            purchase.setUpdatedAt(Instant.now());
+            purchases.save(purchase);
+        }
+    }
+
     /** How long a re-checked ISSUED row rests before it is asked about again. */
     static final Duration RECHECK_BACKOFF = Duration.ofMinutes(15);
     /** After this, an unverifiable ISSUED row needs a person, not another request. */
@@ -348,9 +371,15 @@ public class PurchaseDischargeService {
             }
             if (result == Result.DISCHARGED) {
                 discharged++;
-            } else if (row.getStatus() == StripePurchase.Status.ISSUED) {
-                row.setUpdatedAt(Instant.now());
-                purchases.save(row);
+            } else {
+                // Re-read: discharge() may have written the row (attempts, a REFUNDED voucher
+                // note), and saving this sweep's older copy would undo that (review of #278).
+                purchases.findByEventId(row.getEventId())
+                        .filter(fresh -> fresh.getStatus() == StripePurchase.Status.ISSUED)
+                        .ifPresent(fresh -> {
+                            fresh.setUpdatedAt(Instant.now());
+                            purchases.save(fresh);
+                        });
             }
         }
         if (discharged > 0) {
@@ -383,6 +412,11 @@ public class PurchaseDischargeService {
             String worker, boolean keepClaim) {
         purchases.findByEventId(eventId).ifPresent(purchase -> {
             if (purchase.getStatus() == StripePurchase.Status.DISCHARGED) {
+                return;
+            }
+            if (purchase.getStatus() == StripePurchase.Status.REFUNDED) {
+                // Terminal (#267). Never back to OWED; a named coupon is recorded.
+                keepVoucherForRevocation(purchase, voucherId);
                 return;
             }
             purchase.setAttempts(purchase.getAttempts() + 1);

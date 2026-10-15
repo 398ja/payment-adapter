@@ -39,6 +39,12 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
     Optional<StripePurchase> findByCheckoutSessionId(String checkoutSessionId);
 
     /**
+     * By PaymentIntent, which is all a {@code charge.refunded} or {@code charge.dispute.created}
+     * carries to find its purchase by (payment-adapter#267). Unique since V14.
+     */
+    Optional<StripePurchase> findByPaymentIntentId(String paymentIntentId);
+
+    /**
      * Everything still owed, oldest first.
      *
      * <p>Oldest first because the longest-waiting customer is the one most
@@ -78,7 +84,7 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update StripePurchase p set p.status = :issuing, p.claimedUntil = :until,"
-            + " p.claimedBy = :worker, p.updatedAt = :now"
+            + " p.claimedBy = :worker, p.updatedAt = :now, p.version = p.version + 1"
             + " where p.eventId = :eventId"
             + " and (p.status = :owed or (p.status = :issuing and p.claimedUntil < :now))")
     int claim(
