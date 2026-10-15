@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-15
+
+No migrations, no new required configuration.
+
+### Added
+
+- **Payment metrics (imani-deploy#210, #268).** `imani_payments_total{source,status,reason,currency}`,
+  `imani_payment_amount_minor_total`, `imani_payment_duration_seconds`,
+  `imani_payment_webhooks_total{source,outcome}` and `imani_stripe_connect_events_total{event}` on
+  `/actuator/prometheus`, for card (Stripe checkout initiated/refused, paid, refunded, disputed,
+  issued/issue_failed, paid-to-issued time), Stripe webhooks (received, verified,
+  signature_rejected, processed, duplicate, failed), Stripe Connect (onboarding, charges enabled
+  lost/gained) and lightning (succeeded). Series are pre-registered at zero. Every label is a
+  closed enum or an ISO-3 currency: no pubkey, session, `pi_` or amount reaches a label.
+- **Paid-not-issued gauges.** `imani_payments_paid_unissued` and
+  `imani_payments_paid_unissued_oldest_seconds` (`source=card`), re-derived from `stripe_purchase`
+  every 30 s with index-backed queries, so they survive restarts.
+
+### Notes
+
+- A Stripe retry of a webhook that already failed counts as one failed payment, not one per
+  delivery. The webhook counter still counts every delivery.
+- A metrics failure never fails a payment: every meter interaction is guarded.
+
 ## [0.19.0] - 2026-10-15
 
 ### Added
