@@ -21,6 +21,9 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import xyz.tcheeric.payment.adapter.core.client.PaymentClient;
 import xyz.tcheeric.payment.adapter.core.client.QuoteClient;
+import xyz.tcheeric.payment.adapter.core.model.entity.GatewayPayment;
+import xyz.tcheeric.payment.adapter.core.model.entity.GatewayQuote;
+import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripePaymentReference;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ProcessedStripeWebhookEvent;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeWebhookProcessingStatus;
 import xyz.tcheeric.payment.adapter.core.model.repository.ProcessedStripeWebhookEventRepository;
@@ -149,6 +152,54 @@ class StripeWebhookMetricsTest {
         handler.handle(StripeWebhookPayload.builder()
                 .eventId("evt_decl").eventType("checkout.session.async_payment_failed")
                 .rawPayload("{}").currency("gbp").build());
+
+        assertEquals(1.0, payments("failed", "card_declined"));
+    }
+
+    private void failedBefore(String eventId) {
+        ProcessedStripeWebhookEvent failed = new ProcessedStripeWebhookEvent();
+        failed.setEventId(eventId);
+        failed.setProcessingStatus(StripeWebhookProcessingStatus.FAILED);
+        when(processed.findById(eventId)).thenReturn(Optional.of(failed));
+    }
+
+    /**
+     * Second check, S-1 (mutant 5): an amount mismatch is deterministic, so every Stripe retry
+     * hits it. It is still one failed payment.
+     */
+    @Test
+    void aRetriedAmountMismatchIsOneFailedPayment() throws Exception {
+        GatewayQuote quote = GatewayQuote.create("quote-1", "cs_1", 1800, "Voucher", "https://checkout", 100, "gbp");
+        GatewayPayment payment = GatewayPayment.create("https://checkout", null, "quote-1", "gbp", 100, 0, 100, null, null);
+        StripePaymentReference reference = new StripePaymentReference();
+        reference.setQuoteId("quote-1");
+        reference.setCheckoutSessionId("cs_1");
+        when(references.findByCheckoutSessionId("cs_1")).thenReturn(Optional.of(reference));
+        when(quotes.getByEntityId("quote-1")).thenReturn(quote);
+        when(payments.getByQuoteId("quote-1")).thenReturn(payment);
+        StripeWebhookPayload mismatch = StripeWebhookPayload.builder()
+                .eventId("evt_mm").eventType("checkout.session.completed").rawPayload("{}")
+                .checkoutSessionId("cs_1").paymentIntentId("pi_1").amountTotal(2500).currency("gbp")
+                .paymentStatus("paid").build();
+
+        assertThrows(WebhookProcessingException.class, () -> handler.handle(mismatch));
+        failedBefore("evt_mm");
+        assertThrows(WebhookProcessingException.class, () -> handler.handle(mismatch));
+        assertThrows(WebhookProcessingException.class, () -> handler.handle(mismatch));
+
+        assertEquals(1.0, payments("failed", "amount_mismatch"), "a Stripe retry is not a second failed payment");
+        assertEquals(3.0, webhooks("failed"));
+    }
+
+    /** Second check, S-1 (mutant 4): a redelivered decline is not a second declined payment. */
+    @Test
+    void aRedeliveredDeclineIsOneFailedPayment() throws Exception {
+        StripeWebhookPayload declined = StripeWebhookPayload.builder()
+                .eventId("evt_d2").eventType("checkout.session.async_payment_failed")
+                .rawPayload("{}").currency("gbp").build();
+        handler.handle(declined);
+        failedBefore("evt_d2");
+        handler.handle(declined);
 
         assertEquals(1.0, payments("failed", "card_declined"));
     }

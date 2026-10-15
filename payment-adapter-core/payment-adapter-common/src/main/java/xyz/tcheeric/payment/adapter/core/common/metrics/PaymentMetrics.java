@@ -7,6 +7,8 @@ import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The one payments metric family (imani-deploy#210), and the only place its labels are spelled.
@@ -85,6 +87,8 @@ public final class PaymentMetrics {
 
     private final MeterRegistry registry;
 
+    private static final Logger log = LoggerFactory.getLogger(PaymentMetrics.class);
+
     public PaymentMetrics(MeterRegistry registry) {
         this.registry = registry == null ? Metrics.globalRegistry : registry;
     }
@@ -101,41 +105,60 @@ public final class PaymentMetrics {
      * absent series cannot fire. Registered with {@link #NO_CURRENCY} so sums are unaffected.
      */
     public PaymentMetrics preRegister(Source source, Status... statuses) {
-        for (Status status : statuses) {
-            payments(source, status, Reason.NONE, NO_CURRENCY);
-            amountCounter(source, status, NO_CURRENCY);
-        }
+        safely("pre-register", () -> {
+            for (Status status : statuses) {
+                payments(source, status, Reason.NONE, NO_CURRENCY);
+                amountCounter(source, status, NO_CURRENCY);
+            }
+        });
         return this;
     }
 
     public PaymentMetrics preRegisterWebhooks(Source source) {
-        for (WebhookOutcome outcome : WebhookOutcome.values()) {
-            webhookCounter(source, outcome);
-        }
+        safely("pre-register webhooks", () -> {
+            for (WebhookOutcome outcome : WebhookOutcome.values()) {
+                webhookCounter(source, outcome);
+            }
+        });
         return this;
     }
 
+    /**
+     * Metrics never break a payment path (review of gateway-core#161, S-4, applied here too): every
+     * recording runs through this, so a failure inside Micrometer is logged at debug and skipped
+     * instead of propagating into a webhook, a checkout or a Connect update.
+     */
+    static void safely(String what, Runnable recording) {
+        try {
+            recording.run();
+        } catch (RuntimeException e) {
+            log.debug("payment metric {} not recorded: {}", what, e.toString());
+        }
+    }
+
     public void record(Source source, Status status, Reason reason, String currency) {
-        payments(source, status, reason, currency).increment();
+        safely("payments", () -> payments(source, status, reason, currency).increment());
     }
 
     /** Count one payment and add its amount, when the amount is known and positive. */
     public void record(Source source, Status status, Reason reason, String currency, Long amountMinor) {
         record(source, status, reason, currency);
         if (amountMinor != null && amountMinor > 0) {
-            amountCounter(source, status, currency).increment(amountMinor);
+            safely("amount", () -> amountCounter(source, status, currency).increment(amountMinor));
         }
     }
 
     public PaymentMetrics preRegisterConnect() {
-        for (ConnectEvent event : ConnectEvent.values()) {
-            connectCounter(event);
-        }
+        safely("pre-register connect", () -> {
+            for (ConnectEvent event : ConnectEvent.values()) {
+                connectCounter(event);
+            }
+        });
         return this;
     }
 
     public void connect(ConnectEvent event) {
-        connectCounter(event).increment();
+        safely("connect", () -> connectCounter(event).increment());
     }
 
     private Counter connectCounter(ConnectEvent event) {
@@ -146,14 +169,14 @@ public final class PaymentMetrics {
     }
 
     public void webhook(Source source, WebhookOutcome outcome) {
-        webhookCounter(source, outcome).increment();
+        safely("webhook", () -> webhookCounter(source, outcome).increment());
     }
 
     public void duration(Source source, Stage stage, Duration elapsed) {
         if (elapsed == null || elapsed.isNegative()) {
             return;
         }
-        timer(source, stage).record(elapsed);
+        safely("duration", () -> timer(source, stage).record(elapsed));
     }
 
     public Timer timer(Source source, Stage stage) {

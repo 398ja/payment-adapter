@@ -4,7 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.distribution.DistributionStatisticConfig;
+import io.micrometer.core.instrument.distribution.pause.PauseDetector;
+import java.time.Duration;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Set;
@@ -54,5 +59,30 @@ class PaymentMetricsTest {
         assertEquals(0.0, registry.get(PaymentMetrics.PAYMENTS).tag("source", "cash").counter().count());
         assertNotNull(registry.find(PaymentMetrics.WEBHOOKS).tag("outcome", "signature_rejected").counter());
         assertTrue(registry.find(PaymentMetrics.WEBHOOKS).counters().size() >= 6);
+    }
+
+    /** Review of gateway-core#161, S-4, applied to PA: a broken registry never throws into a payment path. */
+    @Test
+    void aBrokenRegistryNeverThrowsIntoTheCaller() {
+        SimpleMeterRegistry broken = new SimpleMeterRegistry() {
+            @Override
+            protected Counter newCounter(Meter.Id id) {
+                throw new IllegalStateException("registry down");
+            }
+
+            @Override
+            protected Timer newTimer(Meter.Id id, DistributionStatisticConfig config, PauseDetector pause) {
+                throw new IllegalStateException("registry down");
+            }
+        };
+        PaymentMetrics metrics = new PaymentMetrics(broken)
+                .preRegister(Source.CARD, Status.values())
+                .preRegisterWebhooks(Source.CARD)
+                .preRegisterConnect();
+
+        metrics.record(Source.CARD, Status.SUCCEEDED, Reason.NONE, "gbp", 2500L);
+        metrics.webhook(Source.CARD, PaymentMetrics.WebhookOutcome.FAILED);
+        metrics.connect(PaymentMetrics.ConnectEvent.ONBOARDING_STARTED);
+        metrics.duration(Source.CARD, PaymentMetrics.Stage.WEBHOOK, Duration.ofMillis(5));
     }
 }

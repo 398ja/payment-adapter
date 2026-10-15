@@ -12,6 +12,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.EnumSet;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -158,5 +159,16 @@ class PurchaseMetricsTest {
         when(purchases.countByStatusIn(any())).thenThrow(new IllegalStateException("db down"));
         gauge.poll();
         assertEquals(2.0, registry.get("imani_payments_paid_unissued").gauge().value(), "a failed poll is not a zero");
+    }
+
+    /**
+     * Second check, S-3 (mutants 6, 7): "paid, not issued" is every status but DISCHARGED, BLOCKED
+     * included. Pinned against the enum, not against OPEN itself.
+     */
+    @Test
+    void openIsEveryStatusButDischarged() {
+        EnumSet<StripePurchase.Status> expected = EnumSet.allOf(StripePurchase.Status.class);
+        expected.remove(StripePurchase.Status.DISCHARGED);
+        assertEquals(expected, PaidUnissuedGauge.OPEN);
     }
 }
