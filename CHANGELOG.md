@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Stripe outage at card checkout held the buyer ~2 minutes and then answered 400
+  ([#274](https://github.com/398ja/payment-adapter/issues/274) PA part, card atomicity audit S9).**
+  The Checkout create call is bounded (`stripe.checkout-connect-timeout-ms` 5000,
+  `stripe.checkout-read-timeout-ms` 10000, `stripe.checkout-max-network-retries` 1; the retry
+  reuses the idempotency key). `POST /api/v1/checkout/purchase` answers **503** with
+  `Retry-After: 5` and `{"error":"card payments are briefly unavailable, try again"}` when Stripe
+  is unreachable, times out, or answers 5xx/429. Stripe validation refusals keep the 400.
+
 ## [0.20.0] - 2026-10-15
 
 No migrations, no new required configuration.

@@ -58,6 +58,21 @@ public class StripeGatewayProperties {
     /** Where a buyer returns after cancelling, or blank to fall back to {@link #cancelUrl}. */
     private String purchaseCancelUrl;
 
+    /**
+     * Bounds on the Checkout create call, which a buyer waits on (payment-adapter#274, audit S9).
+     *
+     * <p>The SDK defaults (30 s connect, 80 s read, plus retries) held a buyer for minutes during
+     * an outage. A retry is safe: the request carries the same idempotency key.
+     */
+    @Min(1)
+    private int checkoutConnectTimeoutMs = 5_000;
+
+    @Min(1)
+    private int checkoutReadTimeoutMs = 10_000;
+
+    @Min(0)
+    private int checkoutMaxNetworkRetries = 1;
+
     /** The buyer success URL, falling back to the global one. */
     public String resolvedPurchaseSuccessUrl() {
         return purchaseSuccessUrl == null || purchaseSuccessUrl.isBlank() ? successUrl : purchaseSuccessUrl;

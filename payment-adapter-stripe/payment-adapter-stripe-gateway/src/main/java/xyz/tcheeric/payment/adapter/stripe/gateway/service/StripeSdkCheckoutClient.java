@@ -32,7 +32,11 @@ public class StripeSdkCheckoutClient implements StripeCheckoutClient {
         // reach real Stripe. See StripeGatewayProperties#requestOptions.
         RequestOptions.RequestOptionsBuilder builder = properties.requestOptions()
                 .setApiKey(properties.getSecretKey())
-                .setIdempotencyKey(checkoutRequest.getIdempotencyKey());
+                .setIdempotencyKey(checkoutRequest.getIdempotencyKey())
+                // A buyer is waiting on this call (payment-adapter#274).
+                .setConnectTimeout(properties.getCheckoutConnectTimeoutMs())
+                .setReadTimeout(properties.getCheckoutReadTimeoutMs())
+                .setMaxNetworkRetries(properties.getCheckoutMaxNetworkRetries());
         if (checkoutRequest.isDirectCharge()) {
             builder.setStripeAccount(checkoutRequest.getConnectedAccountId());
         }

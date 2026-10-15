@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.util.ReflectionTestUtils;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAccount;
 import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccountRepository;
+import xyz.tcheeric.payment.adapter.stripe.gateway.exception.StripeCheckoutCreationException;
 import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripeCheckoutSession;
 import xyz.tcheeric.payment.adapter.stripe.gateway.service.StripeCheckoutService;
 
@@ -78,5 +79,34 @@ class PurchaseCheckoutControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         verify(checkout).createPurchaseSession(anyString(), eq(2500), eq("Voucher"), eq("gbp"), eq("acct_1"),
                 eq(null), eq(Map.of("buyer_pubkey", BUYER)));
+    }
+
+    @Test
+    void aStripeOutageAnswersAFast503WithRetryAfter() {
+        // payment-adapter#274 (S9): an outage is not the buyer's mistake. 503 + Retry-After says
+        // "try again shortly"; no session exists, so a retry cannot double-charge.
+        when(checkout.createPurchaseSession(anyString(), anyInt(), anyString(), anyString(), anyString(), any(), any()))
+                .thenThrow(new StripeCheckoutCreationException("q", "gbp",
+                        new com.stripe.exception.ApiConnectionException("timed out")));
+
+        ResponseEntity<?> response = controller.start(
+                new PurchaseCheckoutController.PurchaseRequest(STALL, 2500L, BUYER));
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
+        assertEquals("5", response.getHeaders().getFirst("Retry-After"));
+        assertEquals(Map.of("error", PurchaseCheckoutController.CARD_PAYMENTS_UNAVAILABLE), response.getBody());
+    }
+
+    @Test
+    void aStripeRefusalStaysA400() {
+        // Validation refusals keep today's 400: retrying unchanged cannot help.
+        when(checkout.createPurchaseSession(anyString(), anyInt(), anyString(), anyString(), anyString(), any(), any()))
+                .thenThrow(new StripeCheckoutCreationException("q", "gbp",
+                        new com.stripe.exception.InvalidRequestException("bad", null, null, null, 400, null)));
+
+        ResponseEntity<?> response = controller.start(
+                new PurchaseCheckoutController.PurchaseRequest(STALL, 2500L, BUYER));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
     }
 }
