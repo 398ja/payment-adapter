@@ -145,8 +145,8 @@ class PurchaseMetricsTest {
     void theGaugesReportCountAndOldestAgeAndHoldOnError() {
         StripePurchaseRepository purchases = mock(StripePurchaseRepository.class);
         Instant now = Instant.parse("2026-10-15T12:00:00Z");
-        when(purchases.countByStatusNot(StripePurchase.Status.DISCHARGED)).thenReturn(2L);
-        when(purchases.findOldestCreatedAtByStatusNot(StripePurchase.Status.DISCHARGED))
+        when(purchases.countByStatusIn(PaidUnissuedGauge.OPEN)).thenReturn(2L);
+        when(purchases.findOldestCreatedAtByStatusIn(PaidUnissuedGauge.OPEN))
                 .thenReturn(now.minusSeconds(900));
         PaidUnissuedGauge gauge = new PaidUnissuedGauge(purchases, registry, Clock.fixed(now, ZoneOffset.UTC));
 
@@ -155,7 +155,7 @@ class PurchaseMetricsTest {
         assertEquals(2.0, registry.get("imani_payments_paid_unissued").gauge().value());
         assertEquals(900.0, registry.get("imani_payments_paid_unissued_oldest_seconds").gauge().value());
 
-        when(purchases.countByStatusNot(any())).thenThrow(new IllegalStateException("db down"));
+        when(purchases.countByStatusIn(any())).thenThrow(new IllegalStateException("db down"));
         gauge.poll();
         assertEquals(2.0, registry.get("imani_payments_paid_unissued").gauge().value(), "a failed poll is not a zero");
     }

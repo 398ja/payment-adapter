@@ -29,6 +29,13 @@ public class PaidUnissuedGauge {
     static final String COUNT = "imani_payments_paid_unissued";
     static final String OLDEST = "imani_payments_paid_unissued_oldest_seconds";
 
+    /**
+     * Every status but DISCHARGED, spelled out so the query can use the status index (review of
+     * #268). Derived, so a status added later is counted rather than silently dropped.
+     */
+    static final java.util.Set<StripePurchase.Status> OPEN = java.util.Collections.unmodifiableSet(
+            java.util.EnumSet.complementOf(java.util.EnumSet.of(StripePurchase.Status.DISCHARGED)));
+
     private final StripePurchaseRepository purchases;
     private final Clock clock;
     private final AtomicLong count = new AtomicLong();
@@ -56,9 +63,8 @@ public class PaidUnissuedGauge {
     @Scheduled(fixedDelayString = "${purchase.unissued.gauge-interval:PT30S}")
     public void poll() {
         try {
-            long n = purchases.countByStatusNot(StripePurchase.Status.DISCHARGED);
-            Instant oldest = n == 0 ? null
-                    : purchases.findOldestCreatedAtByStatusNot(StripePurchase.Status.DISCHARGED);
+            long n = purchases.countByStatusIn(OPEN);
+            Instant oldest = n == 0 ? null : purchases.findOldestCreatedAtByStatusIn(OPEN);
             count.set(n);
             oldestSeconds.set(oldest == null ? 0 : Math.max(0, Duration.between(oldest, clock.instant()).getSeconds()));
         } catch (RuntimeException e) {
