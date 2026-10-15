@@ -74,6 +74,8 @@ Configuration is read from `cash.properties` on the classpath.
 | `stripe.secret-key` | *(required when enabled)* | Stripe secret API key used for Checkout Session operations. |
 | `stripe.success-url` | *(required when enabled)* | Redirect URL after successful Checkout completion. |
 | `stripe.cancel-url` | *(required when enabled)* | Redirect URL after Checkout cancellation. |
+| `stripe.purchase-success-url` (`STRIPE_PURCHASE_SUCCESS_URL`) | *(falls back to `stripe.success-url`)* | Where a BUYER returns after paying for a coupon, e.g. `https://wallet.example/buy/done?session_id={CHECKOUT_SESSION_ID}`. |
+| `stripe.purchase-cancel-url` (`STRIPE_PURCHASE_CANCEL_URL`) | *(falls back to `stripe.cancel-url`)* | Where a buyer returns after cancelling, e.g. `https://wallet.example/buy/cancelled`. |
 | `stripe.default-currency` | `usd` | Default Stripe currency code in lowercase. |
 | `stripe.allowed-currencies` | `usd` | Comma-separated allowlist of supported currencies. |
 | `stripe.checkout-expiry-seconds` | `1800` | Checkout Session expiry in seconds. |

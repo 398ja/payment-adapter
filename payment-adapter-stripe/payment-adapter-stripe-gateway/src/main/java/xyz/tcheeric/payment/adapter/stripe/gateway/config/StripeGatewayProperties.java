@@ -44,6 +44,29 @@ public class StripeGatewayProperties {
     private String secretKey;
     private String successUrl;
     private String cancelUrl;
+
+    /**
+     * Where a BUYER returns after paying for a coupon, or blank to fall back to
+     * {@link #successUrl}.
+     *
+     * <p>Separate because the global pair points at the merchant's own settings
+     * screen, which is the wrong place for a shopper (imani-wallet#267 item 3).
+     * May carry Stripe's {@code {CHECKOUT_SESSION_ID}} placeholder.
+     */
+    private String purchaseSuccessUrl;
+
+    /** Where a buyer returns after cancelling, or blank to fall back to {@link #cancelUrl}. */
+    private String purchaseCancelUrl;
+
+    /** The buyer success URL, falling back to the global one. */
+    public String resolvedPurchaseSuccessUrl() {
+        return purchaseSuccessUrl == null || purchaseSuccessUrl.isBlank() ? successUrl : purchaseSuccessUrl;
+    }
+
+    /** The buyer cancel URL, falling back to the global one. */
+    public String resolvedPurchaseCancelUrl() {
+        return purchaseCancelUrl == null || purchaseCancelUrl.isBlank() ? cancelUrl : purchaseCancelUrl;
+    }
     private String defaultCurrency = "usd";
     private List<String> allowedCurrencies = new ArrayList<>(List.of("usd"));
 

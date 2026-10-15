@@ -62,6 +62,12 @@ public class StripeCheckoutRequest {
     @lombok.Singular("metadata")
     java.util.Map<String, String> metadata;
 
+    /** Return URL after payment, or null for the deployment's {@code stripe.success-url}. */
+    String successUrl;
+
+    /** Return URL after cancelling, or null for the deployment's {@code stripe.cancel-url}. */
+    String cancelUrl;
+
     /** Whether this session charges a connected account rather than the platform. */
     public boolean isDirectCharge() {
         return connectedAccountId != null && !connectedAccountId.isBlank();
