@@ -150,6 +150,7 @@ public class CashEventSubscriber {
                 if (invoicesExpiredCounter != null) {
                     invoicesExpiredCounter.increment();
                 }
+                invoiceService.recordExpired(invoice);
             }
         }
 

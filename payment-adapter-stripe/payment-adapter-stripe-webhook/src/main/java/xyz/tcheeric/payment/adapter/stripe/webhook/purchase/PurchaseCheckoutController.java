@@ -11,6 +11,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Reason;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Source;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Status;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAccount;
 import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccountRepository;
 import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripeCheckoutSession;
@@ -71,27 +75,41 @@ public class PurchaseCheckoutController {
     @org.springframework.beans.factory.annotation.Value("${purchase.max-amount-minor:1000000}")
     private long maxAmountMinor;
 
+    /** imani-deploy#210. A setter, not a constructor argument, so existing wiring is unchanged. */
+    private PaymentMetrics metrics = new PaymentMetrics();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setMeterRegistry(io.micrometer.core.instrument.MeterRegistry registry) {
+        this.metrics = new PaymentMetrics(registry).preRegister(Source.CARD, Status.INITIATED, Status.REFUSED);
+    }
+
+    /** One refused checkout. No money moved, so no amount and, often, no currency yet. */
+    private ResponseEntity<?> refused(Reason reason, String currency, ResponseEntity<?> response) {
+        metrics.record(Source.CARD, Status.REFUSED, reason, currency);
+        return response;
+    }
+
     @PostMapping("/purchase")
     public ResponseEntity<?> start(@RequestBody PurchaseRequest request) {
         if (request == null || request.stallPubkey() == null || request.amountMinor() == null) {
-            return ResponseEntity.badRequest().body(error("a stall and an amount are required"));
+            return refused(Reason.INVALID_REQUEST, null, ResponseEntity.badRequest().body(error("a stall and an amount are required")));
         }
 
         // Checked before anything else touches Stripe. A negative or zero
         // amount is nonsense a customer cannot have meant, and an enormous one
         // is refused here rather than by a card network later.
         if (request.amountMinor() <= 0) {
-            return ResponseEntity.badRequest().body(error("the amount must be more than zero"));
+            return refused(Reason.INVALID_REQUEST, null, ResponseEntity.badRequest().body(error("the amount must be more than zero")));
         }
         if (request.amountMinor() > maxAmountMinor) {
-            return ResponseEntity.badRequest().body(error("that amount is too large for one voucher"));
+            return refused(Reason.INVALID_REQUEST, null, ResponseEntity.badRequest().body(error("that amount is too large for one voucher")));
         }
 
         // A pubkey shaped like a pubkey. Not an authorisation check — the
         // lookup below is — but it keeps a malformed value out of a database
         // query and out of the logs.
         if (!request.stallPubkey().trim().toLowerCase().matches("^[0-9a-f]{64}$")) {
-            return ResponseEntity.badRequest().body(error("that is not a stall address"));
+            return refused(Reason.INVALID_REQUEST, null, ResponseEntity.badRequest().body(error("that is not a stall address")));
         }
 
         // A buyer with no wallet is refused HERE, before any Checkout Session
@@ -110,8 +128,8 @@ public class PurchaseCheckoutController {
                 accounts.findByMerchantPubkey(request.stallPubkey().toLowerCase());
 
         if (found.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(error("this stall does not take card payments"));
+            return refused(Reason.NOT_FOUND, null, ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(error("this stall does not take card payments")));
         }
 
         ConnectedStripeAccount account = found.get();
@@ -121,8 +139,8 @@ public class PurchaseCheckoutController {
         // takes cards but cannot be charged is refused here, and the customer
         // has lost one tap rather than a payment.
         if (!account.isChargesEnabled()) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(error("this stall cannot accept card payments yet"));
+            return refused(Reason.CHARGES_DISABLED, account.getDefaultCurrency(), ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(error("this stall cannot accept card payments yet")));
         }
 
         // imani-woo ADR 0005's rule, checked at the last moment it is free to
@@ -130,8 +148,8 @@ public class PurchaseCheckoutController {
         // in one and a coupon issued in another cannot both be right.
         String currency = account.getDefaultCurrency();
         if (currency == null || currency.isBlank()) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(error("this stall has no currency configured"));
+            return refused(Reason.CURRENCY_MISSING, null, ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(error("this stall has no currency configured")));
         }
 
         String quoteId = UUID.randomUUID().toString();
@@ -156,13 +174,14 @@ public class PurchaseCheckoutController {
                     // money moves is a coupon minted to nobody.
                     Map.of("buyer_pubkey", buyer));
 
+            metrics.record(Source.CARD, Status.INITIATED, Reason.NONE, currency, request.amountMinor());
             return ResponseEntity.ok(new PurchaseResponse(session.getSessionUrl(), quoteId));
         } catch (RuntimeException e) {
             // Refusals from the gateway are the customer's problem to see now
             // rather than at the card form.
             log.warn("Could not start a purchase for stall {}: {}",
                     request.stallPubkey(), e.getMessage());
-            return ResponseEntity.badRequest().body(error(e.getMessage()));
+            return refused(Reason.GATEWAY_ERROR, currency, ResponseEntity.badRequest().body(error(e.getMessage())));
         }
     }
 
