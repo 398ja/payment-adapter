@@ -74,6 +74,9 @@ Configuration is read from `cash.properties` on the classpath.
 | `stripe.secret-key` | *(required when enabled)* | Stripe secret API key used for Checkout Session operations. |
 | `stripe.success-url` | *(required when enabled)* | Redirect URL after successful Checkout completion. |
 | `stripe.cancel-url` | *(required when enabled)* | Redirect URL after Checkout cancellation. |
+| `stripe.checkout-connect-timeout-ms` (`STRIPE_CHECKOUT_CONNECT_TIMEOUT_MS`) | `5000` | Connect timeout of the Checkout create call a buyer waits on (#274). |
+| `stripe.checkout-read-timeout-ms` (`STRIPE_CHECKOUT_READ_TIMEOUT_MS`) | `10000` | Read timeout of that call. |
+| `stripe.checkout-max-network-retries` (`STRIPE_CHECKOUT_MAX_NETWORK_RETRIES`) | `1` | SDK retries of that call (safe: same idempotency key). |
 | `stripe.purchase-success-url` (`STRIPE_PURCHASE_SUCCESS_URL`) | *(falls back to `stripe.success-url`)* | Where a BUYER returns after paying for a coupon, e.g. `https://wallet.example/buy/done?session_id={CHECKOUT_SESSION_ID}`. |
 | `stripe.purchase-cancel-url` (`STRIPE_PURCHASE_CANCEL_URL`) | *(falls back to `stripe.cancel-url`)* | Where a buyer returns after cancelling, e.g. `https://wallet.example/buy/cancelled`. |
 | `stripe.default-currency` | `usd` | Default Stripe currency code in lowercase. |

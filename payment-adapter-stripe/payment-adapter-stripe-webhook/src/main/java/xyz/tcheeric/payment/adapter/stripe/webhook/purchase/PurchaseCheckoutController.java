@@ -176,13 +176,31 @@ public class PurchaseCheckoutController {
 
             metrics.record(Source.CARD, Status.INITIATED, Reason.NONE, currency, request.amountMinor());
             return ResponseEntity.ok(new PurchaseResponse(session.getSessionUrl(), quoteId));
-        } catch (RuntimeException e) {
-            // Refusals from the gateway are the customer's problem to see now
-            // rather than at the card form.
-            log.warn("Could not start a purchase for stall {}: {}",
+        } catch (xyz.tcheeric.payment.adapter.stripe.gateway.exception.StripeCheckoutCreationException e) {
+            if (!e.isStripeUnavailable()) {
+                return gatewayRefused(request, currency, e);
+            }
+            // payment-adapter#274: Stripe is down or slow. Not the buyer's mistake, and no session
+            // exists, so a retry cannot charge twice. Answer fast and say when to come back.
+            log.warn("Stripe unavailable starting a purchase for stall {}: {}",
                     request.stallPubkey(), e.getMessage());
-            return refused(Reason.GATEWAY_ERROR, currency, ResponseEntity.badRequest().body(error(e.getMessage())));
+            return refused(Reason.GATEWAY_ERROR, currency, ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .header(org.springframework.http.HttpHeaders.RETRY_AFTER, RETRY_AFTER_SECONDS)
+                    .body(error(CARD_PAYMENTS_UNAVAILABLE)));
+        } catch (RuntimeException e) {
+            return gatewayRefused(request, currency, e);
         }
+    }
+
+    /** What a buyer sees when Stripe is unavailable. */
+    static final String CARD_PAYMENTS_UNAVAILABLE = "card payments are briefly unavailable, try again";
+
+    static final String RETRY_AFTER_SECONDS = "5";
+
+    /** Refusals from the gateway are the customer's to see now, rather than at the card form. */
+    private ResponseEntity<?> gatewayRefused(PurchaseRequest request, String currency, RuntimeException e) {
+        log.warn("Could not start a purchase for stall {}: {}", request.stallPubkey(), e.getMessage());
+        return refused(Reason.GATEWAY_ERROR, currency, ResponseEntity.badRequest().body(error(e.getMessage())));
     }
 
     /** The words a guest sees. Shared with the wallet's Buy page. */
