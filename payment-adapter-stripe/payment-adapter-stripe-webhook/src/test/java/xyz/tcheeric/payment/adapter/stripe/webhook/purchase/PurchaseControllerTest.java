@@ -274,27 +274,15 @@ class PurchaseControllerTest {
     }
 
     @Test
-    void listsAStallsPurchasesWithTheirRefundFacts() {
-        // imani-wallet#277 badges read these: refunded total, disputed, and when. A row never
-        // refunded reads 0, not null, so "Partly refunded" is a plain comparison.
-        StripePurchase refunded = new StripePurchase();
-        refunded.setEventId("evt_r");
-        refunded.setStatus(StripePurchase.Status.DISCHARGED);
-        refunded.setAmountMinor(500L);
-        refunded.setRefundedAmountMinor(200L);
-        refunded.setReversedAt(java.time.Instant.parse("2026-10-15T20:02:46Z"));
-        StripePurchase plain = new StripePurchase();
-        plain.setEventId("evt_p");
-        plain.setStatus(StripePurchase.Status.OWED);
-        plain.setDisputed(true);
-        when(purchases.findByStallPubkeyOrderByCreatedAtDesc(eq("b".repeat(64)), any()))
-                .thenReturn(List.of(refunded, plain));
-
-        List<PurchaseController.PurchaseRefundState> result = controller.byStall("B".repeat(64));
-
-        assertEquals(200L, result.get(0).refundedAmountMinor());
-        assertEquals(java.time.Instant.parse("2026-10-15T20:02:46Z"), result.get(0).reversedAt());
-        assertEquals(0L, result.get(1).refundedAmountMinor());
-        assertEquals(true, result.get(1).disputed());
+    void exposesNoPerStallReadBehindTheIssuerToken() {
+        // Review of #278: a per-stall purchase listing behind PURCHASE_API_TOKEN would push the token
+        // that can claim, discharge and fail every purchase out to a gateway or wallet. Re-add with
+        // imani-wallet#277, behind stall-scoped auth, and change this test deliberately.
+        java.util.List<String> gets = java.util.Arrays.stream(PurchaseController.class.getDeclaredMethods())
+                .map(m -> m.getAnnotation(org.springframework.web.bind.annotation.GetMapping.class))
+                .filter(java.util.Objects::nonNull)
+                .flatMap(g -> java.util.Arrays.stream(g.value()))
+                .toList();
+        assertEquals(List.of("/owed"), gets);
     }
 }

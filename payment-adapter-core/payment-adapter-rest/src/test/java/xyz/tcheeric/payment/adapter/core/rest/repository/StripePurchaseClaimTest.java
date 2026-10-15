@@ -111,21 +111,6 @@ class StripePurchaseClaimTest {
     }
 
     @Test
-    void listsOnlyOneStallsPurchases() {
-        // imani-wallet#277: a stall reads its own purchases' refund facts, nobody else's.
-        StripePurchase mine = purchases.findByEventId("evt_owed").orElseThrow();
-        mine.setStallPubkey("b".repeat(64));
-        mine.setRefundedAmountMinor(200L);
-        entityManager.persistAndFlush(mine);
-        persist("evt_other", OWED, null);
-
-        assertThat(purchases.findByStallPubkeyOrderByCreatedAtDesc("b".repeat(64),
-                org.springframework.data.domain.PageRequest.of(0, 10)))
-                .extracting(StripePurchase::getEventId, StripePurchase::getRefundedAmountMinor)
-                .containsExactly(org.assertj.core.groups.Tuple.tuple("evt_owed", 200L));
-    }
-
-    @Test
     void findsAPurchaseByItsPaymentIntent() {
         // A charge.refunded carries only the charge's payment_intent to find its purchase by.
         StripePurchase row = purchases.findByEventId("evt_owed").orElseThrow();

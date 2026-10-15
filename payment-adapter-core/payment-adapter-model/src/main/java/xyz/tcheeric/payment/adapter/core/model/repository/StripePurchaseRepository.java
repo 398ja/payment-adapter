@@ -44,10 +44,6 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
      */
     Optional<StripePurchase> findByPaymentIntentId(String paymentIntentId);
 
-    /** One stall's purchases, newest first, a page at a time (imani-wallet#277 badges). */
-    List<StripePurchase> findByStallPubkeyOrderByCreatedAtDesc(
-            String stallPubkey, org.springframework.data.domain.Pageable page);
-
     /**
      * Everything still owed, oldest first.
      *
