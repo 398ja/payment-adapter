@@ -11,6 +11,14 @@
   (`Schnorr.sign(id, key, auxRand)`), which is what `Nip98AuthFilter` verifies. New
   `GatewayFulfilmentSignatureTest` verifies the GET and PUT headers exactly as the gateways do
   and cross-checks a nostr-tools vector.
+- **The purchase API's token guard was skipped by a matrix parameter on an upper segment
+  (second review of #280; present since the guard landed in cce2530).** Spring strips `;x=y`
+  from every path segment before routing, but the guard matched the prefix on the raw decoded
+  path, so `GET /api;x/v1/purchases/owed` or `/api/v1/purchases;a=b/owed` listed every stall's
+  debts with **no token**, and `POST /api;a/v1/purchases/{id}/resolve` let the issuer's token (or
+  none) resolve. The guard now strips matrix parameters and resolves `.`/`..` segments before it
+  classifies. Pinned by `PurchaseApiGuardRoutingTest`, which drives the real Tomcat and router
+  over a raw socket.
 - **A Stripe outage at card checkout held the buyer ~2 minutes and then answered 400
   ([#274](https://github.com/398ja/payment-adapter/issues/274) PA part, card atomicity audit S9).**
   The Checkout create call is bounded (`stripe.checkout-connect-timeout-ms` 5000,

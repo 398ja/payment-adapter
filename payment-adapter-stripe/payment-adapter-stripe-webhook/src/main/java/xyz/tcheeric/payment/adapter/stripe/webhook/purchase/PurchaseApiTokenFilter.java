@@ -181,6 +181,30 @@ public class PurchaseApiTokenFilter implements Filter {
         while (path.contains("//")) {
             path = path.replace("//", "/");
         }
+
+        // Matrix parameters (`;x=y`) on ANY segment, and dot segments. Spring strips the first
+        // and Tomcat resolves the second before routing, so `/api;x/v1/purchases/owed` and
+        // `/api/v1/purchases;a=b/owed` reach the controller. Left in, they hid the prefix and the
+        // whole guard was skipped, token or none (second review of #280).
+        java.util.Deque<String> segments = new java.util.ArrayDeque<>();
+        for (String segment : path.split("/", -1)) {
+            int semi = segment.indexOf(';');
+            String bare = semi >= 0 ? segment.substring(0, semi) : segment;
+            if (bare.equals(".")) {
+                continue;
+            }
+            if (bare.equals("..")) {
+                if (segments.size() > 1) {
+                    segments.removeLast();
+                }
+                continue;
+            }
+            segments.addLast(bare);
+        }
+        path = String.join("/", segments);
+        while (path.contains("//")) {
+            path = path.replace("//", "/");
+        }
         return path;
     }
 

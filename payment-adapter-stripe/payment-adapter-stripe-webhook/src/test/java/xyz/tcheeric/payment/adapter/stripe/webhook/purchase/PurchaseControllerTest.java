@@ -225,6 +225,52 @@ class PurchaseControllerTest {
         verify(chain, never()).doFilter(any(), any());
     }
 
+    /**
+     * Second review of #280: Spring strips matrix parameters from EVERY segment and Tomcat
+     * resolves dot segments before routing, so each of these reaches the controller. With the
+     * parameter left in, the prefix never matched and the guard waved them through, no token.
+     */
+    @Test
+    void theFilterIsNotFooledByMatrixParametersOrDotSegments() throws Exception {
+        PurchaseApiTokenFilter filter = new PurchaseApiTokenFilter(TOKEN, "op3rator-token");
+        when(request.getHeader("Authorization")).thenReturn(null);
+        when(request.getMethod()).thenReturn("GET");
+
+        String[] disguises = {
+            "/api;x/v1/purchases/owed",
+            "/api/v1;x/purchases/owed",
+            "/api/v1/purchases;a=b/owed",
+            "/api/v1/purchases;/owed",
+            "/api/v1/%70urchases;a=b/owed",
+            "/api/v1/purchases%3Bx/owed",
+            "/api/v1/x/../purchases/owed",
+            "/api/./v1/purchases/owed",
+        };
+        for (String uri : disguises) {
+            when(request.getRequestURI()).thenReturn(uri);
+            filter.doFilter(request, response, chain);
+        }
+        verify(response, org.mockito.Mockito.times(disguises.length))
+                .sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        verify(chain, never()).doFilter(any(), any());
+    }
+
+    /** The same disguise must not carry the issuer's token onto /resolve either. */
+    @Test
+    void theIssuerTokenCannotResolveBehindAMatrixParameterOnTheTopSegments() throws Exception {
+        PurchaseApiTokenFilter filter = new PurchaseApiTokenFilter(TOKEN, "op3rator-token");
+        when(request.getMethod()).thenReturn("POST");
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + TOKEN);
+
+        for (String uri : new String[] {"/api;a/v1/purchases/evt_1/resolve",
+                "/api/v1/purchases;a=b/evt_1/resolve"}) {
+            when(request.getRequestURI()).thenReturn(uri);
+            filter.doFilter(request, response, chain);
+        }
+        verify(response, org.mockito.Mockito.times(2)).sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        verify(chain, never()).doFilter(any(), any());
+    }
+
     @Test
     void theFilterProtectsBehindAContextPath() throws Exception {
         // Deployed under a context path the uri is prefixed, and the guard
