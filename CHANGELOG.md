@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-10-16
+
+Security patch (#285). No migrations, no new configuration.
+
 ### Security
 
 - **At DEBUG, startup logged `PURCHASE_GATEWAY_PRIVATE_KEY` in plaintext (found on staging,
