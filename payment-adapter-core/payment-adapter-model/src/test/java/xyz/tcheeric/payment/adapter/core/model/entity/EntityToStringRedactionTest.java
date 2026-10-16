@@ -43,6 +43,35 @@ class EntityToStringRedactionTest {
         assertThat(text).contains(QuoteRef.of(QUOTE_ID)).contains("PAID");
     }
 
+    // A cash invoice is @Data and stores the merchant's ephemeral private key and the counter
+    // proof code. Its toString must carry neither, so logging the entity cannot leak them.
+    @Test
+    void cashInvoiceToStringCarriesNeitherThePrivateKeyNorTheProofCode() {
+        CashInvoice invoice = CashInvoice.create("ref-1", "02" + "ab".repeat(32),
+                "privkeycanary" + "cd".repeat(25), 100, "GBP", "memo",
+                java.time.Instant.parse("2026-10-16T00:00:00Z"), "wss://relay.test");
+        invoice.setProofCode("918273");
+
+        String text = invoice.toString();
+
+        assertThat(text.contains("privkeycanary")).as("ephemeral private key in toString").isFalse();
+        assertThat(text.contains("918273")).as("proof code in toString").isFalse();
+        assertThat(text).contains("ref-1");
+    }
+
+    // A cash intent carries the customer's proof code, the secret the counter checks.
+    @Test
+    void cashIntentToStringCarriesNotTheProof() {
+        CashIntent intent = new CashIntent();
+        intent.setRef("ref-2");
+        intent.setProof("564738");
+
+        String text = intent.toString();
+
+        assertThat(text.contains("564738")).as("proof in toString").isFalse();
+        assertThat(text).contains("ref-2");
+    }
+
     // Redacting toString must not change equality, which JPA and the tests rely on.
     @Test
     void equalityStillUsesTheQuoteId() {

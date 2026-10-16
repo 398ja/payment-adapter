@@ -11,6 +11,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 import xyz.tcheeric.payment.adapter.core.model.entity.enums.CashInvoiceStatus;
 
 import java.io.Serial;
@@ -55,6 +56,8 @@ public class CashInvoice implements GatewayEntity {
      * Merchant's ephemeral private key (hex-encoded, encrypted at rest)
      * Required for decrypting customer intents and signing receipts
      */
+    // Never in toString: @Data would print it wherever the entity is logged or rendered.
+    @ToString.Exclude
     @Column(name = "ephemeral_privkey", nullable = false, length = 64)
     private String ephemeralPrivkey;
 
@@ -79,6 +82,8 @@ public class CashInvoice implements GatewayEntity {
     /**
      * Proof code for counter verification (4-6 digits)
      */
+    // Never in toString: it is the secret the counter checks.
+    @ToString.Exclude
     @Column(name = "proof_code", length = 6)
     private String proofCode;
 

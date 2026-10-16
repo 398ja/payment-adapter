@@ -9,6 +9,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 
 import java.io.Serial;
 import java.time.Instant;
@@ -50,6 +51,8 @@ public class CashIntent implements GatewayEntity {
     /**
      * Optional proof code provided by customer for verification
      */
+    // Never in toString: it is the secret the counter checks.
+    @ToString.Exclude
     @Column(name = "proof", length = 6)
     private String proof;
 
