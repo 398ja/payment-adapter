@@ -223,6 +223,33 @@ class PurchaseAttentionTest {
         assertEquals(StripePurchase.Status.NEEDS_ATTENTION, row.getStatus());
     }
 
+    /**
+     * #219 review F5: a gateway_unrecorded row refunded at Stripe could never leave
+     * NEEDS_ATTENTION (retry refused, acknowledge changes no status), so its alert fired forever.
+     * Retry closes it as REFUNDED, which never mints.
+     */
+    @Test
+    void aRefundedUnrecordedRowCanBeClosedAsRefunded() {
+        park(AttentionReason.GATEWAY_UNRECORDED, null);
+        row.setRefundedAmountMinor(500L);
+        row.setReversedAt(Instant.now());
+
+        assertEquals(ResolveResult.RESOLVED, service.resolve(EVENT, ResolveAction.RETRY, null, "ops", "refunded"));
+        assertEquals(StripePurchase.Status.REFUNDED, row.getStatus());
+        assertNull(row.getAttentionReason());
+    }
+
+    /** ...but not when a coupon is named: that row is a refund after issue, for a person. */
+    @Test
+    void aRefundedUnrecordedRowWithACouponIsStillNotRetried() {
+        park(AttentionReason.GATEWAY_UNRECORDED, "v1");
+        row.setRefundedAmountMinor(500L);
+        row.setReversedAt(Instant.now());
+
+        assertEquals(ResolveResult.NOT_ALLOWED, service.resolve(EVENT, ResolveAction.RETRY, null, "ops", null));
+        assertEquals(StripePurchase.Status.NEEDS_ATTENTION, row.getStatus());
+    }
+
     /** An operator who delivered by hand closes the row, naming the coupon. */
     @Test
     void anOperatorDischargeNeedsAVoucher() {

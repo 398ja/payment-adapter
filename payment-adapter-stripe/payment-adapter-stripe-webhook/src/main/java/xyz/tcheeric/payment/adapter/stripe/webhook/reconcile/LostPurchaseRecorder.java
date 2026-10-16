@@ -53,20 +53,78 @@ class LostPurchaseRecorder {
             return Outcome.DEFERRED;
         }
         PaymentState live = stripe.paymentState(accountId, session.paymentIntentId());
+        Outcome outcome;
         try {
-            Outcome outcome = transactions.execute(status -> record(accountId, session, live));
-            if (outcome == Outcome.ALREADY_RECORDED) {
-                return outcome;
-            }
-            metrics.reconciled(Source.CARD);
-            log.warn("[alert] stripe_reconcile recorded a paid purchase no webhook recorded: session={} account={}"
-                            + " pi={} amount={} {} -> {}", session.id(), accountId, session.paymentIntentId(),
-                    session.amountTotal(), session.currency(), outcome);
-            return outcome;
+            outcome = transactions.execute(status -> record(accountId, session, live));
         } catch (DataIntegrityViolationException raced) {
-            log.info("stripe_reconcile session {} recorded meanwhile by its webhook", session.id());
-            return Outcome.ALREADY_RECORDED;
+            // Only a row for this payment proves a racing webhook won. Anything else (a column too
+            // long, a NOT NULL) recorded nothing, and calling it "already recorded" would move the
+            // cursor past a paid, unrecorded session for good (review of #282).
+            if (purchases.findByCheckoutSessionId(session.id()).isPresent()
+                    || purchases.findByPaymentIntentId(session.paymentIntentId()).isPresent()) {
+                log.info("stripe_reconcile session {} recorded meanwhile by its webhook", session.id());
+                return Outcome.ALREADY_RECORDED;
+            }
+            throw new StripeReconcileException("could not record paid session " + session.id()
+                    + "; cursor kept: " + raced.getMostSpecificCause().getMessage(), raced, false);
         }
+        if (outcome == Outcome.ALREADY_RECORDED) {
+            return outcome;
+        }
+        // Counted as soon as the row is committed, so nothing after this can lose the count.
+        metrics.reconciled(Source.CARD);
+        if (outcome == Outcome.RECORDED_OWED) {
+            outcome = recheck(accountId, session);
+        }
+        log.warn("[alert] stripe_reconcile recorded a paid purchase no webhook recorded: session={} account={}"
+                        + " pi={} amount={} {} -> {}", session.id(), accountId, session.paymentIntentId(),
+                session.amountTotal(), session.currency(), outcome);
+        return outcome;
+    }
+
+    /**
+     * The live read happened BEFORE the row existed. A refund or dispute landing in between was
+     * delivered to a webhook that found no row and acknowledged it (#267), so nothing else would
+     * ever apply it. Read again now that the row is committed: from here on a webhook finds the row
+     * (review of #282). Not charged to the budget: it is a safety read, at most one per new row.
+     */
+    private Outcome recheck(String accountId, CompletedSession session) {
+        PaymentState after;
+        try {
+            after = stripe.paymentState(accountId, session.paymentIntentId());
+        } catch (StripeReconcileException e) {
+            // The row is OWED on the first read's evidence. A reversal from now on reaches it by
+            // webhook; only one that landed in the last few seconds is unseen. Loud, not silent.
+            log.warn("[alert] stripe_reconcile could not re-read {} after recording it: {}",
+                    session.paymentIntentId(), e.getMessage());
+            return Outcome.RECORDED_OWED;
+        }
+        if (after.intact()) {
+            return Outcome.RECORDED_OWED;
+        }
+        String eventId = EVENT_PREFIX + session.id();
+        Outcome applied = transactions.execute(status -> applyReversal(eventId, accountId, session, after));
+        return applied == null ? Outcome.RECORDED_OWED : applied;
+    }
+
+    private Outcome applyReversal(String eventId, String accountId, CompletedSession session, PaymentState live) {
+        LiveFacts.record(listener, eventId, accountId, session.paymentIntentId(), live);
+        StripePurchase row = purchases.findByEventId(eventId).orElse(null);
+        if (row == null) {
+            return null;
+        }
+        if (row.getStatus() == StripePurchase.Status.REFUNDED) {
+            return Outcome.RECORDED_REFUNDED;
+        }
+        // OWED only: an issuer that claimed the row in these seconds is mid-mint, and its report
+        // must land on the row it claimed. The dispute is on the row as a fact either way (gauge).
+        if (live.disputed() && row.getVoucherId() == null && row.getStatus() == StripePurchase.Status.OWED) {
+            StaleRows.park(row, AttentionReason.DISPUTED_BEFORE_ISSUE,
+                    "reconciler: charge " + live.chargeId() + " disputed before any coupon", Instant.now());
+            purchases.save(row);
+            return Outcome.RECORDED_PARKED;
+        }
+        return Outcome.RECORDED_OWED;
     }
 
     private Outcome record(String accountId, CompletedSession session, PaymentState live) {

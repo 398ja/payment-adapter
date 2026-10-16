@@ -42,25 +42,48 @@ class StaleRows {
     private final Duration issuedStaleAfter;
     private final int batchSize;
 
+    /** A fresh budget for one sweep: at most one PaymentIntent read per row looked at. */
+    ReconcileBudget newBudget() {
+        return new ReconcileBudget(batchSize);
+    }
+
     /** @return rows moved */
     int sweep(Instant now, ReconcileBudget budget) {
-        List<StripePurchase> stale = purchases.findStaleForAttention(Status.ISSUING, now.minus(issuingStaleAfter),
-                Status.ISSUED, now.minus(issuedStaleAfter), Status.BLOCKED, PageRequest.of(0, batchSize));
+        Instant issuingCutoff = now.minus(issuingStaleAfter);
+        Instant issuedCutoff = now.minus(issuedStaleAfter);
+        List<StripePurchase> stale = purchases.findStaleForAttention(Status.ISSUING, issuingCutoff,
+                Status.ISSUED, issuedCutoff, Status.BLOCKED, PageRequest.of(0, batchSize));
         int moved = 0;
         for (StripePurchase row : stale) {
             if (!budget.spend()) {
                 break;
             }
             try {
-                PaymentState live = row.getPaymentIntentId() == null
-                        ? null : stripe.paymentState(row.getConnectedAccountId(), row.getPaymentIntentId());
-                transactions.executeWithoutResult(status -> move(row.getEventId(), live, now));
-                moved++;
-            } catch (StripeReconcileException e) {
-                if (e.isRateLimited()) {
-                    budget.rateLimited();
+                PaymentState live;
+                String unread = null;
+                try {
+                    live = row.getPaymentIntentId() == null
+                            ? null : stripe.paymentState(row.getConnectedAccountId(), row.getPaymentIntentId());
+                } catch (StripeReconcileException e) {
+                    if (e.isRateLimited()) {
+                        budget.rateLimited();
+                        log.warn("stripe_reconcile stale row {} left for the next run: {}", row.getEventId(),
+                                e.getMessage());
+                        continue;
+                    }
+                    // Fail closed (review of #282): parking never makes a row mintable, so a row
+                    // Stripe will not answer about (deauthorized account, deleted intent) is parked
+                    // with that said, instead of staying invisible and retried forever.
+                    live = null;
+                    unread = e.getMessage();
                 }
-                log.warn("stripe_reconcile stale row {} left for the next run: {}", row.getEventId(), e.getMessage());
+                PaymentState facts = live;
+                String readError = unread;
+                Boolean done = transactions.execute(
+                        status -> move(row.getEventId(), facts, readError, now, issuingCutoff, issuedCutoff));
+                if (Boolean.TRUE.equals(done)) {
+                    moved++;
+                }
             } catch (OptimisticLockingFailureException e) {
                 log.info("stripe_reconcile stale row {} changed meanwhile; next run", row.getEventId());
             }
@@ -68,24 +91,41 @@ class StaleRows {
         return moved;
     }
 
-    private void move(String eventId, PaymentState live, Instant now) {
+    /**
+     * Re-reads the row and re-applies the staleness test to it (review of #282): an issuer may have
+     * re-claimed a lapsed ISSUING row while Stripe was being read, and is minting under a live lease.
+     */
+    private boolean move(String eventId, PaymentState live, String readError, Instant now,
+            Instant issuingCutoff, Instant issuedCutoff) {
         StripePurchase before = purchases.findByEventId(eventId).orElse(null);
-        if (before == null) {
-            return;
+        if (before == null || !stillStale(before, issuingCutoff, issuedCutoff)) {
+            return false;
         }
         if (live != null && !live.intact()) {
             LiveFacts.record(listener, eventId, before.getConnectedAccountId(), before.getPaymentIntentId(), live);
         }
-        purchases.findByEventId(eventId).ifPresent(row -> {
-            AttentionReason reason = reasonFor(row, live);
-            if (reason == null) {
-                return;
-            }
-            park(row, reason, detailFor(row, live), now);
-            purchases.save(row);
-            log.warn("[alert] stripe_reconcile parked purchase {} ({}): {}", eventId, reason.wire(),
-                    row.getAttentionDetail());
-        });
+        StripePurchase row = purchases.findByEventId(eventId).orElse(null);
+        if (row == null) {
+            return false;
+        }
+        AttentionReason reason = reasonFor(row, live);
+        if (reason == null) {
+            return row.getStatus() == Status.REFUNDED;
+        }
+        park(row, reason, detailFor(row, live, readError), now);
+        purchases.save(row);
+        log.warn("[alert] stripe_reconcile parked purchase {} ({}): {}", eventId, reason.wire(),
+                row.getAttentionDetail());
+        return true;
+    }
+
+    private static boolean stillStale(StripePurchase row, Instant issuingCutoff, Instant issuedCutoff) {
+        return switch (row.getStatus()) {
+            case ISSUING -> row.getClaimedUntil() != null && row.getClaimedUntil().isBefore(issuingCutoff);
+            case ISSUED -> row.getCreatedAt() != null && row.getCreatedAt().isBefore(issuedCutoff);
+            case BLOCKED -> true;
+            default -> false;
+        };
     }
 
     /** Null when the row needs no parking: it became REFUNDED, or moved on meanwhile. */
@@ -99,8 +139,9 @@ class StaleRows {
         };
     }
 
-    private static String detailFor(StripePurchase row, PaymentState live) {
-        String stripeFacts = live == null ? "no payment intent to check"
+    private static String detailFor(StripePurchase row, PaymentState live, String readError) {
+        String stripeFacts = readError != null ? "live check FAILED (" + readError + "): check Stripe by hand"
+                : live == null ? "no payment intent to check"
                 : "live: refunded " + live.refundedMinor() + " of " + live.amountMinor() + ", disputed " + live.disputed();
         String last = row.getLastFailure() == null ? "" : "; last failure: " + row.getLastFailure();
         return "reconciler: " + row.getStatus().name().toLowerCase(java.util.Locale.ROOT) + " too long; "

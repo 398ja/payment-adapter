@@ -57,7 +57,14 @@
   check; staging purchase #1 lands in `issue_blocked` for an operator `retry`). Bounded: 50 Stripe
   reads per run, a 429 ends the run, an unfinished pass resumes where it stopped. New counter
   `imani_payments_reconciled_total{source="card"}` (pre-registered, never throws). New attention
-  reasons `stale_issued`, `issue_blocked`, `disputed_before_issue`.
+  reasons `stale_issued`, `issue_blocked`, `disputed_before_issue`. Review fixes: an OWED row is
+  re-read at Stripe after its commit (a refund/dispute landing between the read and the commit
+  went to a webhook that found no row); a constraint failure is "already recorded" only when a
+  row for the session/`pi_` exists, else the cursor is kept; restricted (charges disabled)
+  accounts with a cursor stay in scope, least recently reconciled first; the stale sweep has its
+  own budget, re-checks staleness on the fresh row, and parks (fail closed) when Stripe will not
+  answer. `/resolve retry` of a refunded `gateway_unrecorded` row with no coupon now closes it as
+  REFUNDED (#219 review F5: it could never leave NEEDS_ATTENTION).
 - **NEEDS_ATTENTION for card purchases ([#273](https://github.com/398ja/payment-adapter/issues/273),
   card atomicity audit U7).** A purchase nothing automatic can safely move on is parked in status
   `NEEDS_ATTENTION` with a reason: `gateway_unrecorded` (gc 409 UNRECORDED, gc#232: mint state

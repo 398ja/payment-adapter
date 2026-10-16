@@ -26,6 +26,10 @@ final class ReconcileBudget {
         return rateLimited || remaining <= 0;
     }
 
+    boolean isRateLimited() {
+        return rateLimited;
+    }
+
     void rateLimited() {
         rateLimited = true;
     }

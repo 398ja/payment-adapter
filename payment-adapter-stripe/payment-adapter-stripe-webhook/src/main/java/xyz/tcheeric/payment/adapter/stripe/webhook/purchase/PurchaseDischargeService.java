@@ -252,8 +252,13 @@ public class PurchaseDischargeService {
         if (purchase.getStatus() != StripePurchase.Status.NEEDS_ATTENTION) {
             return alreadyDone(purchase, action) ? ResolveResult.ALREADY_RESOLVED : ResolveResult.NOT_ALLOWED;
         }
+        // A retry of gateway_unrecorded could mint a second coupon, so it is refused, UNLESS the
+        // money went back: then retry means REFUNDED (below), which never mints. Without this a
+        // refunded gateway_unrecorded row could never leave NEEDS_ATTENTION and its alert fired
+        // forever (#219 review F5, fixed in #282).
         if (action == ResolveAction.RETRY
-                && purchase.getAttentionReason() == AttentionReason.GATEWAY_UNRECORDED) {
+                && purchase.getAttentionReason() == AttentionReason.GATEWAY_UNRECORDED
+                && !(purchase.getVoucherId() == null && wasRefunded(purchase))) {
             return ResolveResult.NOT_ALLOWED;
         }
         if (action == ResolveAction.DISCHARGED) {

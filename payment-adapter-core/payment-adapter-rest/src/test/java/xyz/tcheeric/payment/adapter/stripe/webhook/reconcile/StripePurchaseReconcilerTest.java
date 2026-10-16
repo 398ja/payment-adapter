@@ -33,6 +33,7 @@ import xyz.tcheeric.payment.adapter.stripe.webhook.reconcile.StripePurchaseRecon
 import xyz.tcheeric.payment.adapter.stripe.webhook.reconcile.StripeReconcileSource.CompletedSession;
 import xyz.tcheeric.payment.adapter.stripe.webhook.reconcile.StripeReconcileSource.PaymentState;
 import xyz.tcheeric.payment.adapter.stripe.webhook.reconcile.StripeReconcileSource.SessionPage;
+import xyz.tcheeric.payment.adapter.stripe.webhook.spi.StripePurchaseListener;
 import xyz.tcheeric.payment.adapter.stripe.webhook.spi.StripePurchaseListener.PaidPurchase;
 
 /**
@@ -63,7 +64,7 @@ class StripePurchaseReconcilerTest {
 
     private final ScriptedStripe stripe = new ScriptedStripe();
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
-    private RecordingPurchaseListener listener;
+    private StripePurchaseListener listener;
     private int maxCalls = 50;
 
     @BeforeEach
@@ -371,6 +372,166 @@ class StripePurchaseReconcilerTest {
         assertThat(parked.getAttentionReason()).isEqualTo(AttentionReason.STALE_ISSUED);
     }
 
+    // ------------------------------------------------------- review of #282 (adversarial)
+
+    /**
+     * A refund landing between the live read and the commit: its webhook found no row and was
+     * acknowledged, so nothing else will ever see it. The read after the commit does.
+     */
+    @Test
+    void aRefundLandingWhileTheRowIsRecordedIsCaughtByTheReRead() {
+        stripe.page(paid("cs_race_ref", "pi_race_ref"));
+        stripe.liveSequence.put("pi_race_ref", new ArrayList<>(List.of(
+                new PaymentState("ch_r", 500L, 0L, false),
+                new PaymentState("ch_r", 500L, 500L, false))));
+
+        reconciler().run(NOW);
+
+        StripePurchase row = purchases.findByCheckoutSessionId("cs_race_ref").orElseThrow();
+        assertThat(row.getStatus()).isEqualTo(Status.REFUNDED);
+        assertThat(purchases.findClaimable(Status.OWED, Status.ISSUING, NOW)).isEmpty();
+    }
+
+    /** Same race with a dispute: parked, never left OWED. */
+    @Test
+    void aDisputeLandingWhileTheRowIsRecordedParksIt() {
+        stripe.page(paid("cs_race_dis", "pi_race_dis"));
+        stripe.liveSequence.put("pi_race_dis", new ArrayList<>(List.of(
+                new PaymentState("ch_d", 500L, 0L, false),
+                new PaymentState("ch_d", 500L, 0L, true))));
+
+        reconciler().run(NOW);
+
+        StripePurchase row = purchases.findByCheckoutSessionId("cs_race_dis").orElseThrow();
+        assertThat(row.getStatus()).isEqualTo(Status.NEEDS_ATTENTION);
+        assertThat(row.getAttentionReason()).isEqualTo(AttentionReason.DISPUTED_BEFORE_ISSUE);
+    }
+
+    /**
+     * A constraint failure that is NOT a racing webhook (no row exists afterwards) must not be read
+     * as "already recorded": that would advance the cursor past a paid, unrecorded session for good.
+     */
+    @Test
+    void aConstraintFailureWithNoRowKeepsTheCursor() {
+        listener = purchase -> {
+            throw new org.springframework.dao.DataIntegrityViolationException("value too long for currency");
+        };
+        stripe.page(paid("cs_poison", "pi_poison"));
+
+        reconciler().run(NOW);
+
+        assertThat(purchases.findByCheckoutSessionId("cs_poison")).isEmpty();
+        StripeReconcileCursor cursor = cursors.findById(ACCOUNT).orElseThrow();
+        assertThat(cursor.getCreatedThrough()).isEqualTo(NOW.minus(Duration.ofDays(30)));
+        assertThat(cursor.getResumeAfter()).isNull();
+        assertThat(reconciled()).isZero();
+    }
+
+    /**
+     * Stripe restricts accounts (charges_enabled false) after they have taken payments. A lost
+     * purchase on such an account must still be found: an account with a cursor stays in scope.
+     */
+    @Test
+    void anAccountWhoseChargesWereDisabledIsStillReconciled() {
+        StripeReconcileCursor cursor = new StripeReconcileCursor();
+        cursor.setAccountId(ACCOUNT);
+        cursor.setCreatedThrough(NOW.minus(Duration.ofDays(1)));
+        cursor.setUpdatedAt(NOW);
+        cursors.save(cursor);
+        ConnectedStripeAccount account = accounts.findByStripeAccountId(ACCOUNT).orElseThrow();
+        account.setChargesEnabled(false);
+        accounts.save(account);
+        stripe.page(paid("cs_restricted", "pi_restricted"));
+
+        reconciler().run(NOW);
+
+        assertThat(purchases.findByCheckoutSessionId("cs_restricted")).isPresent();
+    }
+
+    /** The least recently reconciled account goes first, so a small budget cannot starve the tail. */
+    @Test
+    void theLeastRecentlyReconciledAccountGoesFirst() {
+        cursorRanAt(ACCOUNT, NOW.minus(Duration.ofMinutes(1)));
+        ConnectedStripeAccount other = new ConnectedStripeAccount();
+        other.setMerchantPubkey("c".repeat(64));
+        other.setStripeAccountId("acct_stall2");
+        other.setChargesEnabled(true);
+        other.setCreatedAt(NOW);
+        other.setUpdatedAt(NOW);
+        accounts.save(other);
+        cursorRanAt("acct_stall2", NOW.minus(Duration.ofHours(1)));
+        maxCalls = 1;
+        stripe.page();
+
+        reconciler().run(NOW);
+
+        assertThat(stripe.windows).extracting(Window::accountId).containsExactly("acct_stall2");
+    }
+
+    /** Session listing that spends the whole budget must not starve the stale-row sweep. */
+    @Test
+    void staleRowsAreParkedEvenWhenListingSpendsTheBudget() {
+        persist("evt_blocked_starved", "pi_bs", Status.BLOCKED, NOW.minus(Duration.ofDays(1)));
+        maxCalls = 1;
+        stripe.page();
+
+        reconciler().run(NOW);
+
+        assertThat(purchases.findByEventId("evt_blocked_starved").orElseThrow().getStatus())
+                .isEqualTo(Status.NEEDS_ATTENTION);
+    }
+
+    /**
+     * An issuer that re-claims a lapsed ISSUING row while the sweep reads Stripe is minting under a
+     * live lease: the sweep re-checks staleness on the fresh row and leaves it alone.
+     */
+    @Test
+    void anIssuingRowReclaimedDuringTheSweepIsLeftToItsWorker() {
+        StripePurchase row = persist("evt_reclaimed", "pi_reclaimed", Status.ISSUING, NOW.minus(Duration.ofHours(3)));
+        row.setClaimedUntil(NOW.minus(Duration.ofMinutes(61)));
+        purchases.save(row);
+        stripe.onRead = () -> purchases.findByEventId("evt_reclaimed").ifPresent(fresh -> {
+            fresh.setClaimedUntil(NOW.plus(Duration.ofMinutes(10)));
+            fresh.setClaimedBy("issuer-2");
+            purchases.save(fresh);
+        });
+        stripe.page();
+
+        reconciler().run(NOW);
+
+        StripePurchase after = purchases.findByEventId("evt_reclaimed").orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(Status.ISSUING);
+        assertThat(after.getClaimedBy()).isEqualTo("issuer-2");
+    }
+
+    /**
+     * Fail closed: Stripe refusing to answer about a BLOCKED row (deauthorized account, deleted
+     * intent) parks it with that said, instead of leaving it invisible and re-read forever. Parking
+     * never makes a row mintable.
+     */
+    @Test
+    void aStaleRowStripeWillNotAnswerAboutIsParkedSayingSo() {
+        persist("evt_unreadable", "pi_unreadable", Status.BLOCKED, NOW.minus(Duration.ofDays(1)));
+        stripe.failPaymentReads = true;
+        stripe.page();
+
+        reconciler().run(NOW);
+
+        StripePurchase parked = purchases.findByEventId("evt_unreadable").orElseThrow();
+        assertThat(parked.getStatus()).isEqualTo(Status.NEEDS_ATTENTION);
+        assertThat(parked.getAttentionReason()).isEqualTo(AttentionReason.ISSUE_BLOCKED);
+        assertThat(parked.getAttentionDetail()).contains("live check FAILED");
+    }
+
+    private void cursorRanAt(String accountId, Instant lastRun) {
+        StripeReconcileCursor cursor = new StripeReconcileCursor();
+        cursor.setAccountId(accountId);
+        cursor.setCreatedThrough(NOW.minus(Duration.ofDays(1)));
+        cursor.setLastRunAt(lastRun);
+        cursor.setUpdatedAt(NOW);
+        cursors.save(cursor);
+    }
+
     // ------------------------------------------------------------------ fixtures
 
     private StripePurchase persist(String eventId, String pi, Status status, Instant created) {
@@ -397,16 +558,20 @@ class StripePurchaseReconcilerTest {
                 Map.of("buyer_pubkey", BUYER), false);
     }
 
-    record Window(Instant from, Instant until, String startingAfter) {
+    record Window(String accountId, Instant from, Instant until, String startingAfter) {
     }
 
     /** Stripe, scripted: one page, live states by pi_ (intact unless set). */
     static final class ScriptedStripe implements StripeReconcileSource {
         final List<Window> windows = new ArrayList<>();
         final Map<String, PaymentState> live = new HashMap<>();
+        /** Successive answers for one pi_ (the last repeats): a refund landing between two reads. */
+        final Map<String, List<PaymentState>> liveSequence = new HashMap<>();
+        Runnable onRead = () -> { };
         List<CompletedSession> sessions = List.of();
         boolean hasMore;
         boolean failListing;
+        boolean failPaymentReads;
         int paymentReads;
 
         void page(CompletedSession... page) {
@@ -419,13 +584,21 @@ class StripePurchaseReconcilerTest {
             if (failListing) {
                 throw new StripeReconcileException("Stripe down", null, false);
             }
-            windows.add(new Window(from, until, startingAfter));
+            windows.add(new Window(accountId, from, until, startingAfter));
             return new SessionPage(sessions, hasMore);
         }
 
         @Override
         public PaymentState paymentState(String accountId, String paymentIntentId) {
             paymentReads++;
+            if (failPaymentReads) {
+                throw new StripeReconcileException("No such payment_intent", null, false);
+            }
+            onRead.run();
+            List<PaymentState> sequence = liveSequence.get(paymentIntentId);
+            if (sequence != null) {
+                return sequence.size() > 1 ? sequence.remove(0) : sequence.get(0);
+            }
             return live.getOrDefault(paymentIntentId, new PaymentState("ch_" + paymentIntentId, 500L, 0L, false));
         }
     }

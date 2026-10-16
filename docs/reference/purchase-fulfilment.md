@@ -115,7 +115,9 @@ restore or a webhook outage beyond Stripe's ~3-day retry lost it (audit S10).
 `StripePurchaseReconciler` runs every `purchase.reconcile.interval` (10 min) when
 Stripe is enabled. Configuration: [reference](configuration.md#stripe-purchase-reconciler-272).
 
-1. **Lost rows.** For each `charges_enabled` connected account it leases the
+1. **Lost rows.** For each connected account that has `charges_enabled`, or has a cursor (an
+   account Stripe restricted after it took payments stays in scope; a deauthorized one is
+   deleted and drops out), least recently reconciled first, it leases the
    account's `stripe_reconcile_cursor` row (one replica per account; PA has no
    ShedLock, so this is the purchase claim's conditional-UPDATE lease), lists
    `status=complete` Checkout Sessions with `Stripe-Account`, created in
@@ -126,7 +128,11 @@ Stripe is enabled. Configuration: [reference](configuration.md#stripe-purchase-r
      `reconcile:<cs_id>` (the V14 uniques make a racing webhook harmless);
    * refunded (any `amount_refunded`): the same transaction makes it **REFUNDED**,
      so it is never claimable; disputed: parked `disputed_before_issue`.
-     Only an intact payment becomes OWED.
+     Only an intact payment becomes OWED, and it is **read again after the commit**:
+     a refund or dispute that landed in between went to a webhook that found no row,
+     so the re-read applies it (REFUNDED, or parked) before any issuer can claim.
+   * a constraint failure counts as "recorded by its webhook" only when a row for the
+     session or `pi_` exists afterwards; otherwise the account stops with its cursor kept.
    * counts `imani_payments_reconciled_total{source="card"}` and logs `[alert]`.
      Non-zero means webhooks are being lost.
 2. **Stale rows** (no blind re-mint, gc#232). After the live check, never back to OWED:
@@ -139,13 +145,25 @@ Stripe is enabled. Configuration: [reference](configuration.md#stripe-purchase-r
 | BLOCKED, refunded | REFUNDED |
 | BLOCKED, disputed | NEEDS_ATTENTION `disputed_before_issue` |
 
+The row is re-read inside the move and the staleness test applied again, so an
+ISSUING row an issuer re-claimed meanwhile is left to it. When Stripe will not
+answer about a row (other than a 429), it is parked anyway with "live check
+FAILED" in the detail: parking never makes a row mintable.
+
 **Staging purchase #1** (PAID/BLOCKED after a NIP-98 401, not refunded): the first
 run reads its PaymentIntent, finds it intact, and parks it `issue_blocked`. It
 then appears on `GET /attention` and in `imani_payments_card_needs_attention`.
 Once the cause is fixed (U2-U4), an operator `retry`s it to OWED. Had it been
 refunded meanwhile, the run would make it REFUNDED instead.
 
-**Bounded.** Each run may make `max-stripe-calls-per-run` (50) Stripe reads
-(list pages and PaymentIntent reads alike); a 429 ends the run. A pass that does
+**Bounded.** Each run may make `max-stripe-calls-per-run` (50) Stripe reads for
+listing and lost rows (list pages and PaymentIntent reads alike), plus one
+unbudgeted re-read per newly recorded row; the stale sweep has its own bound
+(`stale-batch-size`, 20) so a listing backlog cannot starve it. A 429 ends the run.
+A pass that does
 not finish keeps its window (`pass_until`) and position (`resume_after`), and the
 next run continues it. A Stripe error leaves the cursor where it was.
+
+**Async payment methods.** A session that completes `unpaid` (Bacs, SEPA) and is
+paid days later is outside the overlap by then: if its `async_payment_succeeded`
+webhook is also lost, this reconciler does not find it (follow-up).

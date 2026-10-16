@@ -133,9 +133,9 @@ Exists only when `stripe.enabled=true`. See [purchase fulfilment](purchase-fulfi
 | `purchase.reconcile.initial-lookback` (`PURCHASE_RECONCILE_INITIAL_LOOKBACK`) | `P30D` | Where a new account's cursor starts. |
 | `purchase.reconcile.lease` (`PURCHASE_RECONCILE_LEASE`) | `PT15M` | How long one replica holds an account's cursor. |
 | `purchase.reconcile.page-size` (`PURCHASE_RECONCILE_PAGE_SIZE`) | `100` | Sessions per list call (1-100). |
-| `purchase.reconcile.max-stripe-calls-per-run` (`PURCHASE_RECONCILE_MAX_STRIPE_CALLS_PER_RUN`) | `50` | Every list page and PaymentIntent read counts; a 429 ends the run. |
+| `purchase.reconcile.max-stripe-calls-per-run` (`PURCHASE_RECONCILE_MAX_STRIPE_CALLS_PER_RUN`) | `50` | List pages and lost-row PaymentIntent reads (plus one re-read per newly recorded row); a 429 ends the run. |
 | `purchase.reconcile.issuing-stale-after` (`PURCHASE_RECONCILE_ISSUING_STALE_AFTER`) | `PT1H` | ISSUING whose lease lapsed this long ago is parked `stale_issuing`. |
 | `purchase.reconcile.issued-stale-after` (`PURCHASE_RECONCILE_ISSUED_STALE_AFTER`) | `P14D` | ISSUED older than this (the re-check horizon) is parked `stale_issued`. |
-| `purchase.reconcile.stale-batch-size` (`PURCHASE_RECONCILE_STALE_BATCH_SIZE`) | `20` | Stale rows looked at per run. |
+| `purchase.reconcile.stale-batch-size` (`PURCHASE_RECONCILE_STALE_BATCH_SIZE`) | `20` | Stale rows looked at per run; also the sweep's own Stripe-read budget. |
 
 Each module reads configuration from its properties file or environment variables. See the guides in [docs](../) for deployment details.

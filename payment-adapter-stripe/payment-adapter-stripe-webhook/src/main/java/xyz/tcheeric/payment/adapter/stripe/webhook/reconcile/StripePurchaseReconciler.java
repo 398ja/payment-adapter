@@ -77,17 +77,42 @@ public class StripePurchaseReconciler {
     /** One run. Visible for tests. */
     void run(Instant now) {
         ReconcileBudget budget = new ReconcileBudget(settings.maxStripeCallsPerRun());
-        for (ConnectedStripeAccount account : accounts.findByChargesEnabledTrue()) {
+        for (String accountId : accountsInScope()) {
             if (budget.exhausted()) {
                 log.warn("stripe_reconcile budget spent; remaining accounts continue next run");
                 break;
             }
-            reconcileAccount(account.getStripeAccountId(), now, budget);
+            reconcileAccount(accountId, now, budget);
         }
-        int parked = staleRows.sweep(now, budget);
+        // The sweep has its own bound (stale-batch-size) so a listing backlog cannot starve it:
+        // a stale row is the one thing a person is waiting to hear about (review of #282). A 429
+        // still ends the run.
+        int parked = budget.isRateLimited() ? 0 : staleRows.sweep(now, staleRows.newBudget());
         if (parked > 0) {
             log.warn("stripe_reconcile parked {} stale purchase(s) for a person", parked);
         }
+    }
+
+    /**
+     * Every account that can take a payment, plus every account already reconciled: Stripe turns
+     * {@code charges_enabled} off on a restricted account that has taken payments, and those still
+     * need finding (review of #282). Least recently reconciled first, so a budget smaller than the
+     * account list rotates through all of them instead of starving the tail. A deauthorized account
+     * is deleted from {@code connected_stripe_account} and can no longer be read; it drops out.
+     */
+    private List<String> accountsInScope() {
+        java.util.Map<String, Instant> lastRun = new java.util.HashMap<>();
+        cursors.findAll().forEach(c -> lastRun.put(c.getAccountId(), c.getLastRunAt()));
+        List<String> scope = new java.util.ArrayList<>();
+        for (ConnectedStripeAccount account : accounts.findAll()) {
+            String id = account.getStripeAccountId();
+            if (id != null && (account.isChargesEnabled() || lastRun.containsKey(id))) {
+                scope.add(id);
+            }
+        }
+        scope.sort(java.util.Comparator.comparing((String id) -> lastRun.get(id),
+                java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())).thenComparing(id -> id));
+        return scope;
     }
 
     private void reconcileAccount(String accountId, Instant now, ReconcileBudget budget) {
