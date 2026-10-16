@@ -33,8 +33,10 @@ public class PaymentGatewaySpringApplication {
      * {@code privatekey} but not {@code PRIVATE_KEY}, so {@code PURCHASE_GATEWAY_PRIVATE_KEY} went to
      * the staging logs in plaintext, and every name nobody thought of ({@code *_NSEC},
      * {@code *_MNEMONIC}, a jdbc URL carrying {@code password=}) would have followed. The dump existed
-     * only for debugging, so it is gone rather than patched. Use {@code /actuator/env}, which
-     * sanitises values, if the resolved configuration is ever needed.
+     * only for debugging, so it is gone rather than patched. Actuator {@code env} is not exposed in
+     * any profile; if the resolved configuration is ever needed, expose it temporarily on the
+     * unpublished management port, where values stay masked
+     * ({@code management.endpoint.env.show-values} defaults to {@code never}).
      */
     public static void main(String[] args) {
         SpringApplication.run(PaymentGatewaySpringApplication.class, args);
