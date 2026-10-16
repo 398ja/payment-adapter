@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Security
+
+- **At DEBUG, startup logged `PURCHASE_GATEWAY_PRIVATE_KEY` in plaintext (found on staging,
+  2026-10-16).** `PaymentGatewaySpringApplication.displayAllProperties` dumped every environment
+  variable and Spring property, filtered by a substring denylist that knew `privatekey` and
+  `private-key` but not the env-var spelling `private_key` (nor `api_key`, `access_key`,
+  `secret_key`, `*_NSEC`, `*_MNEMONIC`, credentials inside URLs, ...). The dump is removed outright
+  rather than patched: it existed only for debugging, and `/actuator/env` sanitises values if the
+  resolved configuration is ever needed. `StartupLogSecretLeakTest` boots the real `main` in a
+  child JVM at DEBUG with a gateway private key, a Stripe secret key, a jdbc URL carrying a
+  password and an nsec in its environment, and asserts none of the values appears in the output.
+  `StripeGatewayProperties.secretKey` and `StripeConnectProperties.webhookSecret` are also excluded
+  from their Lombok `toString`. Any deployment that ran at DEBUG has the key in its logs; rotating
+  it is the key owner's decision.
+
 ## [0.21.0] - 2026-10-16
 
 Card payment atomicity, waves 1-3 (umbrella #270, card atomicity audit 2026-10-15): #275, #279,
