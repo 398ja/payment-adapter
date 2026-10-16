@@ -11,5 +11,8 @@ public interface ConnectedStripeAccountRepository extends CrudRepository<Connect
 
     Optional<ConnectedStripeAccount> findByStripeAccountId(String stripeAccountId);
 
+    /** Accounts that can take a card payment: the only ones the reconciler reads (#272). */
+    java.util.List<ConnectedStripeAccount> findByChargesEnabledTrue();
+
     void deleteByMerchantPubkey(String merchantPubkey);
 }

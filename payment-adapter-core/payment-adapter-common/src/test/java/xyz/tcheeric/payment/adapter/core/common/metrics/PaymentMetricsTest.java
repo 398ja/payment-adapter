@@ -21,6 +21,26 @@ import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Status;
 
 class PaymentMetricsTest {
 
+    /** #272: the reconciled counter exists at zero before anything is reconciled, and counts by source. */
+    @Test
+    void theReconciledCounterIsPreRegisteredAndCounts() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        PaymentMetrics metrics = new PaymentMetrics(registry).preRegisterReconciled(Source.CARD);
+        assertEquals(0.0, registry.get(PaymentMetrics.RECONCILED).tag("source", "card").counter().count());
+
+        metrics.reconciled(Source.CARD);
+
+        assertEquals(1.0, registry.get(PaymentMetrics.RECONCILED).tag("source", "card").counter().count());
+    }
+
+    /** #268 "metrics never throw": a closed registry does not break the reconciler. */
+    @Test
+    void reconcilingNeverThrows() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        registry.close();
+        new PaymentMetrics(registry).preRegisterReconciled(Source.CARD).reconciled(Source.CARD);
+    }
+
     @Test
     void labelsAreTheFixedSetAndNothingElse() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();

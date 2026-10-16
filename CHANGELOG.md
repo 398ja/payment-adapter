@@ -42,6 +42,22 @@
 
 ### Added
 
+- **Stripe purchase reconciler ([#272](https://github.com/398ja/payment-adapter/issues/272),
+  card atomicity audit U10, S10).** A paid card purchase whose row was lost (DB restore, webhook
+  outage past Stripe's retry window) was never re-driven. `StripePurchaseReconciler` (only when
+  `stripe.enabled`; `purchase.reconcile.*`, default every 10 min) lists each `charges_enabled`
+  connected account's complete Checkout Sessions (`Stripe-Account`, per-account cursor with a 1 h
+  overlap, migration V18 `stripe_reconcile_cursor`, a lease per account instead of ShedLock, which
+  PA does not have) and records each paid session without a row through the webhook's listener as
+  `reconcile:<cs_id>` (the V14 uniques dedupe a racing webhook). **The live PaymentIntent/Charge is
+  read first:** a refunded payment is recorded REFUNDED in the same transaction, a disputed one is
+  parked `disputed_before_issue`; only an intact one becomes OWED. Stale rows are parked, never
+  re-minted (gc#232): ISSUING with a lease lapsed > 1 h -> `stale_issuing`, ISSUED older than 14 d
+  -> `stale_issued`, BLOCKED -> `issue_blocked` (or REFUNDED / `disputed_before_issue` per the live
+  check; staging purchase #1 lands in `issue_blocked` for an operator `retry`). Bounded: 50 Stripe
+  reads per run, a 429 ends the run, an unfinished pass resumes where it stopped. New counter
+  `imani_payments_reconciled_total{source="card"}` (pre-registered, never throws). New attention
+  reasons `stale_issued`, `issue_blocked`, `disputed_before_issue`.
 - **NEEDS_ATTENTION for card purchases ([#273](https://github.com/398ja/payment-adapter/issues/273),
   card atomicity audit U7).** A purchase nothing automatic can safely move on is parked in status
   `NEEDS_ATTENTION` with a reason: `gateway_unrecorded` (gc 409 UNRECORDED, gc#232: mint state
