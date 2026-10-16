@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import lombok.Data;
+import lombok.ToString;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
@@ -41,6 +42,8 @@ public class StripeGatewayProperties {
             "localhost", "127.0.0.1", "[::1]", "::1", "host.docker.internal", "stripe-mock");
 
     private boolean enabled;
+    // Never in toString: a logged or exception-rendered properties bean must not carry the key.
+    @ToString.Exclude
     private String secretKey;
     private String successUrl;
     private String cancelUrl;
