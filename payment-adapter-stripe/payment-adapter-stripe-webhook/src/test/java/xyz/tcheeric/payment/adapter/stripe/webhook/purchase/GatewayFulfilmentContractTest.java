@@ -235,6 +235,7 @@ class GatewayFulfilmentContractTest {
         if (total > 0) {
             answer.put("recipientPubkey", terms.get("recipientPubkey").asText());
             answer.put("sendId", "s1");
+            answer.put("voucherIds", List.of("voucher-1"));
         }
         if (!paid) {
             answer.put("reason", total == 0 ? "unpaid" : "underpaid");

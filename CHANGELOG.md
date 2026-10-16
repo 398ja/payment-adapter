@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A card discharge is pinned to the row's own coupon (imani-wallet#287, U4).** The fulfilment
+  verdict now names the coupons gateway-core counted (`voucherIds`, core U1).
+  `PurchaseDischargeService.mismatch()` refuses when the row's `voucher_id` (or, before one is
+  recorded, the issuer's claimed one) is not among them, so another coupon of the same stall,
+  buyer and face can no longer close this debt. An answer without `voucherIds` (a core older
+  than U1) is UNVERIFIABLE, not REFUSED, and counts no attempt: the row stays ISSUED and the
+  re-check discharges it once core names the coupon.
+- **`last_failure` says the voucher was delivered (imani-wallet#289, E4).** When the gateway
+  does not (yet) count a discharge, the row reads "voucher … delivered, discharge not yet
+  confirmed by the gateway" instead of implying the buyer has nothing.
+
 ## [0.21.1] - 2026-10-16
 
 Security patch (#285). No migrations, no new configuration.

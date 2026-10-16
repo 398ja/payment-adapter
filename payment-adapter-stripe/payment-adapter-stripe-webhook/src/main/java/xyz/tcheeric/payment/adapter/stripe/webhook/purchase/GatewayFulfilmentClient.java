@@ -10,8 +10,10 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import nostr.crypto.schnorr.Schnorr;
 import nostr.id.Identity;
@@ -118,7 +120,8 @@ public class GatewayFulfilmentClient {
                             ? body.get("amount").asLong() : null,
                     text(body, "unit"),
                     text(body, "reason"),
-                    text(body, "creatorPubkey"));
+                    text(body, "creatorPubkey"),
+                    voucherIds(body));
         } catch (Exception e) {
             // Unreachable means UNKNOWN. ADR 0009: a network problem never
             // discharges a debt and never accuses a merchant of not issuing.
@@ -142,9 +145,18 @@ public class GatewayFulfilmentClient {
      *                      fb2b76a), or null from a core that does not say. Registration is
      *                      first-writer-wins and open to any NIP-98 key, so the terms are only
      *                      this service's own when this is {@link #publicKeyHex()}.
+     * @param voucherIds    the coupons core counted (imani-wallet#287), or null from a core that
+     *                      does not name them; then the row's coupon cannot be pinned
      */
     public record Answer(Fulfilment fulfilment, String issuerId, String recipientPubkey,
-                         Long amount, String unit, String reason, String creatorPubkey) {
+                         Long amount, String unit, String reason, String creatorPubkey,
+                         List<String> voucherIds) {
+
+        /** The answer from a core before it named the counted coupons (imani-wallet#287). */
+        public Answer(Fulfilment fulfilment, String issuerId, String recipientPubkey,
+                      Long amount, String unit, String reason, String creatorPubkey) {
+            this(fulfilment, issuerId, recipientPubkey, amount, unit, reason, creatorPubkey, null);
+        }
 
         /** The two-fact answer, as a gateway older than imani-gateway-core#131 gives it. */
         public Answer(Fulfilment fulfilment, String issuerId) {
@@ -239,6 +251,20 @@ public class GatewayFulfilmentClient {
             log.warn("Could not reach the gateway to register {}: {}", truncate(paymentRequestId), e.getMessage());
             return Registration.FAILED;
         }
+    }
+
+    /**
+     * The coupons core counted towards the request, or null from a core that does not
+     * say (before imani-wallet#287 U1). Null and empty differ: empty is "none counted".
+     */
+    private static List<String> voucherIds(JsonNode body) {
+        JsonNode ids = body.get("voucherIds");
+        if (ids == null || !ids.isArray()) {
+            return null;
+        }
+        List<String> out = new ArrayList<>();
+        ids.forEach(id -> out.add(id.asText()));
+        return List.copyOf(out);
     }
 
     private static String text(JsonNode body, String field) {

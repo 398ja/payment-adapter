@@ -114,7 +114,7 @@ class PurchaseMetricsTest {
         String own = "e".repeat(64);
         when(fulfilment.publicKeyHex()).thenReturn(own);
         when(fulfilment.check(anyString())).thenReturn(new GatewayFulfilmentClient.Answer(
-                Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, own));
+                Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, own, java.util.List.of("v1")));
         PurchaseDischargeService service = new PurchaseDischargeService(purchases, fulfilment)
                 .withMetrics(new PaymentMetrics(registry));
 

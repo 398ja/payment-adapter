@@ -422,7 +422,10 @@ public class PurchaseDischargeService {
             // against the row, because a claim that cannot be substantiated is
             // exactly what somebody needs to look at.
             purchase.setAttempts(purchase.getAttempts() + 1);
-            purchase.setLastFailure("issuer reported a discharge the gateway cannot confirm");
+            // E4 (imani-wallet#289): the issuer delivered; what is missing is the gateway's
+            // confirmation. Saying only "refused" reads as "the buyer has nothing".
+            purchase.setLastFailure("voucher " + (voucherId == null ? "(unnamed)" : voucherId)
+                    + " delivered, discharge not yet confirmed by the gateway");
             purchase.setUpdatedAt(Instant.now());
             purchases.save(purchase);
             log.warn("Refused discharge of {}: no completed send answers its request", eventId);
@@ -439,10 +442,13 @@ public class PurchaseDischargeService {
         // first and our PUT is answered 200. core#131 (fb2b76a) names the
         // registering key; a core that does not cannot say whose terms these
         // are, which is unverifiable like the missing facts above.
-        String mismatch = mismatch(purchase, answer, fulfilment.publicKeyHex());
+        // imani-wallet#287 (U4): the verdict must also count THIS row's coupon. A core from
+        // before U1 names no coupons, which is unverifiable like the missing facts above.
+        String pinned = purchase.getVoucherId() != null ? purchase.getVoucherId() : voucherId;
+        String mismatch = mismatch(purchase, answer, fulfilment.publicKeyHex(), pinned);
         if (mismatch != null) {
             if (answer.recipientPubkey() == null || answer.amount() == null || answer.unit() == null
-                    || answer.creatorPubkey() == null) {
+                    || answer.creatorPubkey() == null || answer.voucherIds() == null) {
                 log.info("Gateway confirmed {} without the facts to check; leaving it owed", eventId);
                 return Result.UNVERIFIABLE;
             }
@@ -495,9 +501,12 @@ public class PurchaseDischargeService {
      * <p>Recipient, amount, unit and stall must all be the purchase's own. Any
      * of them missing is a reason too: the check is only as strong as its
      * weakest fact. So must the registering key: only terms this service
-     * registered itself ({@code ownKey}) count.
+     * registered itself ({@code ownKey}) count. And the coupon: core must have counted
+     * {@code voucherId}, the row's own (imani-wallet#287), so another coupon of the same
+     * stall, buyer and face cannot close this debt.
      */
-    static String mismatch(StripePurchase purchase, GatewayFulfilmentClient.Answer answer, String ownKey) {
+    static String mismatch(StripePurchase purchase, GatewayFulfilmentClient.Answer answer, String ownKey,
+                           String voucherId) {
         if (answer.recipientPubkey() == null || answer.amount() == null || answer.unit() == null) {
             return "the answer carries no recipient, amount or unit";
         }
@@ -520,6 +529,12 @@ public class PurchaseDischargeService {
         if (purchase.getStallPubkey() != null
                 && (answer.issuerId() == null || !purchase.getStallPubkey().equalsIgnoreCase(answer.issuerId()))) {
             return "issued by " + answer.issuerId() + ", not the stall";
+        }
+        if (answer.voucherIds() == null) {
+            return "the answer does not name the coupons it counted";
+        }
+        if (voucherId == null || !answer.voucherIds().contains(voucherId)) {
+            return "coupon " + voucherId + " is not among those counted " + answer.voucherIds();
         }
         return null;
     }
