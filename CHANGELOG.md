@@ -13,7 +13,13 @@
   re-check discharges it once core names the coupon.
 - **`last_failure` says the voucher was delivered (imani-wallet#289, E4).** When the gateway
   does not (yet) count a discharge, the row reads "voucher … delivered, discharge not yet
-  confirmed by the gateway" instead of implying the buyer has nothing.
+  confirmed by the gateway" instead of implying the buyer has nothing. Only the issuer's own
+  discharge call says "delivered": the 15-minute re-check also asks about rows whose delivery
+  failed, and reads "voucher … issued, the gateway has not yet confirmed its delivery" (U4
+  review).
+- **A discharged row keeps its own coupon (U4 review).** On DISCHARGED the row stored the
+  caller's `voucherId`, so a caller naming another coupon that core also counted replaced the
+  row's id. It now stores the pinned one.
 
 ## [0.21.1] - 2026-10-16
 

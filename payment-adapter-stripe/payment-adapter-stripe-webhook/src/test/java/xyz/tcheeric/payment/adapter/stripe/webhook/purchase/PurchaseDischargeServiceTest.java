@@ -569,4 +569,36 @@ class PurchaseDischargeServiceTest {
         org.junit.jupiter.api.Assertions.assertTrue(owed.getLastFailure().contains("not yet confirmed"),
                 owed.getLastFailure());
     }
+
+    // imani-wallet#287 (U4 review): core counts both the row's coupon and another one the caller
+    // names. The discharge closes, but the row keeps ITS coupon: the caller's id must not replace
+    // the only handle on the value this purchase created.
+    @Test
+    void aDischargedIssuedRowKeepsItsOwnCouponNotTheCallers() {
+        owed.setStatus(StripePurchase.Status.ISSUED);
+        owed.setVoucherId("voucher-1");
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, OWN,
+                java.util.List.of("voucher-1", "voucher-2")));
+
+        assertEquals(PurchaseDischargeService.Result.DISCHARGED, service.discharge(EVENT, "voucher-2", STALL));
+
+        assertEquals("voucher-1", owed.getVoucherId());
+    }
+
+    // imani-wallet#289 (E4, U4 review): the re-check sweep (no issuer on the line) also asks about
+    // rows whose delivery FAILED. It must not tell the operator the coupon was delivered.
+    @Test
+    void theRecheckDoesNotClaimADeliveryItDidNotSee() {
+        owed.setStatus(StripePurchase.Status.ISSUED);
+        owed.setVoucherId("voucher-1");
+        gatewaySays(Fulfilment.NOT_FULFILLED, null);
+
+        service.discharge(EVENT, "voucher-1", null);
+
+        org.junit.jupiter.api.Assertions.assertFalse(owed.getLastFailure().contains("delivered"),
+                owed.getLastFailure());
+        org.junit.jupiter.api.Assertions.assertTrue(owed.getLastFailure().contains("voucher-1"),
+                owed.getLastFailure());
+    }
 }

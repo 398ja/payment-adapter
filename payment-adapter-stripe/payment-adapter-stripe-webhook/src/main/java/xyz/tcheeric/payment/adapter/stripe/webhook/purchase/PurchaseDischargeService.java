@@ -423,9 +423,13 @@ public class PurchaseDischargeService {
             // exactly what somebody needs to look at.
             purchase.setAttempts(purchase.getAttempts() + 1);
             // E4 (imani-wallet#289): the issuer delivered; what is missing is the gateway's
-            // confirmation. Saying only "refused" reads as "the buyer has nothing".
-            purchase.setLastFailure("voucher " + (voucherId == null ? "(unnamed)" : voucherId)
-                    + " delivered, discharge not yet confirmed by the gateway");
+            // confirmation. Saying only "refused" reads as "the buyer has nothing". Only the
+            // issuer's own call (issuerId set) follows a delivery: the re-check sweep also asks
+            // about rows whose delivery FAILED, and must not overwrite that note with "delivered".
+            String named = voucherId == null ? "(unnamed)" : voucherId;
+            purchase.setLastFailure(issuerId != null
+                    ? "voucher " + named + " delivered, discharge not yet confirmed by the gateway"
+                    : "voucher " + named + " issued, the gateway has not yet confirmed its delivery");
             purchase.setUpdatedAt(Instant.now());
             purchases.save(purchase);
             log.warn("Refused discharge of {}: no completed send answers its request", eventId);
@@ -479,8 +483,10 @@ public class PurchaseDischargeService {
         purchase.setClaimedUntil(null);
         // The coupon, not the issuer. These are different things and storing
         // one under the other's name is how a trail stops leading anywhere:
-        // the voucher id is what someone follows to the coupon itself.
-        purchase.setVoucherId(voucherId);
+        // the voucher id is what someone follows to the coupon itself. The PINNED one
+        // (imani-wallet#287): an ISSUED row keeps its own coupon even when the caller names
+        // another that core happens to count as well.
+        purchase.setVoucherId(pinned);
         purchase.setLastFailure(null);
         purchase.setUpdatedAt(Instant.now());
         purchases.save(purchase);
