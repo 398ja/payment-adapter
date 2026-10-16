@@ -69,7 +69,8 @@ class PurchaseDischargeServiceTest {
                 verdict == Fulfilment.FULFILLED ? 2500L : null,
                 verdict == Fulfilment.FULFILLED ? "GBP" : null,
                 verdict == Fulfilment.FULFILLED ? null : "unpaid",
-                OWN));
+                OWN,
+                verdict == Fulfilment.FULFILLED ? java.util.List.of("voucher-1") : java.util.List.of()));
     }
 
     private void gatewaySays(GatewayFulfilmentClient.Answer answer) {
@@ -82,7 +83,7 @@ class PurchaseDischargeServiceTest {
         // sat of the stall's coupons to THEMSELF, tagged with it. Even if a
         // gateway called that "fulfilled", it went to the wrong person for the
         // wrong amount, so the buyer's debt stands and somebody is told.
-        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, SELF, 1L, "GBP", null, OWN));
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, SELF, 1L, "GBP", null, OWN, java.util.List.of("voucher-1")));
 
         assertEquals(PurchaseDischargeService.Result.REFUSED,
                 service.discharge(EVENT, "voucher-1", STALL));
@@ -93,7 +94,7 @@ class PurchaseDischargeServiceTest {
     @Test
     void refusesAnUnderpaymentToTheRightBuyer() {
         // Right person, not enough value. Still owed.
-        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2499L, "GBP", null, OWN));
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2499L, "GBP", null, OWN, java.util.List.of("voucher-1")));
 
         assertEquals(PurchaseDischargeService.Result.REFUSED,
                 service.discharge(EVENT, "voucher-1", STALL));
@@ -103,7 +104,7 @@ class PurchaseDischargeServiceTest {
     @Test
     void refusesAPaymentInAnotherCurrency() {
         // 2500 of some other unit is not 2500 pence.
-        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "EUR", null, OWN));
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "EUR", null, OWN, java.util.List.of("voucher-1")));
 
         assertEquals(PurchaseDischargeService.Result.REFUSED,
                 service.discharge(EVENT, "voucher-1", STALL));
@@ -114,7 +115,7 @@ class PurchaseDischargeServiceTest {
         // The row knows its stall. An answer naming another one does not
         // close this debt, even when the caller names no issuer.
         owed.setStallPubkey(STALL);
-        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, "c".repeat(64), BUYER, 2500L, "GBP", null, OWN));
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, "c".repeat(64), BUYER, 2500L, "GBP", null, OWN, java.util.List.of("voucher-1")));
 
         assertEquals(PurchaseDischargeService.Result.REFUSED,
                 service.discharge(EVENT, "voucher-1", null));
@@ -141,7 +142,8 @@ class PurchaseDischargeServiceTest {
         owed.setStallPubkey(STALL);
         when(fulfilment.check(REQUEST)).thenReturn(
                 new GatewayFulfilmentClient.Answer(Fulfilment.NOT_FULFILLED, null, null, 0L, null, "unregistered"),
-                new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, OWN));
+                new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, OWN,
+                        java.util.List.of("voucher-1")));
         when(fulfilment.register(REQUEST, BUYER, STALL, 2500L, "GBP"))
                 .thenReturn(GatewayFulfilmentClient.Registration.REGISTERED);
 
@@ -159,7 +161,7 @@ class PurchaseDischargeServiceTest {
         // (imani-gateway-core#131, fb2b76a). The debt stands.
         owed.setStallPubkey(STALL);
         gatewaySays(new GatewayFulfilmentClient.Answer(
-                Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, SQUATTER));
+                Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, SQUATTER, java.util.List.of("voucher-1")));
 
         assertEquals(PurchaseDischargeService.Result.REFUSED,
                 service.discharge(EVENT, "voucher-1", STALL));
@@ -374,7 +376,7 @@ class PurchaseDischargeServiceTest {
         // not the buyer. Only the recipient check stands between this and a
         // discharge, so this test fails if that check is removed.
         owed.setStallPubkey(STALL);
-        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, SELF, 2500L, "GBP", null, OWN));
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, SELF, 2500L, "GBP", null, OWN, java.util.List.of("voucher-1")));
 
         assertEquals(PurchaseDischargeService.Result.REFUSED,
                 service.discharge(EVENT, "voucher-1", STALL));
@@ -489,5 +491,126 @@ class PurchaseDischargeServiceTest {
         service.recordFailure(EVENT, "mint refused", false, null);
 
         assertEquals(StripePurchase.Status.REFUNDED, owed.getStatus());
+    }
+
+    // imani-wallet#287 (U4): core counted a coupon for this request, but not the one this row
+    // was issued. Another coupon of the same stall, buyer and face must not close this debt.
+    @Test
+    void aVerdictThatDoesNotCountTheRowsCouponIsRefused() {
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, OWN,
+                java.util.List.of("voucher-other")));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED, service.discharge(EVENT, "voucher-1", STALL));
+
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+        assertEquals(1, owed.getAttempts());
+    }
+
+    // imani-wallet#287 (U4): an ISSUED row pins its OWN coupon, not whatever the caller names.
+    @Test
+    void anIssuedRowPinsItsOwnCouponOverTheCallersClaim() {
+        owed.setStatus(StripePurchase.Status.ISSUED);
+        owed.setVoucherId("voucher-1");
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, OWN,
+                java.util.List.of("voucher-2")));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED, service.discharge(EVENT, "voucher-2", STALL));
+        assertEquals(StripePurchase.Status.ISSUED, owed.getStatus());
+    }
+
+    // imani-wallet#287 (U4): a core from before U1 does not name the counted coupons. That is
+    // not an accusation: UNVERIFIABLE, no attempt counted, nothing saved.
+    @Test
+    void aVerdictWithoutVoucherIdsIsUnverifiableAndCountsNoAttempt() {
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, OWN));
+
+        assertEquals(PurchaseDischargeService.Result.UNVERIFIABLE, service.discharge(EVENT, "voucher-1", STALL));
+
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+        assertEquals(0, owed.getAttempts());
+        verify(purchases, never()).save(any());
+    }
+
+    // imani-wallet#287 (U4): the sweep keeps an ISSUED row open while core does not yet count
+    // its coupon, and discharges it exactly once the verdict names it.
+    @Test
+    void theSweepDischargesOnceTheVerdictIncludesTheRowsCoupon() {
+        owed.setStatus(StripePurchase.Status.ISSUED);
+        owed.setVoucherId("voucher-1");
+        owed.setStallPubkey(STALL);
+        when(purchases.findIssuedDueForRecheck(eq(StripePurchase.Status.ISSUED), any(), any(), any()))
+                .thenReturn(java.util.List.of(owed));
+        when(fulfilment.check(REQUEST)).thenReturn(
+                new GatewayFulfilmentClient.Answer(Fulfilment.NOT_FULFILLED, STALL, null, 0L, "GBP", "unpaid", OWN,
+                        java.util.List.of()),
+                new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, OWN,
+                        java.util.List.of("voucher-1")));
+
+        assertEquals(0, service.recheckIssued(java.time.Instant.now()));
+        assertEquals(StripePurchase.Status.ISSUED, owed.getStatus());
+
+        assertEquals(1, service.recheckIssued(java.time.Instant.now()));
+        assertEquals(StripePurchase.Status.DISCHARGED, owed.getStatus());
+        assertEquals("voucher-1", owed.getVoucherId());
+    }
+
+    // imani-wallet#289 (E4): when the gateway does not yet count a delivered coupon, the row
+    // says the voucher was delivered, so nobody reads it as "the buyer has nothing".
+    @Test
+    void anUnconfirmedDischargeSaysTheVoucherWasDelivered() {
+        gatewaySays(Fulfilment.NOT_FULFILLED, null);
+
+        service.discharge(EVENT, "voucher-1", STALL);
+
+        org.junit.jupiter.api.Assertions.assertTrue(owed.getLastFailure().contains("voucher-1 delivered"),
+                owed.getLastFailure());
+        org.junit.jupiter.api.Assertions.assertTrue(owed.getLastFailure().contains("not yet confirmed"),
+                owed.getLastFailure());
+    }
+
+    // imani-wallet#287 (U4 review): core counts both the row's coupon and another one the caller
+    // names. The discharge closes, but the row keeps ITS coupon: the caller's id must not replace
+    // the only handle on the value this purchase created.
+    @Test
+    void aDischargedIssuedRowKeepsItsOwnCouponNotTheCallers() {
+        owed.setStatus(StripePurchase.Status.ISSUED);
+        owed.setVoucherId("voucher-1");
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, OWN,
+                java.util.List.of("voucher-1", "voucher-2")));
+
+        assertEquals(PurchaseDischargeService.Result.DISCHARGED, service.discharge(EVENT, "voucher-2", STALL));
+
+        assertEquals("voucher-1", owed.getVoucherId());
+    }
+
+    // imani-wallet#289 (E4, U4 review): the re-check sweep (no issuer on the line) also asks about
+    // rows whose delivery FAILED. It must not tell the operator the coupon was delivered.
+    @Test
+    void theRecheckDoesNotClaimADeliveryItDidNotSee() {
+        owed.setStatus(StripePurchase.Status.ISSUED);
+        owed.setVoucherId("voucher-1");
+        gatewaySays(Fulfilment.NOT_FULFILLED, null);
+
+        service.discharge(EVENT, "voucher-1", null);
+
+        org.junit.jupiter.api.Assertions.assertFalse(owed.getLastFailure().contains("delivered"),
+                owed.getLastFailure());
+        org.junit.jupiter.api.Assertions.assertTrue(owed.getLastFailure().contains("voucher-1"),
+                owed.getLastFailure());
+    }
+
+    // imani-wallet#287 (U4 review): a core older than U1 names no coupons, but its other facts
+    // can still be wrong. A payment to someone else must stay REFUSED, not turn UNVERIFIABLE
+    // just because the coupon list is missing.
+    @Test
+    void anOlderCoresWrongRecipientIsStillRefused() {
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, SELF, 2500L, "GBP", null, OWN));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED, service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(1, owed.getAttempts());
     }
 }
