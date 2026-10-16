@@ -20,6 +20,9 @@
 - **A discharged row keeps its own coupon (U4 review).** On DISCHARGED the row stored the
   caller's `voucherId`, so a caller naming another coupon that core also counted replaced the
   row's id. It now stores the pinned one.
+- **An older core's wrong answer is still refused (U4 review).** Without `voucherIds`, every
+  mismatch (wrong buyer, underpayment, another stall, a squatter's terms) read as UNVERIFIABLE.
+  Only the missing coupon list itself is unverifiable now; the other facts are refused as before.
 
 ## [0.21.1] - 2026-10-16
 

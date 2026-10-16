@@ -601,4 +601,16 @@ class PurchaseDischargeServiceTest {
         org.junit.jupiter.api.Assertions.assertTrue(owed.getLastFailure().contains("voucher-1"),
                 owed.getLastFailure());
     }
+
+    // imani-wallet#287 (U4 review): a core older than U1 names no coupons, but its other facts
+    // can still be wrong. A payment to someone else must stay REFUSED, not turn UNVERIFIABLE
+    // just because the coupon list is missing.
+    @Test
+    void anOlderCoresWrongRecipientIsStillRefused() {
+        owed.setStallPubkey(STALL);
+        gatewaySays(new GatewayFulfilmentClient.Answer(Fulfilment.FULFILLED, STALL, SELF, 2500L, "GBP", null, OWN));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED, service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(1, owed.getAttempts());
+    }
 }

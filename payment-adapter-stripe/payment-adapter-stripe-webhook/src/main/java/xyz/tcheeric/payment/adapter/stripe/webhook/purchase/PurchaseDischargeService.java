@@ -452,7 +452,7 @@ public class PurchaseDischargeService {
         String mismatch = mismatch(purchase, answer, fulfilment.publicKeyHex(), pinned);
         if (mismatch != null) {
             if (answer.recipientPubkey() == null || answer.amount() == null || answer.unit() == null
-                    || answer.creatorPubkey() == null || answer.voucherIds() == null) {
+                    || answer.creatorPubkey() == null || NO_COUPONS_NAMED.equals(mismatch)) {
                 log.info("Gateway confirmed {} without the facts to check; leaving it owed", eventId);
                 return Result.UNVERIFIABLE;
             }
@@ -537,7 +537,7 @@ public class PurchaseDischargeService {
             return "issued by " + answer.issuerId() + ", not the stall";
         }
         if (answer.voucherIds() == null) {
-            return "the answer does not name the coupons it counted";
+            return NO_COUPONS_NAMED;
         }
         if (voucherId == null || !answer.voucherIds().contains(voucherId)) {
             return "coupon " + voucherId + " is not among those counted " + answer.voucherIds();
@@ -583,6 +583,13 @@ public class PurchaseDischargeService {
             purchases.save(purchase);
         }
     }
+
+    /**
+     * {@link #mismatch}'s answer when core named no coupons (older than U1, imani-wallet#287).
+     * Unverifiable, unlike every other mismatch: checked LAST, so a wrong buyer, amount, unit,
+     * stall or registrant is still refused against an older core.
+     */
+    static final String NO_COUPONS_NAMED = "the answer does not name the coupons it counted";
 
     /** How long a re-checked ISSUED row rests before it is asked about again. */
     static final Duration RECHECK_BACKOFF = Duration.ofMinutes(15);
