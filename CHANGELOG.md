@@ -2,8 +2,23 @@
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-16
+
+Card payment atomicity, waves 1-3 (umbrella #270, card atomicity audit 2026-10-15): #275, #279,
+#278, #281, #280, #282. **RUNS MIGRATIONS V14-V18** (V14 adds two UNIQUE indexes on
+`stripe_purchase`; it fails if duplicate rows already exist, which would be a double-issued payment
+for a person to look at first; V15-V18 are additive). New optional configuration
+`PURCHASE_OPERATOR_TOKEN`; the Stripe reconciler runs whenever `stripe.enabled`.
+
 ### Fixed
 
+- **A webhook left PROCESSING by a crash lost a paid purchase, and one paid session could become two
+  debts ([#271](https://github.com/398ja/payment-adapter/issues/271), PR #275, card atomicity audit
+  S5b, S1c).** The PROCESSING mark carries `processing_started_at` (migration V15); a mark older than
+  2 minutes (or from before V15) is taken over, and a fresh one, or a delivery that loses the race to
+  insert it, answers 5xx so Stripe retries instead of being told the event is done. The purchase
+  listener looks the Checkout Session up first, and migration V14 makes `checkout_session_id` and
+  `payment_intent_id` unique, so a session announced by two events records one debt.
 - **Every fulfilment GET/PUT to gateway-core got 401 "Invalid signature" (B2,
   imani-deploy#213/#214, PA#270).** `GatewayFulfilmentClient` signed its NIP-98 event with
   nostr-java's `Identity.sign`, which signs sha256 of its input, so the signature covered
