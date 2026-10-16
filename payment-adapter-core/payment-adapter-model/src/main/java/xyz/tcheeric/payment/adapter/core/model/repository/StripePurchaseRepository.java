@@ -148,6 +148,23 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
             + " and (p.reversalAcknowledgedAt is null or p.reversalAcknowledgedAt < p.reversedAt)")
     long countUnacknowledgedDisputes();
 
+    /**
+     * Rows nothing automatic will move on, for the Stripe reconciler to park (#272): ISSUING whose
+     * claim lapsed before {@code issuingLapsedBefore}, ISSUED created before
+     * {@code issuedCreatedBefore}, and every BLOCKED row. Oldest first, one page per run.
+     */
+    @Query("select p from StripePurchase p where (p.status = :issuing and p.claimedUntil < :issuingLapsedBefore)"
+            + " or (p.status = :issued and p.createdAt < :issuedCreatedBefore)"
+            + " or p.status = :blocked"
+            + " order by p.createdAt asc")
+    List<StripePurchase> findStaleForAttention(
+            @Param("issuing") StripePurchase.Status issuing,
+            @Param("issuingLapsedBefore") Instant issuingLapsedBefore,
+            @Param("issued") StripePurchase.Status issued,
+            @Param("issuedCreatedBefore") Instant issuedCreatedBefore,
+            @Param("blocked") StripePurchase.Status blocked,
+            org.springframework.data.domain.Pageable page);
+
     /** When the oldest purchase in the given statuses was paid, or null when there is none. */
     @Query("select min(p.createdAt) from StripePurchase p where p.status in :statuses")
     Instant findOldestCreatedAtByStatusIn(@Param("statuses") java.util.Collection<StripePurchase.Status> statuses);

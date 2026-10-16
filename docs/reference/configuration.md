@@ -119,4 +119,23 @@ Configuration is read from `cash.properties` on the classpath.
 | `STRIPE_WEBHOOK_SECRET` | *(required for Stripe webhook processing)* | Secret used to verify the `Stripe-Signature` header. |
 | `STRIPE_WEBHOOK_TOLERANCE_SECONDS` | `300` | Maximum accepted webhook signature age in seconds. |
 
+### Stripe purchase reconciler (#272)
+
+Exists only when `stripe.enabled=true`. See [purchase fulfilment](purchase-fulfilment.md#stripe-reconciler-272).
+
+| Property (`ENV`) | Default | Description |
+| --- | --- | --- |
+| `purchase.reconcile.enabled` (`PURCHASE_RECONCILE_ENABLED`) | `true` | Switch the runs off without removing the bean. |
+| `purchase.reconcile.interval` (`PURCHASE_RECONCILE_INTERVAL`) | `PT10M` | Delay between runs. |
+| `purchase.reconcile.initial-delay` (`PURCHASE_RECONCILE_INITIAL_DELAY`) | `PT2M` | First run after boot. |
+| `purchase.reconcile.overlap` (`PURCHASE_RECONCILE_OVERLAP`) | `PT1H` | Each pass re-reads this much before the cursor. |
+| `purchase.reconcile.grace` (`PURCHASE_RECONCILE_GRACE`) | `PT10M` | Sessions younger than this are left to their webhook. |
+| `purchase.reconcile.initial-lookback` (`PURCHASE_RECONCILE_INITIAL_LOOKBACK`) | `P30D` | Where a new account's cursor starts. |
+| `purchase.reconcile.lease` (`PURCHASE_RECONCILE_LEASE`) | `PT15M` | How long one replica holds an account's cursor. |
+| `purchase.reconcile.page-size` (`PURCHASE_RECONCILE_PAGE_SIZE`) | `100` | Sessions per list call (1-100). |
+| `purchase.reconcile.max-stripe-calls-per-run` (`PURCHASE_RECONCILE_MAX_STRIPE_CALLS_PER_RUN`) | `50` | List pages and lost-row PaymentIntent reads (plus one re-read per newly recorded row); a 429 ends the run. |
+| `purchase.reconcile.issuing-stale-after` (`PURCHASE_RECONCILE_ISSUING_STALE_AFTER`) | `PT1H` | ISSUING whose lease lapsed this long ago is parked `stale_issuing`. |
+| `purchase.reconcile.issued-stale-after` (`PURCHASE_RECONCILE_ISSUED_STALE_AFTER`) | `P14D` | ISSUED older than this (the re-check horizon) is parked `stale_issued`. |
+| `purchase.reconcile.stale-batch-size` (`PURCHASE_RECONCILE_STALE_BATCH_SIZE`) | `20` | Stale rows looked at per run; also the sweep's own Stripe-read budget. |
+
 Each module reads configuration from its properties file or environment variables. See the guides in [docs](../) for deployment details.

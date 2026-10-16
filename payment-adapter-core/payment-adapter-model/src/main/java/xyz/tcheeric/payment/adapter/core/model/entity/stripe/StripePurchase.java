@@ -129,6 +129,22 @@ public class StripePurchase {
         DELIVERY_EXHAUSTED(true),
         /** The claim lease lapsed too many times: workers keep dying mid-mint. */
         STALE_ISSUING(true),
+        /**
+         * A coupon exists but its discharge was never confirmed within the re-check horizon
+         * (payment-adapter#272 reconciler). No re-mint; a person finds out where it went.
+         */
+        STALE_ISSUED(true),
+        /**
+         * The issuer reported a permanent refusal (BLOCKED, e.g. a NIP-98 401) and the live Stripe
+         * check found the payment neither refunded nor disputed (#272). Parked so it is seen;
+         * {@code retry} once the cause is fixed. Nothing was minted.
+         */
+        ISSUE_BLOCKED(true),
+        /**
+         * Disputed before any coupon existed, found by the reconciler's live check (#272). Never
+         * minted automatically: a dispute can still be lost (#265).
+         */
+        DISPUTED_BEFORE_ISSUE(true),
         /** Refunded after a coupon exists. Informational: refunds are not supported (#265). */
         REFUNDED_AFTER_ISSUE(false),
         /** Disputed. Informational: disputes are not supported, nothing is revoked (#265). */

@@ -74,6 +74,12 @@ public final class PaymentMetrics {
 
     public static final String CONNECT = "imani.stripe.connect.events";
 
+    /**
+     * Payments a reconciler recorded because their webhook never did (payment-adapter#272).
+     * Prometheus: {@code imani_payments_reconciled_total{source}}. Non-zero means webhooks are lost.
+     */
+    public static final String RECONCILED = "imani.payments.reconciled";
+
     /** Which interval a duration measures. */
     public enum Stage { CHECKOUT_CREATE, WEBHOOK, PAID_TO_ISSUED, INVOICE_TO_CONFIRM, CONFIRM_TO_DELIVERED }
 
@@ -165,6 +171,24 @@ public final class PaymentMetrics {
         return Counter.builder(CONNECT)
                 .description("Stripe Connect account lifecycle events")
                 .tag("event", label(event))
+                .register(registry);
+    }
+
+    /** Register the zero series of {@link #RECONCILED}, so an alert on its rate can evaluate. */
+    public PaymentMetrics preRegisterReconciled(Source source) {
+        safely("pre-register reconciled", () -> reconciledCounter(source));
+        return this;
+    }
+
+    /** One payment recorded by a reconciler. Never throws. */
+    public void reconciled(Source source) {
+        safely("reconciled", () -> reconciledCounter(source).increment());
+    }
+
+    private Counter reconciledCounter(Source source) {
+        return Counter.builder(RECONCILED)
+                .description("Payments recorded by reconciliation because no webhook recorded them")
+                .tag("source", label(source))
                 .register(registry);
     }
 
