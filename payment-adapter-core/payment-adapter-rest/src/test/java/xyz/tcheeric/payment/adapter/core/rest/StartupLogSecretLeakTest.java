@@ -36,6 +36,18 @@ class StartupLogSecretLeakTest {
     private static final String DB_PASSWORD = "LeakCanaryDbPw7731";
     private static final String NSEC = "nsec1leakcanaryqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
 
+    // Secrets the application really binds (review of #285). The four above prove the dump is
+    // gone; these prove nothing that CONSUMES a secret logs it on the way in. The names are the
+    // ones the staging compose sets, plus the Connect webhook secret under the env name Spring's
+    // relaxed binding maps onto stripe.connect.webhook-secret.
+    private static final Map<String, String> CONSUMED_SECRETS = Map.of(
+            "PURCHASE_API_TOKEN", "leakcanaryPurchaseApiToken7c1",
+            "PURCHASE_OPERATOR_TOKEN", "leakcanaryOperatorToken9e4",
+            "MINT_WEBHOOK_SECRET", "leakcanaryMintWebhookSecret3a8",
+            "GATEWAY_WEBHOOK_SECRET", "leakcanaryGatewayWebhookSecret5b2",
+            "SPRING_DATASOURCE_PASSWORD", "leakcanaryDatasourcePassword6d0",
+            "STRIPE_CONNECT_WEBHOOKSECRET", "whsec_leakcanaryConnect8f3");
+
     private static String output;
     private static int exitCode;
 
@@ -71,6 +83,7 @@ class StartupLogSecretLeakTest {
         env.put("REPORTING_DATASOURCE_URL",
                 "jdbc:postgresql://db:5432/payments?user=pa&password=" + DB_PASSWORD);
         env.put("IMANI_SIGNER_NSEC", NSEC);
+        env.putAll(CONSUMED_SECRETS);
         env.put("LOGGING_LEVEL_ROOT", "DEBUG");
         env.put("LOGGING_LEVEL_XYZ_TCHEERIC", "DEBUG");
         env.put("SERVER_PORT", "0");
@@ -118,6 +131,14 @@ class StartupLogSecretLeakTest {
     @Test
     void aSecretUnderAnUnanticipatedNameIsNotLogged() {
         assertNotLogged(NSEC);
+    }
+
+    // Every secret the application binds, logged by nothing that reads it.
+    @Test
+    void noConsumedSecretIsLogged() {
+        CONSUMED_SECRETS.forEach((name, value) -> assertThat(output.contains(value))
+                .as("startup output must not contain the value of %s", name)
+                .isFalse());
     }
 
     private static void assertNotLogged(String secret) {
