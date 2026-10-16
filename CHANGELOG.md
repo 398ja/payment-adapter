@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-16
+
+A card discharge is pinned to the row's own coupon (imani-wallet#287, U4, #290). No migrations, no new
+configuration. Deploy after gateway-core 0.28.0 (`voucherIds`); with an older core a discharge reads
+UNVERIFIABLE and waits, it is never falsely discharged.
+
 ### Fixed
 
 - **A card discharge is pinned to the row's own coupon (imani-wallet#287, U4).** The fulfilment
