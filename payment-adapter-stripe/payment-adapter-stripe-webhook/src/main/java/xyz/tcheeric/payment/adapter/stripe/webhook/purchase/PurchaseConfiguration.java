@@ -75,6 +75,41 @@ public class PurchaseConfiguration {
     @Value("${purchase.claim.max-lease-expiries:3}")
     private int maxLeaseExpiries;
 
+    /** purchase-issuer's base URL on the compose network, as staging names it (#293). */
+    static final String DEFAULT_ISSUER_BASE_URL = "http://purchase-issuer:8791";
+
+    /** How long to wait on purchase-issuer's readiness answer before refusing the checkout (#293). */
+    @Value("${purchase.issuer.timeout-ms:2000}")
+    private long issuerTimeoutMs;
+
+    /** How long a stall's ready / not-ready answer is reused (#293). UNKNOWN is never reused. */
+    @Value("${purchase.issuer.ready-cache-seconds:30}")
+    private long issuerReadyCacheSeconds;
+
+    /**
+     * Readiness of a stall for card sales, asked of purchase-issuer before any Checkout Session
+     * (payment-adapter#293).
+     *
+     * <p>{@code purchase.issuer.base-url} unset defaults to {@link #DEFAULT_ISSUER_BASE_URL} (the
+     * staging compose name), EXCEPT under a {@code prod}/{@code production} profile, where an unset
+     * URL stays empty and every card checkout answers 503: a production deployment must name its
+     * issuer deliberately, and refusing is safer than guessing.
+     */
+    @Bean
+    public StallReadinessClient stallReadinessClient(org.springframework.core.env.Environment env) {
+        return new StallReadinessClient(issuerBaseUrl(env), Duration.ofMillis(issuerTimeoutMs),
+                Duration.ofSeconds(issuerReadyCacheSeconds), java.time.Clock.systemUTC());
+    }
+
+    static String issuerBaseUrl(org.springframework.core.env.Environment env) {
+        String configured = env.getProperty("purchase.issuer.base-url");
+        if (configured != null) {
+            return configured.trim();
+        }
+        boolean prod = env.acceptsProfiles(org.springframework.core.env.Profiles.of("prod | production"));
+        return prod ? "" : DEFAULT_ISSUER_BASE_URL;
+    }
+
     @Bean
     public GatewayFulfilmentClient gatewayFulfilmentClient() {
         return new GatewayFulfilmentClient(
