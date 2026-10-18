@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-18
+
+Card checkout asks purchase-issuer whether the stall is ready before taking money (#293, #294). No
+migrations. Deploy after imani-wallet 0.31.0's purchase-issuer (its `/ready` reason codes); the
+default `PURCHASE_ISSUER_BASE_URL` (`http://purchase-issuer:8791`) is right for a compose network
+that has both. Under a `prod`/`production` profile it is empty and checkout fails closed (503)
+until it is set.
+
 ### Fixed
 
 - **Card checkout refuses a stall purchase-issuer says is not ready (#293, imani-wallet#315 review F1).**
