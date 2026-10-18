@@ -100,6 +100,26 @@ Configuration is read from `cash.properties` on the classpath.
 | --- | --- | --- |
 | `gateway.api.base_url` | `http://localhost:8080` | REST API base URL for the webhook handler to call back. |
 
+### Card checkout readiness gate (#293)
+
+Before `POST /api/v1/checkout/purchase` creates a Stripe Checkout Session it asks purchase-issuer
+`GET {base-url}/api/v1/card-sales/ready/<stall>`. Not ready answers **409** `{error, reason}`
+(`not_enrolled`, `validity_never_expires`, `validity_outlives_delegation`, `validity_unknown`).
+Unknown (timeout, PI down, non-200, bad body, URL unset) answers **503** with `Retry-After: 5`.
+No session is created in either case.
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `purchase.issuer.base-url` (`PURCHASE_ISSUER_BASE_URL`) | `http://purchase-issuer:8791`; *(empty)* under a `prod`/`production` profile | purchase-issuer's internal URL. Empty fails every card checkout closed (503). |
+| `purchase.issuer.timeout-ms` (`PURCHASE_ISSUER_TIMEOUT_MS`) | `2000` | Connect + request timeout for the readiness call. |
+| `purchase.issuer.ready-cache-seconds` (`PURCHASE_ISSUER_READY_CACHE_SECONDS`) | `30` | Per-stall reuse of a ready / not-ready answer. Unknown is never cached. |
+
+**Production go-live:** set `PURCHASE_ISSUER_BASE_URL` explicitly. The empty default only applies
+when a `prod`/`production` Spring profile is active, and imani-deploy's `docker-compose.prod.yml`
+sets no profile for payment-adapter. Without the variable a prod payment-adapter falls back to
+`http://purchase-issuer:8791`, which still fails closed (503) while no service of that name exists on
+the prod network, but should not be relied on.
+
 ### Mint Webhook Forwarder
 
 | Property | Default | Description |

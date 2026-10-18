@@ -57,6 +57,7 @@ public class PurchaseCheckoutController {
 
     private final ConnectedStripeAccountRepository accounts;
     private final StripeCheckoutService checkout;
+    private final StallReadinessClient readiness;
 
     /**
      * The most a single card purchase may be.
@@ -152,6 +153,21 @@ public class PurchaseCheckoutController {
                     .body(error("this stall has no currency configured")));
         }
 
+        // payment-adapter#293: the last check before money can move, and the only one purchase-issuer
+        // can answer: can a coupon actually be issued for this stall? The wallet greys Buy out for a
+        // not-ready stall, but this endpoint is public, so a direct call must be refused too. Unknown
+        // fails CLOSED: a buyer who pays for a coupon that cannot be issued needs a manual refund.
+        StallReadinessClient.Readiness ready = readiness.check(request.stallPubkey().toLowerCase());
+        if (ready.state() == StallReadinessClient.State.NOT_READY) {
+            return refused(Reason.NOT_READY, currency, ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", STALL_NOT_READY, "reason", ready.reason())));
+        }
+        if (ready.state() != StallReadinessClient.State.READY) {
+            return refused(Reason.READINESS_UNKNOWN, currency, ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .header(org.springframework.http.HttpHeaders.RETRY_AFTER, RETRY_AFTER_SECONDS)
+                    .body(error(CARD_SALES_UNAVAILABLE)));
+        }
+
         String quoteId = UUID.randomUUID().toString();
 
         try {
@@ -196,6 +212,12 @@ public class PurchaseCheckoutController {
     static final String CARD_PAYMENTS_UNAVAILABLE = "card payments are briefly unavailable, try again";
 
     static final String RETRY_AFTER_SECONDS = "5";
+
+    /** What a buyer sees when purchase-issuer says the stall cannot be issued for (#293). */
+    static final String STALL_NOT_READY = "this stall cannot sell vouchers by card right now";
+
+    /** What a buyer sees when readiness could not be checked (#293). Fail closed. */
+    static final String CARD_SALES_UNAVAILABLE = "card sales temporarily unavailable, try again shortly";
 
     /** Refusals from the gateway are the customer's to see now, rather than at the card form. */
     private ResponseEntity<?> gatewayRefused(PurchaseRequest request, String currency, RuntimeException e) {

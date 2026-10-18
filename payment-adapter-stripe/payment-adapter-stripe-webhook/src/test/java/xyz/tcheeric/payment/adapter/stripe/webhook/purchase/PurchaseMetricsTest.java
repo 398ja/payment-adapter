@@ -46,7 +46,7 @@ class PurchaseMetricsTest {
 
     private PurchaseCheckoutController controller(ConnectedStripeAccountRepository accounts,
                                                   StripeCheckoutService checkout) {
-        PurchaseCheckoutController controller = new PurchaseCheckoutController(accounts, checkout);
+        PurchaseCheckoutController controller = new PurchaseCheckoutController(accounts, checkout, readyStall());
         ReflectionTestUtils.setField(controller, "maxAmountMinor", 1_000_000L);
         controller.setMeterRegistry(registry);
         return controller;
@@ -172,5 +172,12 @@ class PurchaseMetricsTest {
         expected.remove(StripePurchase.Status.DISCHARGED);
         expected.remove(StripePurchase.Status.REFUNDED);
         assertEquals(expected, PaidUnissuedGauge.OPEN);
+    }
+
+    private static StallReadinessClient readyStall() {
+        StallReadinessClient readiness = mock(StallReadinessClient.class);
+        when(readiness.check(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(StallReadinessClient.Readiness.ready());
+        return readiness;
     }
 }

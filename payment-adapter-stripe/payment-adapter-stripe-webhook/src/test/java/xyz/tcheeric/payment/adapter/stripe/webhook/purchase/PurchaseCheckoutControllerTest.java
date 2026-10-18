@@ -35,13 +35,16 @@ class PurchaseCheckoutControllerTest {
 
     private ConnectedStripeAccountRepository accounts;
     private StripeCheckoutService checkout;
+    private StallReadinessClient readiness;
     private PurchaseCheckoutController controller;
 
     @BeforeEach
     void setUp() {
         accounts = mock(ConnectedStripeAccountRepository.class);
         checkout = mock(StripeCheckoutService.class);
-        controller = new PurchaseCheckoutController(accounts, checkout);
+        readiness = mock(StallReadinessClient.class);
+        when(readiness.check(STALL)).thenReturn(StallReadinessClient.Readiness.ready());
+        controller = new PurchaseCheckoutController(accounts, checkout, readiness);
         ReflectionTestUtils.setField(controller, "maxAmountMinor", 1_000_000L);
         ConnectedStripeAccount account = mock(ConnectedStripeAccount.class);
         when(account.isChargesEnabled()).thenReturn(true);
@@ -108,5 +111,59 @@ class PurchaseCheckoutControllerTest {
                 new PurchaseCheckoutController.PurchaseRequest(STALL, 2500L, BUYER));
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+    }
+
+    // payment-adapter#293: a ready stall still gets its session, and readiness was asked first.
+    @Test
+    void aReadyStallGetsASession() {
+        ResponseEntity<?> response = controller.start(
+                new PurchaseCheckoutController.PurchaseRequest(STALL, 2500L, BUYER));
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(readiness).check(STALL);
+    }
+
+    // payment-adapter#293: every not-ready reason purchase-issuer reports is a 409 naming it,
+    // and Stripe is never called, so nobody pays for a coupon that cannot be issued.
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            StallReadinessClient.NOT_ENROLLED,
+            "validity_never_expires", "validity_outlives_delegation", "validity_unknown"})
+    void aNotReadyStallIsA409WithItsReasonAndNoSession(String reason) {
+        when(readiness.check(STALL)).thenReturn(StallReadinessClient.Readiness.notReady(reason));
+
+        ResponseEntity<?> response = controller.start(
+                new PurchaseCheckoutController.PurchaseRequest(STALL, 2500L, BUYER));
+
+        assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
+        assertEquals(Map.of("error", PurchaseCheckoutController.STALL_NOT_READY, "reason", reason), response.getBody());
+        verify(checkout, never()).createPurchaseSession(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    // payment-adapter#293: readiness unknown (PI down, timed out, a bad answer, unconfigured)
+    // fails CLOSED with a 503, and Stripe is never called.
+    @Test
+    void unknownReadinessIsA503AndNoSession() {
+        when(readiness.check(STALL)).thenReturn(StallReadinessClient.Readiness.unknown());
+
+        ResponseEntity<?> response = controller.start(
+                new PurchaseCheckoutController.PurchaseRequest(STALL, 2500L, BUYER));
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
+        assertEquals(PurchaseCheckoutController.RETRY_AFTER_SECONDS, response.getHeaders().getFirst("Retry-After"));
+        assertEquals(Map.of("error", PurchaseCheckoutController.CARD_SALES_UNAVAILABLE), response.getBody());
+        verify(checkout, never()).createPurchaseSession(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    // payment-adapter#293: the cheap local refusals come first, so a bad request never costs a PI call.
+    @Test
+    void aStallThatCannotChargeIsRefusedWithoutAskingReadiness() {
+        ConnectedStripeAccount off = mock(ConnectedStripeAccount.class);
+        when(off.isChargesEnabled()).thenReturn(false);
+        when(accounts.findByMerchantPubkey(STALL)).thenReturn(Optional.of(off));
+
+        controller.start(new PurchaseCheckoutController.PurchaseRequest(STALL, 2500L, BUYER));
+
+        verify(readiness, never()).check(any());
     }
 }
