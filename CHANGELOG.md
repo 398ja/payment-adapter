@@ -12,6 +12,9 @@
   case, so a direct API call can no longer take money for a coupon the mint will park. Answers are
   cached per stall for 30 s (unknown is never cached). New metric reasons `not_ready` and
   `readiness_unknown`.
+  Review of #294: the 2 s deadline now covers the whole answer (a PI that stalled after its headers
+  held the checkout with no bound and then let it through), and an ambiguous body (a duplicated
+  `ready` key, or a second JSON value) is unknown rather than whichever value wins.
 
 ### Configuration
 

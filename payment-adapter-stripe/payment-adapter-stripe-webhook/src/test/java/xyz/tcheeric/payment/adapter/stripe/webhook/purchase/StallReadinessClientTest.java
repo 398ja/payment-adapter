@@ -20,6 +20,7 @@ import xyz.tcheeric.payment.adapter.stripe.webhook.purchase.StallReadinessClient
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Asking purchase-issuer whether a stall can be issued for (payment-adapter#293), over real HTTP.
@@ -126,6 +127,57 @@ class StallReadinessClientTest {
         assertEquals(State.UNKNOWN, client().check(STALL).state());
         body = "not json";
         assertEquals(State.UNKNOWN, client().check(OTHER).state());
+    }
+
+    // Review of #294: the timeout bounds the WHOLE answer, not just the headers. A PI that sends
+    // 200 and then stalls mid-body must not hold a checkout thread (JDK's request timeout stops at
+    // the headers), and must not be READY.
+    @Test
+    void aBodyThatStallsAfterTheHeadersIsUnknownWithinTheTimeout() throws IOException {
+        server.stop(0);
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(Executors.newCachedThreadPool());
+        server.createContext("/", exchange -> {
+            exchange.sendResponseHeaders(200, 0);
+            try {
+                exchange.getResponseBody().write("{\"ready\":".getBytes(StandardCharsets.UTF_8));
+                exchange.getResponseBody().flush();
+                Thread.sleep(3000);
+                exchange.getResponseBody().write("true}".getBytes(StandardCharsets.UTF_8));
+            } catch (IOException | InterruptedException ignored) {
+                // the client gave up
+            }
+            exchange.close();
+        });
+        server.start();
+
+        long start = System.nanoTime();
+        Readiness r = client().check(STALL);
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        assertEquals(State.UNKNOWN, r.state());
+        assertTrue(elapsedMs < 2000, "gave up after " + elapsedMs + " ms, timeout is 300 ms");
+    }
+
+    // Review of #294: an ambiguous answer is not an answer. Duplicate `ready` keys (Jackson keeps the
+    // last) or a second JSON value after the first are UNKNOWN, never whichever one happens to win.
+    @Test
+    void anAmbiguousAnswerIsUnknown() {
+        body = "{\"ready\":false,\"ready\":true}";
+        assertEquals(State.UNKNOWN, client().check(STALL).state());
+        body = "{\"ready\":true}{\"ready\":false}";
+        assertEquals(State.UNKNOWN, client().check(OTHER).state());
+    }
+
+    // Review of #294: fields PI may add later are ignored, so a newer PI does not stop card sales.
+    @Test
+    void unknownFieldsAreTolerated() {
+        body = "{\"ready\":true,\"since\":123,\"detail\":{\"a\":[1]}}";
+        assertEquals(State.READY, client().check(STALL).state());
+        body = "{\"ready\":false,\"reason\":\"validity_outlives_delegation\",\"days\":730}";
+        Readiness r = client().check(OTHER);
+        assertEquals(State.NOT_READY, r.state());
+        assertEquals("validity_outlives_delegation", r.reason());
     }
 
     // PI down entirely (nothing listening) is UNKNOWN.

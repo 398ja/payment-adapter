@@ -40,7 +40,13 @@ public class StallReadinessClient {
     /** PA's own code for "not ready" with no code on the wire: not enrolled, or credential expired. */
     public static final String NOT_ENROLLED = "not_enrolled";
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    /**
+     * Strict on purpose (review of #294): a duplicated {@code ready} key, or a second JSON value after
+     * the first, is ambiguous, and an ambiguous answer must not be read as whichever value wins.
+     */
+    private static final ObjectMapper MAPPER = new ObjectMapper()
+            .enable(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
+            .enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     public enum State { READY, NOT_READY, UNKNOWN }
 
@@ -106,14 +112,19 @@ public class StallReadinessClient {
             log.warn("purchase.issuer.base-url is not set: card checkout refused (fail closed)");
             return Readiness.unknown();
         }
+        java.util.concurrent.CompletableFuture<HttpResponse<String>> pending = null;
         try {
-            HttpResponse<String> response = http.send(
+            // The deadline covers the WHOLE answer (review of #294). HttpRequest.timeout stops at the
+            // response headers, so a PI that sent 200 and then stalled mid-body held this checkout
+            // thread with no bound at all.
+            pending = http.sendAsync(
                     HttpRequest.newBuilder(URI.create(baseUrl + READY_PATH + stall))
                             .timeout(timeout)
                             .header("Accept", "application/json")
                             .GET()
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = pending.get(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
             if (response.statusCode() != 200) {
                 log.warn("purchase-issuer readiness for stall {} answered HTTP {}", stall, response.statusCode());
                 return Readiness.unknown();
@@ -125,6 +136,10 @@ public class StallReadinessClient {
         } catch (Exception e) {
             log.warn("purchase-issuer readiness for stall {} unknown: {}", stall, e.toString());
             return Readiness.unknown();
+        } finally {
+            if (pending != null && !pending.isDone()) {
+                pending.cancel(true);
+            }
         }
     }
 
