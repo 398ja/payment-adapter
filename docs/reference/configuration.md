@@ -114,6 +114,12 @@ No session is created in either case.
 | `purchase.issuer.timeout-ms` (`PURCHASE_ISSUER_TIMEOUT_MS`) | `2000` | Connect + request timeout for the readiness call. |
 | `purchase.issuer.ready-cache-seconds` (`PURCHASE_ISSUER_READY_CACHE_SECONDS`) | `30` | Per-stall reuse of a ready / not-ready answer. Unknown is never cached. |
 
+**Production go-live:** set `PURCHASE_ISSUER_BASE_URL` explicitly. The empty default only applies
+when a `prod`/`production` Spring profile is active, and imani-deploy's `docker-compose.prod.yml`
+sets no profile for payment-adapter. Without the variable a prod payment-adapter falls back to
+`http://purchase-issuer:8791`, which still fails closed (503) while no service of that name exists on
+the prod network, but should not be relied on.
+
 ### Mint Webhook Forwarder
 
 | Property | Default | Description |
