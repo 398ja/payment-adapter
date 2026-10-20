@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-10-20
+
 Defence in depth for a missed refund or dispute webhook (#286). No migrations. Set
 `STRIPE_WEBHOOK_ENDPOINT_ID` and `STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID` (the endpoints' `we_...` ids,
 not secrets) or the subscription check reports itself failed. Alert rules: imani-deploy.
