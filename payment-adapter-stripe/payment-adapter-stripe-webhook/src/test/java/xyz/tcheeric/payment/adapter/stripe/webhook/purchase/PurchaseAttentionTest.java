@@ -319,7 +319,7 @@ class PurchaseAttentionTest {
     @Test
     void theControllerSpeaksTheWireContract() {
         PurchaseDischargeService discharges = mock(PurchaseDischargeService.class);
-        PurchaseController controller = new PurchaseController(purchases, discharges);
+        PurchaseController controller = controllerOver(discharges);
         when(discharges.reportAttention(EVENT, AttentionReason.GATEWAY_UNRECORDED, "d", "w1", null))
                 .thenReturn(AttentionResult.RECORDED);
         when(discharges.reportAttention(EVENT, AttentionReason.DELIVERY_EXHAUSTED, null, null, "v1"))
@@ -357,7 +357,7 @@ class PurchaseAttentionTest {
     /** The operator list carries the wire reason. */
     @Test
     void theControllerListsParkedRowsWithTheirReason() {
-        PurchaseController controller = new PurchaseController(purchases, mock(PurchaseDischargeService.class));
+        PurchaseController controller = controllerOver(mock(PurchaseDischargeService.class));
         park(AttentionReason.GATEWAY_UNRECORDED, null);
         when(purchases.findByStatusOrderByCreatedAtAsc(StripePurchase.Status.NEEDS_ATTENTION)).thenReturn(List.of(row));
 
@@ -395,7 +395,7 @@ class PurchaseAttentionTest {
     @Test
     void aLostOptimisticLockIsRetryable() {
         PurchaseDischargeService discharges = mock(PurchaseDischargeService.class);
-        PurchaseController controller = new PurchaseController(purchases, discharges);
+        PurchaseController controller = controllerOver(discharges);
         org.springframework.orm.ObjectOptimisticLockingFailureException lost =
                 new org.springframework.orm.ObjectOptimisticLockingFailureException(StripePurchase.class, EVENT);
         when(discharges.reportAttention(any(), any(), any(), any(), any())).thenThrow(lost);
@@ -416,6 +416,11 @@ class PurchaseAttentionTest {
 
     private static double value(SimpleMeterRegistry registry, String reason) {
         return registry.get("imani_payments_card_needs_attention").tag("reason", reason).gauge().value();
+    }
+
+    private PurchaseController controllerOver(PurchaseDischargeService discharges) {
+        return new PurchaseController(purchases, discharges,
+                new OperatorResolution(purchases, discharges, LivePaymentCheck.unconfigured()));
     }
 
     private void park(AttentionReason reason, String voucherId) {

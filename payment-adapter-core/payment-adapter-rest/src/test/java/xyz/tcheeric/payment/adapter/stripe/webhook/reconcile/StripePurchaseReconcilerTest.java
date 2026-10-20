@@ -66,6 +66,7 @@ class StripePurchaseReconcilerTest {
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private StripePurchaseListener listener;
     private int maxCalls = 50;
+    private int parkedBatch = 20;
 
     @BeforeEach
     void setUp() {
@@ -85,6 +86,7 @@ class StripePurchaseReconcilerTest {
         return new StripePurchaseReconciler(accounts, cursors, stripe,
                 new LostPurchaseRecorder(stripe, purchases, listener, tx, metrics),
                 new StaleRows(stripe, purchases, listener, tx, Duration.ofHours(1), Duration.ofDays(14), 20),
+                new ParkedRows(new StripeLivePaymentCheck(stripe, listener), purchases, parkedBatch),
                 tx,
                 new ReconcilerSettings(true, Duration.ofHours(1), Duration.ofMinutes(10), Duration.ofDays(30),
                         Duration.ofMinutes(15), 2, maxCalls),
@@ -521,6 +523,95 @@ class StripePurchaseReconcilerTest {
         assertThat(parked.getStatus()).isEqualTo(Status.NEEDS_ATTENTION);
         assertThat(parked.getAttentionReason()).isEqualTo(AttentionReason.ISSUE_BLOCKED);
         assertThat(parked.getAttentionDetail()).contains("live check FAILED");
+    }
+
+    /**
+     * #286: a parked row whose refund webhook was missed gets its refund recorded by the run, before
+     * an operator looks at it. Facts only: the row stays parked for the operator.
+     */
+    @Test
+    void aParkedRowsMissedRefundIsRecordedAndTheRowStaysParked() {
+        parked("evt_parked", "pi_parked", NOW.minus(Duration.ofHours(3)));
+        stripe.live.put("pi_parked", new PaymentState("ch_parked", 500L, 500L, false));
+        stripe.page();
+
+        reconciler().run(NOW);
+
+        StripePurchase row = purchases.findByEventId("evt_parked").orElseThrow();
+        assertThat(row.getRefundedAmountMinor()).isEqualTo(500L);
+        assertThat(row.getReversedAt()).isNotNull();
+        assertThat(row.getStatus()).isEqualTo(Status.NEEDS_ATTENTION);
+        assertThat(row.getAttentionReason()).isEqualTo(AttentionReason.STALE_ISSUING);
+    }
+
+    /** #286: a missed dispute on a parked row is recorded the same way. */
+    @Test
+    void aParkedRowsMissedDisputeIsRecorded() {
+        parked("evt_disputed", "pi_disputed", NOW.minus(Duration.ofHours(3)));
+        stripe.live.put("pi_disputed", new PaymentState("ch_disputed", 500L, 0L, true));
+        stripe.page();
+
+        reconciler().run(NOW);
+
+        assertThat(purchases.findByEventId("evt_disputed").orElseThrow().isDisputed()).isTrue();
+    }
+
+    /**
+     * A re-read that finds nothing new writes nothing: recording again would bump reversed_at and
+     * re-raise a reversal the operator already acknowledged.
+     */
+    @Test
+    void aParkedRowWhoseFactsAreKnownIsNotRewritten() {
+        StripePurchase row = parked("evt_known", "pi_known", NOW.minus(Duration.ofHours(3)));
+        row.setRefundedAmountMinor(500L);
+        row.setReversedAt(NOW.minus(Duration.ofHours(2)));
+        entityManager.persistAndFlush(row);
+        stripe.live.put("pi_known", new PaymentState("ch_known", 500L, 500L, false));
+        stripe.page();
+
+        reconciler().run(NOW);
+
+        assertThat(purchases.findByEventId("evt_known").orElseThrow().getReversedAt())
+                .isEqualTo(NOW.minus(Duration.ofHours(2)));
+    }
+
+    /** Bounded and rotating: each run reads one page of parked rows, and the next run the next page. */
+    @Test
+    void parkedRowsAreReadInBoundedRotatingPages() {
+        parkedBatch = 2;
+        for (int i = 0; i < 3; i++) {
+            parked("evt_p" + i, "pi_p" + i, NOW.minus(Duration.ofHours(10 - i)));
+        }
+        stripe.page();
+        StripePurchaseReconciler reconciler = reconciler();
+
+        reconciler.run(NOW);
+        int firstRun = stripe.paymentReads;
+        reconciler.run(NOW.plusSeconds(600));
+
+        assertThat(firstRun).isEqualTo(2);
+        assertThat(stripe.paymentReads).isEqualTo(3);
+    }
+
+    /** Stripe failing on a parked row changes nothing on it, and the run carries on. */
+    @Test
+    void aParkedRowStripeWillNotAnswerAboutIsLeftAsItIs() {
+        parked("evt_unread", "pi_unread", NOW.minus(Duration.ofHours(3)));
+        stripe.failPaymentReads = true;
+        stripe.page();
+
+        reconciler().run(NOW);
+
+        StripePurchase row = purchases.findByEventId("evt_unread").orElseThrow();
+        assertThat(row.getStatus()).isEqualTo(Status.NEEDS_ATTENTION);
+        assertThat(row.getRefundedAmountMinor()).isNull();
+    }
+
+    private StripePurchase parked(String eventId, String pi, Instant created) {
+        StripePurchase row = persist(eventId, pi, Status.NEEDS_ATTENTION, created);
+        row.setAttentionReason(AttentionReason.STALE_ISSUING);
+        row.setAttentionAt(created);
+        return entityManager.persistFlushFind(row);
     }
 
     private void cursorRanAt(String accountId, Instant lastRun) {

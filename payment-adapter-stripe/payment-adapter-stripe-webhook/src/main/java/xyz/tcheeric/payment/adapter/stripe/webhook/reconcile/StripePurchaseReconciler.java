@@ -29,6 +29,8 @@ import xyz.tcheeric.payment.adapter.stripe.webhook.reconcile.StripeReconcileSour
  *       {@code [created_through - overlap, now - grace]} on that account, and records each paid one
  *       with no row ({@link LostPurchaseRecorder}: live PaymentIntent read first).</li>
  *   <li>Parks stale ISSUING/ISSUED and BLOCKED rows for a person ({@link StaleRows}).</li>
+ *   <li>Reads parked (NEEDS_ATTENTION) rows live and records any refund or dispute no webhook
+ *       delivered ({@link ParkedRows}, #286).</li>
  * </ol>
  *
  * <p><b>Bounded.</b> Every Stripe call spends from a per-run budget; a 429 ends the run. A pass that
@@ -43,18 +45,20 @@ public class StripePurchaseReconciler {
     private final StripeReconcileSource stripe;
     private final LostPurchaseRecorder recorder;
     private final StaleRows staleRows;
+    private final ParkedRows parkedRows;
     private final TransactionOperations transactions;
     private final ReconcilerSettings settings;
     private final String worker;
 
     StripePurchaseReconciler(ConnectedStripeAccountRepository accounts, StripeReconcileCursorRepository cursors,
-            StripeReconcileSource stripe, LostPurchaseRecorder recorder, StaleRows staleRows,
+            StripeReconcileSource stripe, LostPurchaseRecorder recorder, StaleRows staleRows, ParkedRows parkedRows,
             TransactionOperations transactions, ReconcilerSettings settings, String worker) {
         this.accounts = accounts;
         this.cursors = cursors;
         this.stripe = stripe;
         this.recorder = recorder;
         this.staleRows = staleRows;
+        this.parkedRows = parkedRows;
         this.transactions = transactions;
         this.settings = settings;
         this.worker = worker;
@@ -90,6 +94,19 @@ public class StripePurchaseReconciler {
         int parked = budget.isRateLimited() ? 0 : staleRows.sweep(now, staleRows.newBudget());
         if (parked > 0) {
             log.warn("stripe_reconcile parked {} stale purchase(s) for a person", parked);
+        }
+        checkParkedRows(budget);
+    }
+
+    /** Parked rows get a live read too (#286), so a missed refund or dispute is on the row first. */
+    private void checkParkedRows(ReconcileBudget runBudget) {
+        if (runBudget.isRateLimited()) {
+            return;
+        }
+        int found = parkedRows.sweep(parkedRows.newBudget());
+        if (found > 0) {
+            log.warn("[alert] stripe_reconcile found {} refund(s)/dispute(s) on parked purchases that no"
+                    + " webhook delivered", found);
         }
     }
 

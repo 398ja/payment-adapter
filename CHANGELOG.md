@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+Defence in depth for a missed refund or dispute webhook (#286). No migrations. Set
+`STRIPE_WEBHOOK_ENDPOINT_ID` and `STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID` (the endpoints' `we_...` ids,
+not secrets) or the subscription check reports itself failed. Alert rules: imani-deploy.
+
+### Fixed
+
+- **An operator `retry` re-reads the payment live from Stripe first (#286 item 3).** Retrying a parked
+  (NEEDS_ATTENTION) purchase now reads its PaymentIntent and latest charge (refunds, dispute) on the
+  stall's connected account, reusing the reconciler's read (#282). A refund or dispute the row did not
+  carry is recorded through the webhook's own listener path (`refunded_amount_minor`, `disputed`,
+  `reversed_at`) and the retry is refused with a 409 `{error: retry_refused, reason, detail}`
+  (`disputed`, `refunded_after_issue`, `refunded`, `no_payment_intent`). A refund found before issue is
+  closed as REFUNDED by a second retry, never minted. Stripe unreachable or disabled fails closed: 503
+  `stripe_unavailable`, nothing moves. Before this, a missed `charge.refunded` let a retry return a
+  refunded purchase to OWED and mint.
+- **The reconciler reads parked rows live too (#286).** Up to `purchase.reconcile.parked-batch-size`
+  (20) NEEDS_ATTENTION rows a run, rotating, so a missed refund or dispute is on the row before an
+  operator looks. Facts only; the row stays parked. A read that finds nothing new writes nothing.
+
+### Added
+
+- **Webhook subscription check (#286 item 2).** At startup and every `purchase.reconcile.interval`,
+  `GET /v1/webhook_endpoints/{id}` for the payments and Connect endpoints, compared with the event types
+  the handlers act on, derived from their registries (`StripePaymentEvent`, `StripeConnectEvent`; the
+  handlers now dispatch through them exhaustively). Gauges `imani_stripe_webhook_events_missing{endpoint}`
+  and `imani_stripe_webhook_subscription_check_failed{endpoint}`, bound at 0; `[alert]` log naming the
+  missing events. Never fatal, never logs a key or signing secret.
+
+### Configuration
+
+- `stripe.webhook-endpoint-id` (`STRIPE_WEBHOOK_ENDPOINT_ID`), `stripe.connect.webhook-endpoint-id`
+  (`STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID`), `purchase.reconcile.parked-batch-size` (20).
+
 ## [0.23.0] - 2026-10-18
 
 Card checkout asks purchase-issuer whether the stall is ready before taking money (#293, #294). No

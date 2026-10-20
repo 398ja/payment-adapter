@@ -49,7 +49,8 @@ class PurchaseControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new PurchaseController(purchases, discharges);
+        controller = new PurchaseController(purchases, discharges,
+                new OperatorResolution(purchases, discharges, LivePaymentCheck.unconfigured()));
     }
 
     private static StripePurchase owed(String eventId) {

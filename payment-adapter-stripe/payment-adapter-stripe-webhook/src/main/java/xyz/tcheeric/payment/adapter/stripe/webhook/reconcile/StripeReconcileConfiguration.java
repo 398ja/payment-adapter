@@ -16,6 +16,7 @@ import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccount
 import xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.StripeReconcileCursorRepository;
 import xyz.tcheeric.payment.adapter.stripe.gateway.config.StripeGatewayProperties;
+import xyz.tcheeric.payment.adapter.stripe.webhook.purchase.LivePaymentCheck;
 import xyz.tcheeric.payment.adapter.stripe.webhook.reconcile.StripePurchaseReconciler.ReconcilerSettings;
 import xyz.tcheeric.payment.adapter.stripe.webhook.spi.StripePurchaseListener;
 
@@ -33,6 +34,12 @@ public class StripeReconcileConfiguration {
         return new StripeSdkReconcileSource(properties);
     }
 
+    /** The live read in front of an operator's retry (#286): the reconciler's read, reused. */
+    @Bean
+    LivePaymentCheck livePaymentCheck(StripeReconcileSource stripe, StripePurchaseListener listener) {
+        return new StripeLivePaymentCheck(stripe, listener);
+    }
+
     @Bean
     StripePurchaseReconciler stripePurchaseReconciler(
             ConnectedStripeAccountRepository accounts, StripeReconcileCursorRepository cursors,
@@ -47,13 +54,15 @@ public class StripeReconcileConfiguration {
             @Value("${purchase.reconcile.max-stripe-calls-per-run:50}") int maxCalls,
             @Value("${purchase.reconcile.issuing-stale-after:PT1H}") Duration issuingStaleAfter,
             @Value("${purchase.reconcile.issued-stale-after:P14D}") Duration issuedStaleAfter,
-            @Value("${purchase.reconcile.stale-batch-size:20}") int staleBatch) {
+            @Value("${purchase.reconcile.stale-batch-size:20}") int staleBatch,
+            @Value("${purchase.reconcile.parked-batch-size:20}") int parkedBatch) {
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
         PaymentMetrics metrics = new PaymentMetrics(registry.getIfAvailable()).preRegisterReconciled(Source.CARD);
         return new StripePurchaseReconciler(accounts, cursors, stripe,
                 new LostPurchaseRecorder(stripe, purchases, listener, transactions, metrics),
                 new StaleRows(stripe, purchases, listener, transactions, issuingStaleAfter, issuedStaleAfter,
                         Math.max(1, staleBatch)),
+                new ParkedRows(new StripeLivePaymentCheck(stripe, listener), purchases, Math.max(1, parkedBatch)),
                 transactions,
                 new ReconcilerSettings(enabled, overlap, grace, initialLookback, lease, pageSize, maxCalls),
                 "reconciler-" + UUID.randomUUID());
