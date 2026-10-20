@@ -223,12 +223,7 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         }
 
         try {
-            WebhookResult result = switch (payload.getEventType()) {
-                case "checkout.session.completed", "checkout.session.async_payment_succeeded" -> handleSuccessfulCheckout(payload, eventRecord);
-                case "charge.refunded" -> handleChargeRefunded(payload, eventRecord);
-                case "charge.dispute.created" -> handleChargeDisputed(payload, eventRecord);
-                default -> handleIgnoredEvent(payload, eventRecord);
-            };
+            WebhookResult result = dispatch(payload, eventRecord);
             metrics.webhook(Source.CARD, WebhookOutcome.PROCESSED);
             return result;
         } catch (WebhookDuplicateException e) {
@@ -287,7 +282,7 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
 
         boolean paymentSettled = "paid".equalsIgnoreCase(payload.getPaymentStatus());
 
-        if (!paymentSettled && "checkout.session.completed".equals(payload.getEventType())) {
+        if (!paymentSettled && StripePaymentEvent.CHECKOUT_SESSION_COMPLETED.is(payload.getEventType())) {
             log.info("Checkout session completed with payment_status='{}' for quote_ref={}; deferring settlement to async_payment_succeeded",
                     payload.getPaymentStatus(), QuoteRef.of(quoteId));
             paymentReference.setStripeStatus(StringUtils.defaultIfBlank(payload.getPaymentStatus(), payload.getStatus()));
@@ -364,16 +359,34 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         return new WebhookResult(true, null, State.PAID, Map.of("eventType", payload.getEventType()));
     }
 
-    private WebhookResult handleIgnoredEvent(StripeWebhookPayload payload,
-                                             ProcessedStripeWebhookEvent eventRecord) {
-        // Not acted on, but two of them are the card's unhappy endings and belong in the count.
-        switch (payload.getEventType()) {
-            case "checkout.session.async_payment_failed", "payment_intent.payment_failed" ->
-                    recordFailed(payload, Reason.CARD_DECLINED);
-            case "checkout.session.expired" ->
-                    metrics.record(Source.CARD, Status.CANCELLED, Reason.EXPIRED, payload.getCurrency());
-            default -> { }
+    /**
+     * Exhaustive over {@link StripePaymentEvent} (#286): a type acted on here is a type the webhook
+     * subscription check asks Stripe for. Anything else is acknowledged and ignored.
+     */
+    private WebhookResult dispatch(StripeWebhookPayload payload, ProcessedStripeWebhookEvent eventRecord)
+            throws WebhookProcessingException {
+        Optional<StripePaymentEvent> event = StripePaymentEvent.fromType(payload.getEventType());
+        if (event.isEmpty()) {
+            return acknowledge(payload, eventRecord);
         }
+        return switch (event.get()) {
+            case CHECKOUT_SESSION_COMPLETED, CHECKOUT_SESSION_ASYNC_PAYMENT_SUCCEEDED ->
+                    handleSuccessfulCheckout(payload, eventRecord);
+            case CHARGE_REFUNDED -> handleChargeRefunded(payload, eventRecord);
+            case CHARGE_DISPUTE_CREATED -> handleChargeDisputed(payload, eventRecord);
+            // Not acted on, but the card's unhappy endings belong in the count.
+            case CHECKOUT_SESSION_ASYNC_PAYMENT_FAILED, PAYMENT_INTENT_PAYMENT_FAILED -> {
+                recordFailed(payload, Reason.CARD_DECLINED);
+                yield acknowledge(payload, eventRecord);
+            }
+            case CHECKOUT_SESSION_EXPIRED -> {
+                metrics.record(Source.CARD, Status.CANCELLED, Reason.EXPIRED, payload.getCurrency());
+                yield acknowledge(payload, eventRecord);
+            }
+        };
+    }
+
+    private WebhookResult acknowledge(StripeWebhookPayload payload, ProcessedStripeWebhookEvent eventRecord) {
         markProcessed(eventRecord);
         return new WebhookResult(true, null, State.PENDING, Map.of("ignored", true, "eventType", payload.getEventType()));
     }
@@ -471,7 +484,7 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
     private WebhookResult handlePaidPurchase(StripeWebhookPayload payload,
                                              ProcessedStripeWebhookEvent eventRecord) throws WebhookProcessingException {
         if (!"paid".equalsIgnoreCase(payload.getPaymentStatus())
-                && "checkout.session.completed".equals(payload.getEventType())) {
+                && StripePaymentEvent.CHECKOUT_SESSION_COMPLETED.is(payload.getEventType())) {
             // Same deferral the mint path makes: an unpaid completed session is
             // an async method still in flight, and issuing against it would be
             // giving a coupon away before the money exists.

@@ -83,6 +83,7 @@ Configuration is read from `cash.properties` on the classpath.
 | `stripe.allowed-currencies` | `usd` | Comma-separated allowlist of supported currencies. |
 | `stripe.checkout-expiry-seconds` | `1800` | Checkout Session expiry in seconds. |
 | `STRIPE_WEBHOOK_TOLERANCE_SECONDS` *(env var)* | `300` | Maximum accepted webhook signature timestamp age, in seconds. Read from the environment variable — the webhook signature verifier is instantiated via `ServiceLoader` (outside the Spring context), so it does **not** bind a Spring property. Paired with `STRIPE_WEBHOOK_SECRET`. |
+| `stripe.webhook-endpoint-id` (`STRIPE_WEBHOOK_ENDPOINT_ID`) | *(empty)* | The payments endpoint's `we_...` id, for the [webhook subscription check](purchase-fulfilment.md#webhook-subscription-check-286). Not a secret. Empty: the check reports itself failed. |
 | `stripe.min-amount-minor` | `1` | Minimum amount in minor currency units. |
 | `stripe.max-amount-minor` | `2147483647` | Maximum amount in minor currency units. |
 
@@ -93,6 +94,7 @@ Configuration is read from `cash.properties` on the classpath.
 | `stripe.connect.enabled` | `false` | Enables Stripe Connect-specific services. |
 | `stripe.connect.refresh-url` | *(empty)* | Refresh URL used during Connect onboarding. |
 | `stripe.connect.return-url` | *(empty)* | Return URL used during Connect onboarding. |
+| `stripe.connect.webhook-endpoint-id` (`STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID`) | *(empty)* | The Connect endpoint's `we_...` id, for the webhook subscription check (#286). |
 
 ## Webhook module ([payment-adapter-webhook](../../payment-adapter-webhook))
 
@@ -157,5 +159,6 @@ Exists only when `stripe.enabled=true`. See [purchase fulfilment](purchase-fulfi
 | `purchase.reconcile.issuing-stale-after` (`PURCHASE_RECONCILE_ISSUING_STALE_AFTER`) | `PT1H` | ISSUING whose lease lapsed this long ago is parked `stale_issuing`. |
 | `purchase.reconcile.issued-stale-after` (`PURCHASE_RECONCILE_ISSUED_STALE_AFTER`) | `P14D` | ISSUED older than this (the re-check horizon) is parked `stale_issued`. |
 | `purchase.reconcile.stale-batch-size` (`PURCHASE_RECONCILE_STALE_BATCH_SIZE`) | `20` | Stale rows looked at per run; also the sweep's own Stripe-read budget. |
+| `purchase.reconcile.parked-batch-size` (`PURCHASE_RECONCILE_PARKED_BATCH_SIZE`) | `20` | NEEDS_ATTENTION rows read live per run (#286), rotating; its own Stripe-read budget. |
 
 Each module reads configuration from its properties file or environment variables. See the guides in [docs](../) for deployment details.

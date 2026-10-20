@@ -1,6 +1,7 @@
 package xyz.tcheeric.payment.adapter.stripe.webhook.purchase;
 
 import java.time.Duration;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -123,6 +124,17 @@ public class PurchaseConfiguration {
         return new PurchaseDischargeService(purchases, fulfilment, Duration.ofSeconds(claimLeaseSeconds),
                 maxLeaseExpiries)
                 .withMetrics(new xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics(registry.getIfAvailable()));
+    }
+
+    /**
+     * {@code /resolve}, with the live Stripe read in front of a retry (#286). With Stripe off there is
+     * no {@link LivePaymentCheck} bean, and every retry of a parked row fails closed (503).
+     */
+    @Bean
+    public OperatorResolution operatorResolution(StripePurchaseRepository purchases,
+            PurchaseDischargeService discharges, ObjectProvider<LivePaymentCheck> livePayments) {
+        return new OperatorResolution(purchases, discharges,
+                livePayments.getIfAvailable(LivePaymentCheck::unconfigured));
     }
 
     /** imani-deploy#210: paid card purchases with no coupon confirmed yet. */

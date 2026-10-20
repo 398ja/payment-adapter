@@ -142,14 +142,18 @@ public class StripeConnectService {
         eventRecord.setLastError(null);
         processedEventRepository.save(eventRecord);
         try {
-            switch (event.getType()) {
-                case "account.updated" -> handleAccountUpdated(event);
-                case "account.application.deauthorized" -> handleAccountDeauthorized(event);
-                default -> {
-                    markProcessed(eventRecord);
-                    return new StripeConnectWebhookResponse(event.getId(), "ignored");
-                }
+            // Exhaustive over StripeConnectEvent (#286): what is handled is what the subscription
+            // check asks Stripe for.
+            Optional<StripeConnectEvent> handled = StripeConnectEvent.fromType(event.getType());
+            if (handled.isEmpty()) {
+                markProcessed(eventRecord);
+                return new StripeConnectWebhookResponse(event.getId(), "ignored");
             }
+            Runnable handler = switch (handled.get()) {
+                case ACCOUNT_UPDATED -> () -> handleAccountUpdated(event);
+                case ACCOUNT_APPLICATION_DEAUTHORIZED -> () -> handleAccountDeauthorized(event);
+            };
+            handler.run();
             markProcessed(eventRecord);
             return new StripeConnectWebhookResponse(event.getId(), "processed");
         } catch (RuntimeException e) {

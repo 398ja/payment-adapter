@@ -100,9 +100,25 @@ another worker holds the live claim, 503 optimistic lock lost (retry).
 
 | Action | Effect |
 | --- | --- |
-| `retry` | OWED if no coupon, ISSUED if one exists, REFUNDED if no coupon and the payment was refunded while parked; resets `lease_expiries`. 409 for `gateway_unrecorded`. |
+| `retry` | First re-reads the payment **live** from Stripe (see below). Then OWED if no coupon, ISSUED if one exists, REFUNDED if no coupon and the payment was refunded while parked; resets `lease_expiries`. 409 for `gateway_unrecorded`. |
 | `discharged` | DISCHARGED, naming the voucher (400 when neither the body nor the row has one, or the body names a different one than the row records). |
 | `acknowledge` | Marks the latest refund/dispute seen. No status change. 409 when there is none. |
+
+**Live check before `retry` (#286).** A retry of a parked row is the one operator action that
+can mint (OWED) or deliver (ISSUED), and a missed refund or dispute webhook leaves the row saying
+the money is intact. So before moving it, PA reads the PaymentIntent and its latest charge
+(refunds, dispute) on the stall's connected account, the same read the reconciler makes. A
+refund or dispute the row did not carry is recorded through the webhook's listener path
+(`refunded_amount_minor`, `disputed`, `reversed_at`) and logged `[alert]`.
+
+| Stripe says | Answer |
+| --- | --- |
+| intact | the retry runs as above |
+| disputed | 409 `{"error":"retry_refused","reason":"disputed","detail":...}`, row stays parked |
+| refunded, coupon exists | 409 `reason: refunded_after_issue`; `acknowledge` it |
+| refunded, no coupon, news to the row | 409 `reason: refunded` with the refund now recorded; a second `retry` closes it REFUNDED (never mints) |
+| row has no `payment_intent_id` | 409 `reason: no_payment_intent`; resolve by hand |
+| Stripe unreachable, or Stripe disabled | 503 `{"error":"stripe_unavailable"}`; nothing changed, try again |
 
 200 on success or repeat, 404, 409 when the row is not parked. `GET /attention`
 lists parked rows, oldest first. Gauge: `imani_payments_card_needs_attention{reason}`.
@@ -156,6 +172,12 @@ then appears on `GET /attention` and in `imani_payments_card_needs_attention`.
 Once the cause is fixed (U2-U4), an operator `retry`s it to OWED. Had it been
 refunded meanwhile, the run would make it REFUNDED instead.
 
+3. **Parked rows** (#286). Up to `parked-batch-size` (20) NEEDS_ATTENTION rows a run, rotating
+   by `created_at` so a long list is covered over several runs, get the same live read. A
+   refund or dispute no webhook delivered is recorded (facts only, the row stays parked for the
+   operator) and the run logs `[alert]`. A re-read that finds nothing new writes nothing, so an
+   acknowledged reversal is not re-raised. A 429 ends the sweep.
+
 **Bounded.** Each run may make `max-stripe-calls-per-run` (50) Stripe reads for
 listing and lost rows (list pages and PaymentIntent reads alike), plus one
 unbudgeted re-read per newly recorded row; the stale sweep has its own bound
@@ -163,6 +185,24 @@ unbudgeted re-read per newly recorded row; the stale sweep has its own bound
 A pass that does
 not finish keeps its window (`pass_until`) and position (`resume_after`), and the
 next run continues it. A Stripe error leaves the cursor where it was.
+
+## Webhook subscription check (#286)
+
+Stripe sends only the events an endpoint subscribes to, and says nothing about the rest. When the
+deployment names its endpoints (`STRIPE_WEBHOOK_ENDPOINT_ID`, `STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID`),
+PA reads each with `GET /v1/webhook_endpoints/{id}` once the application is ready and then every
+`purchase.reconcile.interval`, and compares `enabled_events` with the event types its handlers act
+on. Those lists are the handlers' own registries (`StripePaymentEvent`, `StripeConnectEvent`), which
+their dispatch switches over exhaustively, so a newly handled event is checked with no second list.
+
+| Gauge (tag `endpoint`: `payments`, `connect`) | Meaning |
+| --- | --- |
+| `imani_stripe_webhook_events_missing` | handled event types the endpoint does not deliver (all of them when it is disabled; `*` delivers all). Held at its last value while the endpoint cannot be read. |
+| `imani_stripe_webhook_subscription_check_failed` | 1 when the last check could not read the endpoint (Stripe error, or no id configured) |
+
+Both are bound at 0. A gap or a failed check logs `[alert]` with the endpoint id and the missing
+event names. Never fatal: startup does not wait on or fail because of it, and no key or signing
+secret is logged.
 
 **Async payment methods.** A session that completes `unpaid` (Bacs, SEPA) and is
 paid days later is outside the overlap by then: if its `async_payment_succeeded`

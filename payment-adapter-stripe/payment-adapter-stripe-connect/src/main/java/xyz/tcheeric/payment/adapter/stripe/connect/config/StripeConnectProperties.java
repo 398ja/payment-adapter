@@ -16,6 +16,8 @@ public class StripeConnectProperties {
     // Never in toString: a logged or exception-rendered properties bean must not carry the secret.
     @ToString.Exclude
     private String webhookSecret;
+    /** The Connect webhook endpoint's Stripe id ({@code STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID}, #286). */
+    private String webhookEndpointId;
     private String country;
 
     @PostConstruct

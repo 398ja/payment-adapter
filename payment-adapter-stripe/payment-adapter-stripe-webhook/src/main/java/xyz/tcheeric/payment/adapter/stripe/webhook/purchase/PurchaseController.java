@@ -2,8 +2,10 @@ package xyz.tcheeric.payment.adapter.stripe.webhook.purchase;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -55,6 +57,7 @@ public class PurchaseController {
 
     private final StripePurchaseRepository purchases;
     private final PurchaseDischargeService discharges;
+    private final OperatorResolution resolutions;
 
     /**
      * What may be claimed, oldest first: owed rows, and rows whose claim lapsed
@@ -184,7 +187,7 @@ public class PurchaseController {
         try {
             result = discharges.reportAttention(eventId, reason, request.detail(), request.worker(),
                     request.voucherId());
-        } catch (org.springframework.dao.OptimisticLockingFailureException e) {
+        } catch (OptimisticLockingFailureException e) {
             // Another writer changed the row meanwhile (@Version, review of #278): nothing was
             // written. Retryable, so 503 like an unverifiable discharge.
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
@@ -201,16 +204,22 @@ public class PurchaseController {
      * An operator moves a parked purchase on, or acknowledges a refund or dispute after issue
      * (#273). Same token as every route here: an operator path, not a public one. Idempotent.
      *
+     * <p>A {@code retry} of a parked purchase first re-reads its payment live from Stripe (#286): a
+     * refund or dispute found there is recorded and the retry refused, and an unreachable Stripe
+     * refuses it too.
+     *
      * <ul>
      *   <li>200: done (now or already).</li>
      *   <li>400: unknown action, or {@code discharged} with no voucher to name.</li>
      *   <li>404: no such purchase.</li>
-     *   <li>409: not parked (or nothing to acknowledge), or {@code retry} of gateway_unrecorded.</li>
-     *   <li>503: the row changed underneath (optimistic lock); nothing written, retry.</li>
+     *   <li>409: not parked (or nothing to acknowledge), or {@code retry} of gateway_unrecorded. A
+     *       retry refused by the live check carries {@code {error, reason, detail}}.</li>
+     *   <li>503: the row changed underneath (optimistic lock), or Stripe could not be read to
+     *       confirm a retry; nothing moved, try again.</li>
      * </ul>
      */
     @PostMapping("/{eventId}/resolve")
-    public ResponseEntity<Void> resolve(
+    public ResponseEntity<?> resolve(
             @PathVariable String eventId,
             @RequestBody(required = false) ResolveRequest request) {
         PurchaseDischargeService.ResolveAction action =
@@ -218,12 +227,21 @@ public class PurchaseController {
         if (action == null) {
             return ResponseEntity.badRequest().build();
         }
-        PurchaseDischargeService.ResolveResult result;
+        OperatorResolution.Outcome outcome;
         try {
-            result = discharges.resolve(eventId, action, request.voucherId(), request.operator(), request.note());
-        } catch (org.springframework.dao.OptimisticLockingFailureException e) {
+            outcome = resolutions.resolve(eventId, action, request.voucherId(), request.operator(), request.note());
+        } catch (OptimisticLockingFailureException e) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
         }
+        return switch (outcome) {
+            case OperatorResolution.Applied applied -> statusOf(applied.result());
+            case OperatorResolution.Refused refused -> ResponseEntity.status(HttpStatus.CONFLICT).body(refused.refusal());
+            case OperatorResolution.Unverifiable unverifiable -> ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of("error", "stripe_unavailable", "detail", unverifiable.detail()));
+        };
+    }
+
+    private static ResponseEntity<?> statusOf(PurchaseDischargeService.ResolveResult result) {
         return switch (result) {
             case RESOLVED, ALREADY_RESOLVED -> ResponseEntity.ok().build();
             case INVALID -> ResponseEntity.badRequest().build();

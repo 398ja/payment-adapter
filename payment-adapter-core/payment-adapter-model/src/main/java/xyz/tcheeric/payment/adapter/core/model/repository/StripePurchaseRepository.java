@@ -168,4 +168,16 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
     /** When the oldest purchase in the given statuses was paid, or null when there is none. */
     @Query("select min(p.createdAt) from StripePurchase p where p.status in :statuses")
     Instant findOldestCreatedAtByStatusIn(@Param("statuses") java.util.Collection<StripePurchase.Status> statuses);
+
+    /**
+     * Parked rows with a PaymentIntent to read, created after {@code createdAfter}, oldest first: one
+     * page of the reconciler's rotating live check of NEEDS_ATTENTION rows (#286). The caller keeps the
+     * last {@code createdAt} it saw and starts again from the beginning when a page comes back short.
+     */
+    @Query("select p from StripePurchase p where p.status = :status and p.paymentIntentId is not null"
+            + " and p.createdAt > :createdAfter order by p.createdAt asc")
+    List<StripePurchase> findWithPaymentIntentCreatedAfter(
+            @Param("status") StripePurchase.Status status,
+            @Param("createdAfter") Instant createdAfter,
+            org.springframework.data.domain.Pageable page);
 }

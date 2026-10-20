@@ -261,6 +261,12 @@ public class PurchaseDischargeService {
                 && !(purchase.getVoucherId() == null && wasRefunded(purchase))) {
             return ResolveResult.NOT_ALLOWED;
         }
+        // The live check (#286) runs before this transaction, so a webhook can record a dispute, or a
+        // refund on a minted row, while Stripe is being read. Checked again here, on the row this
+        // transaction moves, so that window can never end in a mint or a delivery (review of #296).
+        if (action == ResolveAction.RETRY && isReversedBeyondRetry(purchase)) {
+            return ResolveResult.NOT_ALLOWED;
+        }
         if (action == ResolveAction.DISCHARGED) {
             String voucher = voucherId != null && !voucherId.isBlank() ? voucherId : purchase.getVoucherId();
             if (voucher == null) {
@@ -290,6 +296,11 @@ public class PurchaseDischargeService {
         purchase.setAttentionAt(null);
         recordResolution(purchase, operator, note, now);
         return ResolveResult.RESOLVED;
+    }
+
+    /** Disputed, or refunded with a coupon: a retry would mint or deliver for money that went back. */
+    private static boolean isReversedBeyondRetry(StripePurchase purchase) {
+        return purchase.isDisputed() || (purchase.getVoucherId() != null && wasRefunded(purchase));
     }
 
     private static boolean wasRefunded(StripePurchase purchase) {

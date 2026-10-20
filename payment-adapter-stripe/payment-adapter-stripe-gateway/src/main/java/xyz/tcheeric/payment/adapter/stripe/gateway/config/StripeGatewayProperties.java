@@ -62,6 +62,13 @@ public class StripeGatewayProperties {
     private String purchaseCancelUrl;
 
     /**
+     * The payments webhook endpoint's Stripe id ({@code we_...}, {@code STRIPE_WEBHOOK_ENDPOINT_ID}),
+     * so its {@code enabled_events} can be checked against what the handler acts on (#286). Not a
+     * secret. Blank: the check reports itself failed rather than guessing which endpoint is ours.
+     */
+    private String webhookEndpointId;
+
+    /**
      * Bounds on the Checkout create call, which a buyer waits on (payment-adapter#274, audit S9).
      *
      * <p>The SDK defaults (30 s connect, 80 s read, plus retries) held a buyer for minutes during
