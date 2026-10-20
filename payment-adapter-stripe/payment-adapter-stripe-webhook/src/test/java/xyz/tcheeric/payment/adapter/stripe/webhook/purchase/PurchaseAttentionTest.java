@@ -239,6 +239,36 @@ class PurchaseAttentionTest {
         assertNull(row.getAttentionReason());
     }
 
+    /** Review of #296: a recorded dispute stops a retry in the resolve itself, whatever the live read said. */
+    @Test
+    void aRetryOfADisputedRowIsRefused() {
+        park(AttentionReason.STALE_ISSUING, null);
+        row.setDisputed(true);
+
+        assertEquals(ResolveResult.NOT_ALLOWED, service.resolve(EVENT, ResolveAction.RETRY, null, "ops", null));
+        assertEquals(StripePurchase.Status.NEEDS_ATTENTION, row.getStatus());
+    }
+
+    /** Review of #296: a recorded refund on a minted row stops a retry: the coupon is not delivered. */
+    @Test
+    void aRetryOfARefundedMintedRowIsRefused() {
+        park(AttentionReason.DELIVERY_EXHAUSTED, "v1");
+        row.setRefundedAmountMinor(200L);
+
+        assertEquals(ResolveResult.NOT_ALLOWED, service.resolve(EVENT, ResolveAction.RETRY, null, "ops", null));
+        assertEquals(StripePurchase.Status.NEEDS_ATTENTION, row.getStatus());
+    }
+
+    /** ...while discharging it by hand stays possible: that records a delivery, it mints nothing. */
+    @Test
+    void aRefundedMintedRowCanStillBeDischarged() {
+        park(AttentionReason.DELIVERY_EXHAUSTED, "v1");
+        row.setRefundedAmountMinor(200L);
+
+        assertEquals(ResolveResult.RESOLVED, service.resolve(EVENT, ResolveAction.DISCHARGED, null, "ops", null));
+        assertEquals(StripePurchase.Status.DISCHARGED, row.getStatus());
+    }
+
     /** ...but not when a coupon is named: that row is a refund after issue, for a person. */
     @Test
     void aRefundedUnrecordedRowWithACouponIsStillNotRetried() {

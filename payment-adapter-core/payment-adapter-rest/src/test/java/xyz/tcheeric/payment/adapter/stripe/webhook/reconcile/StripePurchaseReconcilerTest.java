@@ -607,6 +607,20 @@ class StripePurchaseReconcilerTest {
         assertThat(row.getRefundedAmountMinor()).isNull();
     }
 
+    /** Review of #296: a 429 on a parked row ends the sweep at once, rather than spending the batch on it. */
+    @Test
+    void aRateLimitStopsTheParkedSweep() {
+        for (int i = 0; i < 3; i++) {
+            parked("evt_rl" + i, "pi_rl" + i, NOW.minus(Duration.ofHours(10 - i)));
+        }
+        stripe.rateLimitPaymentReads = true;
+        stripe.page();
+
+        reconciler().run(NOW);
+
+        assertThat(stripe.paymentReads).isEqualTo(1);
+    }
+
     private StripePurchase parked(String eventId, String pi, Instant created) {
         StripePurchase row = persist(eventId, pi, Status.NEEDS_ATTENTION, created);
         row.setAttentionReason(AttentionReason.STALE_ISSUING);
@@ -663,6 +677,7 @@ class StripePurchaseReconcilerTest {
         boolean hasMore;
         boolean failListing;
         boolean failPaymentReads;
+        boolean rateLimitPaymentReads;
         int paymentReads;
 
         void page(CompletedSession... page) {
@@ -684,6 +699,9 @@ class StripePurchaseReconcilerTest {
             paymentReads++;
             if (failPaymentReads) {
                 throw new StripeReconcileException("No such payment_intent", null, false);
+            }
+            if (rateLimitPaymentReads) {
+                throw new StripeReconcileException("Too many requests", null, true);
             }
             onRead.run();
             List<PaymentState> sequence = liveSequence.get(paymentIntentId);

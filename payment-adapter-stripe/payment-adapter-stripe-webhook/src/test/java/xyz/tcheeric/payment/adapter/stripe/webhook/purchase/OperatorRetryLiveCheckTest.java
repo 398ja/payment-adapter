@@ -211,6 +211,42 @@ class OperatorRetryLiveCheckTest {
                 body -> assertThat(body.get("error")).isEqualTo("stripe_unavailable"));
     }
 
+    /**
+     * Review of #296: the live read said intact, but the dispute webhook landed while Stripe was being
+     * read. The resolve transaction sees the recorded dispute and refuses, so nothing is minted.
+     */
+    @Test
+    void aDisputeRecordedDuringTheLiveReadStillStopsTheRetry() {
+        stripe.duringRead = () -> row.setDisputed(true);
+
+        Outcome outcome = retry();
+
+        assertThat(outcome).isEqualTo(new Applied(ResolveResult.NOT_ALLOWED));
+        assertThat(row.getStatus()).isEqualTo(Status.NEEDS_ATTENTION);
+    }
+
+    /** Same window for a refund on a minted row: the coupon is not delivered. */
+    @Test
+    void aRefundAfterIssueRecordedDuringTheLiveReadStillStopsTheRetry() {
+        park(AttentionReason.DELIVERY_EXHAUSTED, "v1");
+        stripe.duringRead = () -> row.setRefundedAmountMinor(500L);
+
+        Outcome outcome = retry();
+
+        assertThat(outcome).isEqualTo(new Applied(ResolveResult.NOT_ALLOWED));
+        assertThat(row.getStatus()).isEqualTo(Status.NEEDS_ATTENTION);
+    }
+
+    /** A refund before issue recorded during the read closes the row REFUNDED, never OWED. */
+    @Test
+    void aRefundBeforeIssueRecordedDuringTheLiveReadClosesTheRowAsRefunded() {
+        stripe.duringRead = () -> row.setRefundedAmountMinor(500L);
+
+        retry();
+
+        assertThat(row.getStatus()).isEqualTo(Status.REFUNDED);
+    }
+
     private Outcome retry() {
         return resolutions.resolve(EVENT, ResolveAction.RETRY, null, "ops", "checked");
     }
@@ -226,6 +262,8 @@ class OperatorRetryLiveCheckTest {
     private static final class ScriptedStripe implements StripeReconcileSource {
         PaymentState answer = new PaymentState("ch_1", 500L, 0L, false);
         boolean down;
+        /** A webhook landing on the row while Stripe is being read. */
+        Runnable duringRead = () -> { };
         final List<String> reads = new ArrayList<>();
 
         @Override
@@ -240,6 +278,7 @@ class OperatorRetryLiveCheckTest {
                 throw new StripeReconcileException("Could not read PaymentIntent: connection refused", null, false);
             }
             reads.add(accountId + "/" + paymentIntentId);
+            duringRead.run();
             return answer;
         }
     }

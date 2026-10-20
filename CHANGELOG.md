@@ -17,6 +17,9 @@ not secrets) or the subscription check reports itself failed. Alert rules: imani
   closed as REFUNDED by a second retry, never minted. Stripe unreachable or disabled fails closed: 503
   `stripe_unavailable`, nothing moves. Before this, a missed `charge.refunded` let a retry return a
   refunded purchase to OWED and mint.
+- **A retry is refused inside the resolve too when the row records a dispute, or a refund with a
+  coupon (review of #296).** The live read runs outside the transaction, so a webhook landing during
+  it could otherwise let the retry through to OWED or ISSUED. 409 like the other refusals.
 - **The reconciler reads parked rows live too (#286).** Up to `purchase.reconcile.parked-batch-size`
   (20) NEEDS_ATTENTION rows a run, rotating, so a missed refund or dispute is on the row before an
   operator looks. Facts only; the row stays parked. A read that finds nothing new writes nothing.
