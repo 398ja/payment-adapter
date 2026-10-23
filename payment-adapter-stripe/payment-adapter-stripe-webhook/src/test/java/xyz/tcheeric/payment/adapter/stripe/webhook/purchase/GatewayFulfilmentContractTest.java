@@ -50,6 +50,8 @@ class GatewayFulfilmentContractTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String SERVICE_KEY = "3".repeat(64);
+    /** The key PURCHASE_GATEWAY_PRIVATE_KEY is rotated to (#288). */
+    private static final String NEW_SERVICE_KEY = "4".repeat(64);
     private static final String BUYER = "a".repeat(64);
     private static final String STALL = "b".repeat(64);
     private static final String SELF = "d".repeat(64);
@@ -66,6 +68,7 @@ class GatewayFulfilmentContractTest {
     private final Map<String, StripePurchase> rows = new ConcurrentHashMap<>();
     private RecordingPurchaseListener listener;
     private PurchaseDischargeService discharges;
+    private StripePurchaseRepository purchases;
 
     @BeforeEach
     void start() throws IOException {
@@ -76,7 +79,7 @@ class GatewayFulfilmentContractTest {
         GatewayFulfilmentClient client = new GatewayFulfilmentClient(
                 "http://127.0.0.1:" + server.getAddress().getPort(), SERVICE_KEY, Duration.ofSeconds(5));
 
-        StripePurchaseRepository purchases = mock(StripePurchaseRepository.class);
+        purchases = mock(StripePurchaseRepository.class);
         when(purchases.findByEventId(any())).thenAnswer(i -> Optional.ofNullable(rows.get(i.getArgument(0, String.class))));
         when(purchases.save(any())).thenAnswer(i -> {
             StripePurchase row = i.getArgument(0);
@@ -169,6 +172,61 @@ class GatewayFulfilmentContractTest {
                 client.register(row.getPaymentRequestId(), SELF, STALL, 1, "GBP"));
     }
 
+    // #288 option 1, end to end over HTTP. A purchase registered under the OLD key, the key
+    // rotated, and the payment then made: the NEW key's GET reads the old key's binding (core does
+    // not scope the verdict to its creator), and with the old public key configured the row
+    // discharges. No PUT is sent for it, so core's creator-bound sameTermsAs never 409s.
+    @Test
+    void aPurchaseRegisteredBeforeARotationDischargesUnderTheNewKey() {
+        StripePurchase row = buy("evt_1");
+        String oldCreator = creators.get(row.getPaymentRequestId());
+        PurchaseDischargeService rotated = rotatedService(
+                PreviousGatewayKeys.parse(oldCreator, java.time.Instant.now().plus(Duration.ofDays(7)).toString(),
+                        NEW_SERVICE_KEY, java.time.Clock.systemUTC()));
+        send(row.getPaymentRequestId(), BUYER, 2500);
+        int putsBefore = puts();
+
+        assertEquals(PurchaseDischargeService.Result.DISCHARGED, rotated.discharge("evt_1", "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.DISCHARGED, rows.get("evt_1").getStatus());
+        assertEquals(putsBefore, puts(), "an already-registered row is never registered again");
+        assertEquals(oldCreator, creators.get(row.getPaymentRequestId()), "the binding still names the old key");
+    }
+
+    // #288: the same rotation without the old public key configured is the strand: refused.
+    @Test
+    void aPurchaseRegisteredBeforeARotationIsRefusedWithoutThePreviousKey() {
+        StripePurchase row = buy("evt_1");
+        PurchaseDischargeService rotated = rotatedService(PreviousGatewayKeys.none());
+        send(row.getPaymentRequestId(), BUYER, 2500);
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED, rotated.discharge("evt_1", "voucher-1", STALL));
+        assertTrue(rows.get("evt_1").getLastFailure().contains("not this service"));
+    }
+
+    // #288: why option 1 must never re-register. Core binds the creator into the terms, so the
+    // new key's PUT of identical terms is a conflict, and a rollover that re-registered would park
+    // every open row. Re-binding (option 2) is not needed because nothing ever has to.
+    @Test
+    void theNewKeyCannotReRegisterABindingTheOldKeyHolds() {
+        StripePurchase row = buy("evt_1");
+        GatewayFulfilmentClient newClient = new GatewayFulfilmentClient(
+                "http://127.0.0.1:" + server.getAddress().getPort(), NEW_SERVICE_KEY, Duration.ofSeconds(5));
+
+        assertEquals(GatewayFulfilmentClient.Registration.CONFLICT,
+                newClient.register(row.getPaymentRequestId(), BUYER, STALL, 2500, "GBP"));
+    }
+
+    /** The service after the key swap: the new private key, and the given previous public keys. */
+    private PurchaseDischargeService rotatedService(PreviousGatewayKeys previous) {
+        GatewayFulfilmentClient newClient = new GatewayFulfilmentClient(
+                "http://127.0.0.1:" + server.getAddress().getPort(), NEW_SERVICE_KEY, Duration.ofSeconds(5));
+        return new PurchaseDischargeService(purchases, newClient).withPreviousKeys(previous);
+    }
+
+    private int puts() {
+        return (int) seen.stream().filter(s -> s.startsWith("PUT")).count();
+    }
+
     private StripePurchase buy(String eventId) {
         listener.onPurchasePaid(new StripePurchaseListener.PaidPurchase(
                 eventId, "cs_1", "pi_1", ACCOUNT, 2500L, "gbp", Map.of("buyer_pubkey", BUYER), false));
@@ -199,12 +257,16 @@ class GatewayFulfilmentContractTest {
             }
             seen.add(payloadMatches(auth, body) ? "PUT payload-ok" : "PUT payload-bad");
             JsonNode terms = MAPPER.readTree(body);
+            String caller = MAPPER.readTree(Base64.getDecoder().decode(auth.substring("Nostr ".length())))
+                    .get("pubkey").asText();
             JsonNode existing = bindings.putIfAbsent(id, terms);
             if (existing == null) {
-                creators.put(id, MAPPER.readTree(Base64.getDecoder().decode(auth.substring("Nostr ".length())))
-                        .get("pubkey").asText());
+                creators.put(id, caller);
             }
-            reply(exchange, existing == null ? 201 : existing.equals(terms) ? 200 : 409, null);
+            // Core's Binding.sameTermsAs includes the creator: the same terms from another key are a
+            // conflict, which is why a rotated key can never re-register (#288).
+            boolean same = existing != null && existing.equals(terms) && caller.equalsIgnoreCase(creators.get(id));
+            reply(exchange, existing == null ? 201 : same ? 200 : 409, null);
             return;
         }
 

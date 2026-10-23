@@ -54,6 +54,20 @@ public class PurchaseConfiguration {
     private String gatewayPrivateKey;
 
     /**
+     * The public keys this service registered under before {@link #gatewayPrivateKey}, during a
+     * rollover (#288): comma-separated x-only hex. PUBLIC keys only. Empty outside a rollover.
+     */
+    @Value("${purchase.gateway.previous-pubkeys:}")
+    private String gatewayPreviousPubkeys;
+
+    /**
+     * When {@link #gatewayPreviousPubkeys} stop counting, ISO-8601. Required with any previous key,
+     * at most {@link PreviousGatewayKeys#MAX_WINDOW} ahead: a leaked old key never keeps authority.
+     */
+    @Value("${purchase.gateway.previous-pubkeys-until:}")
+    private String gatewayPreviousPubkeysUntil;
+
+    /**
      * How long to wait on the gateway before treating the answer as unknown.
      *
      * <p>Short on purpose. A slow verification blocks a discharge, and an
@@ -117,12 +131,19 @@ public class PurchaseConfiguration {
                 gatewayBaseUrl, gatewayPrivateKey, Duration.ofSeconds(gatewayTimeoutSeconds));
     }
 
+    /** Parsed once at boot: a malformed or unbounded rollover stops the service rather than guessing. */
+    PreviousGatewayKeys previousGatewayKeys() {
+        return PreviousGatewayKeys.parse(gatewayPreviousPubkeys, gatewayPreviousPubkeysUntil, gatewayPrivateKey,
+                java.time.Clock.systemUTC());
+    }
+
     @Bean
     public PurchaseDischargeService purchaseDischargeService(
             StripePurchaseRepository purchases, GatewayFulfilmentClient fulfilment,
             org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> registry) {
         return new PurchaseDischargeService(purchases, fulfilment, Duration.ofSeconds(claimLeaseSeconds),
                 maxLeaseExpiries)
+                .withPreviousKeys(previousGatewayKeys())
                 .withMetrics(new xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics(registry.getIfAvailable()));
     }
 

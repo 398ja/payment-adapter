@@ -613,4 +613,103 @@ class PurchaseDischargeServiceTest {
         assertEquals(PurchaseDischargeService.Result.REFUSED, service.discharge(EVENT, "voucher-1", STALL));
         assertEquals(1, owed.getAttempts());
     }
+
+    // #288 option 1: a row registered under the key this service used BEFORE a rotation. Core
+    // names the old key as creator; with that public key configured, inside its window, the row
+    // is this service's own and discharges on the same facts as any other.
+    @Test
+    void aRowRegisteredUnderThePreviousKeyDischargesAfterRotation() {
+        owed.setStatus(StripePurchase.Status.ISSUED);
+        owed.setVoucherId("voucher-1");
+        owed.setStallPubkey(STALL);
+        service.withPreviousKeys(rollover(PREVIOUS, java.time.Instant.now().plus(java.time.Duration.ofDays(7))));
+        gatewaySays(registeredBy(PREVIOUS));
+
+        assertEquals(PurchaseDischargeService.Result.DISCHARGED, service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.DISCHARGED, owed.getStatus());
+    }
+
+    // #288: without the previous key configured, the same answer is somebody else's terms. That
+    // is the strand the issue describes, and the guard the allowance must not weaken.
+    @Test
+    void aRowRegisteredUnderThePreviousKeyIsRefusedWhenItIsNotConfigured() {
+        owed.setStatus(StripePurchase.Status.ISSUED);
+        owed.setVoucherId("voucher-1");
+        owed.setStallPubkey(STALL);
+        gatewaySays(registeredBy(PREVIOUS));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED, service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.ISSUED, owed.getStatus());
+        assertEquals(1, owed.getAttempts());
+        org.junit.jupiter.api.Assertions.assertTrue(owed.getLastFailure().contains("not this service"),
+                owed.getLastFailure());
+    }
+
+    // #288: once the grace window has ended the previous key is a stranger again, so a leaked old
+    // key cannot keep its authority after the rollover.
+    @Test
+    void aPreviousKeyWhoseWindowEndedIsRefused() {
+        owed.setStallPubkey(STALL);
+        service.withPreviousKeys(rollover(PREVIOUS, java.time.Instant.now().minusSeconds(60)));
+        gatewaySays(registeredBy(PREVIOUS));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED, service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+    }
+
+    // #288: a previous key widens WHO may have registered the terms, never WHAT they are. A
+    // payment to somebody else is refused under the old key exactly as under the current one.
+    @Test
+    void aPreviousKeyDoesNotExcuseAWrongRecipient() {
+        owed.setStallPubkey(STALL);
+        service.withPreviousKeys(rollover(PREVIOUS, java.time.Instant.now().plus(java.time.Duration.ofDays(7))));
+        gatewaySays(new GatewayFulfilmentClient.Answer(
+                Fulfilment.FULFILLED, STALL, SELF, 2500L, "GBP", null, PREVIOUS, java.util.List.of("voucher-1")));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED, service.discharge(EVENT, "voucher-1", STALL));
+    }
+
+    // #288: configuring a previous key does not make every key this service's. A squatter is
+    // still refused while the rollover is in force.
+    @Test
+    void aSquatterIsStillRefusedDuringARollover() {
+        owed.setStallPubkey(STALL);
+        service.withPreviousKeys(rollover(PREVIOUS, java.time.Instant.now().plus(java.time.Duration.ofDays(7))));
+        gatewaySays(registeredBy(SQUATTER));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED, service.discharge(EVENT, "voucher-1", STALL));
+    }
+
+    // gc#255 F1: core answering with a 02/03-prefixed variant of a key is the same key, for the
+    // current key and a previous one alike. A different key's prefixed form still does not match.
+    @Test
+    void creatorKeysAreComparedXOnlyAcrossParityVariants() {
+        owed.setStallPubkey(STALL);
+        service.withPreviousKeys(rollover(PREVIOUS, java.time.Instant.now().plus(java.time.Duration.ofDays(7))));
+        GatewayFulfilmentClient.Answer ownCompressed = registeredBy("02" + OWN);
+        GatewayFulfilmentClient.Answer previousCompressed = registeredBy("03" + PREVIOUS.toUpperCase());
+        GatewayFulfilmentClient.Answer squatterCompressed = registeredBy("02" + SQUATTER);
+
+        assertNull(PurchaseDischargeService.mismatch(owed, ownCompressed, OWN, PreviousGatewayKeys.none(), "voucher-1"));
+        assertNull(PurchaseDischargeService.mismatch(owed, ownCompressed, "03" + OWN, PreviousGatewayKeys.none(),
+                "voucher-1"));
+        assertNull(PurchaseDischargeService.mismatch(owed, previousCompressed, OWN,
+                rollover(PREVIOUS, java.time.Instant.now().plus(java.time.Duration.ofDays(1))), "voucher-1"));
+        org.junit.jupiter.api.Assertions.assertNotNull(PurchaseDischargeService.mismatch(owed, squatterCompressed,
+                OWN, PreviousGatewayKeys.none(), "voucher-1"));
+        org.junit.jupiter.api.Assertions.assertNotNull(PurchaseDischargeService.mismatch(owed, registeredBy("04" + OWN),
+                OWN, PreviousGatewayKeys.none(), "voucher-1"), "04 is not a parity prefix");
+    }
+
+    /** A real x-only key on secp256k1: the previous key this service registered under. */
+    private static final String PREVIOUS = PreviousGatewayKeysTest.pubkeyOf("7".repeat(64));
+
+    private static PreviousGatewayKeys rollover(String key, java.time.Instant until) {
+        return PreviousGatewayKeys.parse(key, until.toString(), null, java.time.Clock.systemUTC());
+    }
+
+    private GatewayFulfilmentClient.Answer registeredBy(String creator) {
+        return new GatewayFulfilmentClient.Answer(
+                Fulfilment.FULFILLED, STALL, BUYER, 2500L, "GBP", null, creator, java.util.List.of("voucher-1"));
+    }
 }

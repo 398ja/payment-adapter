@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Gateway key rollover without a drain (#288).** `PURCHASE_GATEWAY_PREVIOUS_PUBKEYS` (comma-separated
+  x-only hex, PUBLIC keys only) and `PURCHASE_GATEWAY_PREVIOUS_PUBKEYS_UNTIL` (ISO-8601, required with
+  any key, at most 21 days ahead). Until then, a purchase whose terms core says a previous key registered
+  is this service's own, so rotating `PURCHASE_GATEWAY_PRIVATE_KEY` (a forced rotation after a leak, too)
+  no longer strands open purchases or pauses card sales. Boot refuses a malformed or off-curve key, a
+  missing or distant end, or the current private key named as a pubkey. The window closes without a
+  restart. No gateway-core change: the discharge's GET is not creator-scoped, and an existing binding is
+  never re-registered. Runbook: imani-deploy `docs/runbooks/purchase-gateway-key.md`.
+
+### Fixed
+
+- **The registering key is compared x-only (#288, gc#255 F1).** A `02`/`03`-prefixed form of this
+  service's own key in core's `creatorPubkey` is no longer refused as somebody else's.
+
 ## [0.24.0] - 2026-10-20
 
 Defence in depth for a missed refund or dispute webhook (#286). No migrations. Set

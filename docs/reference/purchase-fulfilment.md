@@ -68,6 +68,33 @@ own key; an answer without it is unverifiable. Every answer is compared against
 this row's own recipient, amount, unit and stall, so the worst case is a debt
 left for a manual check, on the squatter's own purchase.
 
+## Key rollover (#288)
+
+`creatorPubkey` is compared x-only (gc#255 F1): a `02`/`03`-prefixed compressed form is
+the same key, and only a 66-hex value is ever stripped.
+
+Rotating `purchase.gateway.private-key` used to strand every registered row: core still
+names the old key as creator, so the discharge was refused as "not this service". During
+a rollover the old **public** key may be named:
+
+| Property | Env | Meaning |
+| --- | --- | --- |
+| `purchase.gateway.previous-pubkeys` | `PURCHASE_GATEWAY_PREVIOUS_PUBKEYS` | Comma-separated x-only hex. Public keys only. |
+| `purchase.gateway.previous-pubkeys-until` | `PURCHASE_GATEWAY_PREVIOUS_PUBKEYS_UNTIL` | ISO-8601 instant, exclusive. Required with any key. |
+
+A registration by a previous key counts as this service's own until `until`. Every
+other fact (buyer, amount, unit, stall, coupon) is checked exactly as before. Boot
+fails on a malformed or off-curve key, a missing or unparseable end, an end more than
+21 days ahead (the 14-day re-check horizon plus a week), or the current private key
+pasted into the list. The window is read on every check, so it closes without a
+restart. Removing the variables and recreating the service ends it early.
+
+Nothing changes in gateway-core. The discharge only ever GETs an existing binding, and
+core answers that GET for any NIP-98 key. The PUT is sent only for a new row or one
+core calls `unregistered`, so the new key never re-registers an old binding, which would
+409 because core binds the creator into the terms. Procedure: imani-deploy
+`docs/runbooks/purchase-gateway-key.md`.
+
 ## Rollout
 
 Safe in either order. Against an old core, registration is a logged 405 and
