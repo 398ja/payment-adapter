@@ -233,6 +233,23 @@ class GatewayFulfilmentContractTest {
         assertTrue(rows.get("evt_2").getLastFailure().contains("not this service"));
     }
 
+    // Second check of #303: the first new-key boot was earlier, the service has since restarted.
+    // A row recorded in between is squatted by the old key. With _FROM pinned to the first boot,
+    // it stays refused even though this boot is later than the row.
+    @Test
+    void aRestartWithThePinnedFromStillRefusesARowRecordedSinceTheFirstBoot() {
+        java.time.Instant firstBoot = java.time.Instant.now().minusSeconds(60);
+        StripePurchase row = buy("evt_3");
+        assertTrue(row.getCreatedAt().isAfter(firstBoot));
+        PurchaseDischargeService restarted = rotatedService(PreviousGatewayKeys.parse(
+                SERVICE_KEY_PUBLIC(), java.time.Instant.now().plus(Duration.ofDays(7)).toString(),
+                firstBoot.toString(), NEW_SERVICE_KEY, java.time.Clock.systemUTC()));
+        send(row.getPaymentRequestId(), BUYER, 2500);
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED, restarted.discharge("evt_3", "voucher-1", STALL));
+        assertTrue(rows.get("evt_3").getLastFailure().contains("not this service"));
+    }
+
     private static String SERVICE_KEY_PUBLIC() {
         return PreviousGatewayKeysTest.pubkeyOf(SERVICE_KEY);
     }

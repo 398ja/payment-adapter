@@ -68,6 +68,14 @@ public class PurchaseConfiguration {
     private String gatewayPreviousPubkeysUntil;
 
     /**
+     * Optional pinned cutoff for {@link #gatewayPreviousPubkeys}, ISO-8601: the instant the first
+     * new-key boot logged. Only rows recorded no later than the earlier of this and the current boot
+     * are vouched for by a previous key, so a restart inside the window does not widen it.
+     */
+    @Value("${purchase.gateway.previous-pubkeys-from:}")
+    private String gatewayPreviousPubkeysFrom;
+
+    /**
      * How long to wait on the gateway before treating the answer as unknown.
      *
      * <p>Short on purpose. A slow verification blocks a discharge, and an
@@ -133,8 +141,8 @@ public class PurchaseConfiguration {
 
     /** Parsed once at boot: a malformed or unbounded rollover stops the service rather than guessing. */
     PreviousGatewayKeys previousGatewayKeys() {
-        return PreviousGatewayKeys.parse(gatewayPreviousPubkeys, gatewayPreviousPubkeysUntil, gatewayPrivateKey,
-                java.time.Clock.systemUTC());
+        return PreviousGatewayKeys.parse(gatewayPreviousPubkeys, gatewayPreviousPubkeysUntil,
+                gatewayPreviousPubkeysFrom, gatewayPrivateKey, java.time.Clock.systemUTC());
     }
 
     @Bean

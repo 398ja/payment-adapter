@@ -81,6 +81,7 @@ a rollover the old **public** key may be named:
 | --- | --- | --- |
 | `purchase.gateway.previous-pubkeys` | `PURCHASE_GATEWAY_PREVIOUS_PUBKEYS` | Comma-separated x-only hex. Public keys only. |
 | `purchase.gateway.previous-pubkeys-until` | `PURCHASE_GATEWAY_PREVIOUS_PUBKEYS_UNTIL` | ISO-8601 instant, exclusive. Required with any key. |
+| `purchase.gateway.previous-pubkeys-from` | `PURCHASE_GATEWAY_PREVIOUS_PUBKEYS_FROM` | ISO-8601 instant, optional. Pins the row cutoff (below). |
 
 A registration by a previous key counts as this service's own until `until`. Every
 other fact (buyer, amount, unit, stall, coupon) is checked exactly as before. Boot
@@ -96,6 +97,15 @@ names the old key as its creator, somebody holding the old key got there first: 
 refused like any other squatter. Recreate the service with the new key and the
 previous keys in ONE step: a later restart that adds the previous keys still covers
 every old-key row (they predate it), but those rows are refused until it happens.
+
+A restart later in the window (a redeploy, an OOM, a host reboot) would move a
+boot-time cutoff later, and a leaked old key could then squat purchases recorded
+between the first new-key boot and that restart. To prevent it, copy the instant from
+the first boot's log line into `PURCHASE_GATEWAY_PREVIOUS_PUBKEYS_FROM`. The cutoff is
+the EARLIER of that pin and the current boot, so the pin can only narrow the allowance:
+one in the future is ignored (with a warning), and one set too early refuses old-key
+rows, as before #288, rather than letting anyone in. An unparseable pin stops the
+boot. Unset, the cutoff is the current boot, and the log line says so.
 
 Nothing changes in gateway-core. The discharge only ever GETs an existing binding, and
 core answers that GET for any NIP-98 key. The PUT is sent only for a new row or one

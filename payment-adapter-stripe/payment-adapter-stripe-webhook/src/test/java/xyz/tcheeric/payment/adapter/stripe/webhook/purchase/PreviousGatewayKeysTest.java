@@ -191,4 +191,40 @@ class PreviousGatewayKeysTest {
         assertFalse(keys.recognisesFor(OTHER, NOW.minusSeconds(1)));
         assertFalse(PreviousGatewayKeys.none().recognisesFor(OLD, Instant.EPOCH));
     }
+
+    // Second check of #303: a restart inside the window would move a boot-time cutoff later, so a
+    // leaked old key could squat rows recorded between the first and second boot. _FROM pins it.
+    @Test
+    void aPinnedFromKeepsTheCutoffAcrossARestart() {
+        Instant firstBoot = NOW.minus(Duration.ofDays(2));
+        PreviousGatewayKeys keys = PreviousGatewayKeys.parse(OLD, UNTIL, firstBoot.toString(), CURRENT_PRIVATE, CLOCK);
+
+        assertEquals(firstBoot, keys.adoptedAt());
+        assertTrue(keys.recognisesFor(OLD, firstBoot), "a row of the old process is still ours");
+        assertFalse(keys.recognisesFor(OLD, firstBoot.plusMillis(1)),
+                "recorded after the first new-key boot: a squatter, even though this boot is later");
+        assertFalse(keys.recognisesFor(OLD, NOW.minusSeconds(1)));
+    }
+
+    // A pin can only narrow the allowance: one in the future is this boot, never later.
+    @Test
+    void aPinInTheFutureIsClampedToThisBoot() {
+        PreviousGatewayKeys keys = PreviousGatewayKeys.parse(OLD, UNTIL, NOW.plus(Duration.ofDays(1)).toString(),
+                CURRENT_PRIVATE, CLOCK);
+
+        assertEquals(NOW, keys.adoptedAt());
+        assertFalse(keys.recognisesFor(OLD, NOW.plusMillis(1)));
+    }
+
+    // Unset or blank, the cutoff is this boot, exactly as before; a garbled pin stops the boot.
+    @Test
+    void anAbsentPinIsThisBootAndAGarbledOneIsRefused() {
+        assertEquals(NOW, PreviousGatewayKeys.parse(OLD, UNTIL, null, CURRENT_PRIVATE, CLOCK).adoptedAt());
+        assertEquals(NOW, PreviousGatewayKeys.parse(OLD, UNTIL, "  ", CURRENT_PRIVATE, CLOCK).adoptedAt());
+        assertThrows(IllegalArgumentException.class,
+                () -> PreviousGatewayKeys.parse(OLD, UNTIL, "yesterday", CURRENT_PRIVATE, CLOCK));
+        assertThrows(IllegalArgumentException.class,
+                () -> PreviousGatewayKeys.parse(OLD, UNTIL, "2026-10-21T08:00:00", CURRENT_PRIVATE, CLOCK),
+                "an instant without a zone is ambiguous");
+    }
 }

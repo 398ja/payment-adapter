@@ -49,8 +49,14 @@ import nostr.crypto.Point;
  * this process read the rollover (its boot). Every row recorded after that was registered by the
  * CURRENT key, so core naming the old key as its creator means somebody holding the old key
  * registered it first: a leaked old key must not be able to squat rows created after the
- * rotation and have them read as ours (review of #303). A restart during the window moves this
- * cutoff later, never earlier; removing the variables ends the allowance.
+ * rotation and have them read as ours (review of #303).
+ *
+ * <p>A restart during the window would move a boot-time cutoff later, and redeploys inside a
+ * 15-day window are routine. So the operator may pin it with {@code _FROM}: the instant the first
+ * new-key boot logged. The cutoff is the EARLIER of the pin and this boot, so a pin can only narrow
+ * the allowance, never widen it: a pin in the future is this boot, and a pin set too early strands
+ * old-key rows (refused, as before #288) rather than letting anyone in. Removing the variables ends
+ * the allowance.
  */
 @Slf4j
 public final class PreviousGatewayKeys {
@@ -89,16 +95,38 @@ public final class PreviousGatewayKeys {
      *                                  too distant end, or the current private key named as a pubkey
      */
     public static PreviousGatewayKeys parse(String rawKeys, String rawUntil, String currentPrivateKey, Clock clock) {
+        return parse(rawKeys, rawUntil, null, currentPrivateKey, clock);
+    }
+
+    /**
+     * As {@link #parse(String, String, String, Clock)}, with an optional pinned cutoff.
+     *
+     * @param rawFrom {@code PURCHASE_GATEWAY_PREVIOUS_PUBKEYS_FROM}: an ISO-8601 instant, optional. The
+     *                cutoff becomes the earlier of it and this boot, so a restart during the window does
+     *                not let a previous key vouch for rows recorded since the first new-key boot
+     * @throws IllegalArgumentException additionally on an unparseable {@code rawFrom}
+     */
+    public static PreviousGatewayKeys parse(String rawKeys, String rawUntil, String rawFrom,
+                                            String currentPrivateKey, Clock clock) {
         Set<String> keys = parseKeys(rawKeys, currentPrivateKey);
+        Instant boot = clock.instant();
         if (keys.isEmpty()) {
-            return new PreviousGatewayKeys(Set.of(), null, clock.instant(), clock);
+            return new PreviousGatewayKeys(Set.of(), null, boot, clock);
         }
         Instant until = parseUntil(rawUntil, clock);
-        PreviousGatewayKeys parsed = new PreviousGatewayKeys(Set.copyOf(keys), until, clock.instant(), clock);
+        Instant from = parseFrom(rawFrom);
+        Instant cutoff = from != null && from.isBefore(boot) ? from : boot;
+        PreviousGatewayKeys parsed = new PreviousGatewayKeys(Set.copyOf(keys), until, cutoff, clock);
+        if (from != null && from.isAfter(boot)) {
+            log.warn("PURCHASE_GATEWAY_PREVIOUS_PUBKEYS_FROM={} is in the future; using this boot ({}) instead",
+                    from, boot);
+        }
         if (parsed.inForce()) {
             log.warn("Purchase gateway key rollover: {} previous public key(s) {} recognised until {}, "
-                    + "for purchases recorded no later than {}",
-                    keys.size(), keys.stream().map(XOnlyKey::prefix).toList(), until, parsed.adoptedAt);
+                    + "for purchases recorded no later than {}{}",
+                    keys.size(), keys.stream().map(XOnlyKey::prefix).toList(), until, parsed.adoptedAt,
+                    cutoff.equals(boot) ? " (this boot; pin it with PURCHASE_GATEWAY_PREVIOUS_PUBKEYS_FROM)"
+                            : " (pinned)");
         } else {
             log.warn("Purchase gateway key rollover window ended at {}; {} previous key(s) ignored. "
                     + "Remove PURCHASE_GATEWAY_PREVIOUS_PUBKEYS.", until, keys.size());
@@ -160,6 +188,18 @@ public final class PreviousGatewayKeys {
         return until;
     }
 
+    private static Instant parseFrom(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(raw.trim());
+        } catch (DateTimeParseException e) {
+            throw new IllegalArgumentException("PURCHASE_GATEWAY_PREVIOUS_PUBKEYS_FROM is not an ISO-8601 instant "
+                    + "(copy it from the first rollover boot's log line, e.g. 2026-10-23T08:00:00.123Z)", e);
+        }
+    }
+
     /** Whether any previous key is honoured right now. */
     public boolean inForce() {
         return !keys.isEmpty() && until != null && clock.instant().isBefore(until);
@@ -184,7 +224,10 @@ public final class PreviousGatewayKeys {
         return recordedAt != null && !recordedAt.isAfter(adoptedAt) && recognises(creatorPubkey);
     }
 
-    /** When this process adopted the rollover: rows recorded later are never vouched for by an old key. */
+    /**
+     * The cutoff: the earlier of this boot and the pinned {@code _FROM}. Rows recorded later are never
+     * vouched for by an old key.
+     */
     public Instant adoptedAt() {
         return adoptedAt;
     }
