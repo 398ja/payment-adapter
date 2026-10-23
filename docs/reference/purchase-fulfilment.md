@@ -94,8 +94,8 @@ running service adopted the rollover (its boot, logged as "for purchases recorde
 later than ..."). Every later purchase was registered by the current key, so if core
 names the old key as its creator, somebody holding the old key got there first: it is
 refused like any other squatter. Recreate the service with the new key and the
-previous keys in ONE step, never the new key first and the previous keys on a later
-restart, or rows recorded in between are not covered.
+previous keys in ONE step: a later restart that adds the previous keys still covers
+every old-key row (they predate it), but those rows are refused until it happens.
 
 Nothing changes in gateway-core. The discharge only ever GETs an existing binding, and
 core answers that GET for any NIP-98 key. The PUT is sent only for a new row or one
