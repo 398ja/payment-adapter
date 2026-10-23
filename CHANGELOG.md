@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-23
+
+Gateway key rollover without a drain (#288). No migrations. With the new variables unset, behaviour
+is unchanged.
+
 ### Added
 
 - **Gateway key rollover without a drain (#288).** `PURCHASE_GATEWAY_PREVIOUS_PUBKEYS` (comma-separated
@@ -22,6 +27,12 @@
 
 - **The registering key is compared x-only (#288, gc#255 F1).** A `02`/`03`-prefixed form of this
   service's own key in core's `creatorPubkey` is no longer refused as somebody else's.
+- **A release build no longer pushes `:latest` (#264).** jib pushes only the `${project.version}` tag.
+  Promotion to `:latest` stays an explicit operator step.
+
+### Changed
+
+- Dependency bumps: commons-beanutils 1.11.0 (#224), awaitility 4.3.0 (#221, test only).
 
 ## [0.24.0] - 2026-10-20
 
