@@ -89,6 +89,14 @@ fails on a malformed or off-curve key, a missing or unparseable end, an end more
 pasted into the list. The window is read on every check, so it closes without a
 restart. Removing the variables and recreating the service ends it early.
 
+A previous key only vouches for a purchase recorded no later than the moment the
+running service adopted the rollover (its boot, logged as "for purchases recorded no
+later than ..."). Every later purchase was registered by the current key, so if core
+names the old key as its creator, somebody holding the old key got there first: it is
+refused like any other squatter. Recreate the service with the new key and the
+previous keys in ONE step, never the new key first and the previous keys on a later
+restart, or rows recorded in between are not covered.
+
 Nothing changes in gateway-core. The discharge only ever GETs an existing binding, and
 core answers that GET for any NIP-98 key. The PUT is sent only for a new row or one
 core calls `unregistered`, so the new key never re-registers an old binding, which would

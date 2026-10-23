@@ -176,4 +176,19 @@ class PreviousGatewayKeysTest {
         assertNull(keys.until());
         assertFalse(PreviousGatewayKeys.none().recognises(OLD));
     }
+
+    // Review of #303: a previous key vouches only for rows that existed when the rollover was
+    // adopted (this process read it). Later rows were registered by the current key.
+    @Test
+    void aPreviousKeyOnlyVouchesForRowsRecordedBeforeAdoption() {
+        PreviousGatewayKeys keys = PreviousGatewayKeys.parse(OLD, UNTIL, CURRENT_PRIVATE, CLOCK);
+
+        assertEquals(NOW, keys.adoptedAt());
+        assertTrue(keys.recognisesFor(OLD, NOW.minus(Duration.ofDays(3))));
+        assertTrue(keys.recognisesFor(OLD, NOW), "the cutoff is inclusive");
+        assertFalse(keys.recognisesFor(OLD, NOW.plusMillis(1)), "recorded after the rollover: a squatter");
+        assertFalse(keys.recognisesFor(OLD, null), "an unknown recording time is refused");
+        assertFalse(keys.recognisesFor(OTHER, NOW.minusSeconds(1)));
+        assertFalse(PreviousGatewayKeys.none().recognisesFor(OLD, Instant.EPOCH));
+    }
 }

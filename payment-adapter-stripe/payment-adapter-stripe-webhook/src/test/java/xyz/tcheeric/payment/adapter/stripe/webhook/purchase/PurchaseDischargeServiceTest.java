@@ -57,6 +57,9 @@ class PurchaseDischargeServiceTest {
         owed.setRecipientPubkey(BUYER);
         owed.setAmountMinor(2500L);
         owed.setCurrency("gbp");
+        // Recorded before any rollover a test configures (#288 review): an old key only vouches for
+        // rows that already existed. Production rows always carry it (created_at NOT NULL).
+        owed.setCreatedAt(java.time.Instant.now().minusSeconds(3600));
         when(purchases.findByEventId(EVENT)).thenReturn(Optional.of(owed));
         when(purchases.save(any())).thenAnswer(i -> i.getArgument(0));
         when(fulfilment.publicKeyHex()).thenReturn(OWN);
@@ -703,6 +706,39 @@ class PurchaseDischargeServiceTest {
 
     /** A real x-only key on secp256k1: the previous key this service registered under. */
     private static final String PREVIOUS = PreviousGatewayKeysTest.pubkeyOf("7".repeat(64));
+
+    // Review of #303: a leaked OLD key must not squat rows recorded AFTER the rollover was adopted.
+    // Those were registered by the current key, so core naming the old key as creator means
+    // somebody holding it got there first. Refused, exactly like any other squatter.
+    @Test
+    void aRowRecordedAfterTheRolloverIsNotVouchedForByThePreviousKey() {
+        owed.setStallPubkey(STALL);
+        PreviousGatewayKeys keys = rollover(PREVIOUS, java.time.Instant.now().plus(java.time.Duration.ofDays(7)));
+        service.withPreviousKeys(keys);
+        owed.setCreatedAt(keys.adoptedAt().plusMillis(1));
+        gatewaySays(registeredBy(PREVIOUS));
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED, service.discharge(EVENT, "voucher-1", STALL));
+        assertEquals(StripePurchase.Status.OWED, owed.getStatus());
+        org.junit.jupiter.api.Assertions.assertTrue(owed.getLastFailure().contains("not this service"),
+                owed.getLastFailure());
+    }
+
+    // The same answer for a row that existed at adoption is ours: the cutoff is inclusive.
+    @Test
+    void aRowRecordedAtTheMomentOfAdoptionIsStillVouchedFor() {
+        owed.setStallPubkey(STALL);
+        PreviousGatewayKeys keys = rollover(PREVIOUS, java.time.Instant.now().plus(java.time.Duration.ofDays(7)));
+        owed.setCreatedAt(keys.adoptedAt());
+
+        assertNull(PurchaseDischargeService.mismatch(owed, registeredBy(PREVIOUS), OWN, keys, "voucher-1"));
+        owed.setCreatedAt(null);
+        org.junit.jupiter.api.Assertions.assertNotNull(
+                PurchaseDischargeService.mismatch(owed, registeredBy(PREVIOUS), OWN, keys, "voucher-1"),
+                "a row with no recording time is never vouched for by an old key");
+        assertNull(PurchaseDischargeService.mismatch(owed, registeredBy(OWN), OWN, keys, "voucher-1"),
+                "the current key does not depend on the recording time");
+    }
 
     private static PreviousGatewayKeys rollover(String key, java.time.Instant until) {
         return PreviousGatewayKeys.parse(key, until.toString(), null, java.time.Clock.systemUTC());

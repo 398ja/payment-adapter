@@ -216,6 +216,27 @@ class GatewayFulfilmentContractTest {
                 newClient.register(row.getPaymentRequestId(), BUYER, STALL, 2500, "GBP"));
     }
 
+    // Review of #303, end to end: AFTER the rotation, somebody still holding the OLD key registers
+    // a new purchase's request first (here the old-key listener plays them), so core names the old
+    // key as creator. That row did not exist when the rollover was adopted, so it is not ours.
+    @Test
+    void theOldKeySquattingARowRecordedAfterTheRotationIsRefused() {
+        java.time.Clock adopted = java.time.Clock.offset(java.time.Clock.systemUTC(), Duration.ofSeconds(-1));
+        PurchaseDischargeService rotated = rotatedService(PreviousGatewayKeys.parse(
+                SERVICE_KEY_PUBLIC(), java.time.Instant.now().plus(Duration.ofDays(7)).toString(), NEW_SERVICE_KEY,
+                adopted));
+        StripePurchase row = buy("evt_2");
+        assertEquals(SERVICE_KEY_PUBLIC(), creators.get(row.getPaymentRequestId()), "the old key registered it");
+        send(row.getPaymentRequestId(), BUYER, 2500);
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED, rotated.discharge("evt_2", "voucher-1", STALL));
+        assertTrue(rows.get("evt_2").getLastFailure().contains("not this service"));
+    }
+
+    private static String SERVICE_KEY_PUBLIC() {
+        return PreviousGatewayKeysTest.pubkeyOf(SERVICE_KEY);
+    }
+
     /** The service after the key swap: the new private key, and the given previous public keys. */
     private PurchaseDischargeService rotatedService(PreviousGatewayKeys previous) {
         GatewayFulfilmentClient newClient = new GatewayFulfilmentClient(

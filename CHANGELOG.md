@@ -10,7 +10,9 @@
   is this service's own, so rotating `PURCHASE_GATEWAY_PRIVATE_KEY` (a forced rotation after a leak, too)
   no longer strands open purchases or pauses card sales. Boot refuses a malformed or off-curve key, a
   missing or distant end, or the current private key named as a pubkey. The window closes without a
-  restart. No gateway-core change: the discharge's GET is not creator-scoped, and an existing binding is
+  restart. A previous key only vouches for purchases recorded no later than the boot that adopted the
+  rollover, so a leaked old key cannot squat purchases made after the rotation (review of #303). No
+  gateway-core change: the discharge's GET is not creator-scoped, and an existing binding is
   never re-registered. Runbook: imani-deploy `docs/runbooks/purchase-gateway-key.md`.
 
 ### Fixed

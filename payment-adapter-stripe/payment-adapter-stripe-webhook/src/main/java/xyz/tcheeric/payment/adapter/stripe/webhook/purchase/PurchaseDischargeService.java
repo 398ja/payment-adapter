@@ -541,7 +541,7 @@ public class PurchaseDischargeService {
         if (answer.creatorPubkey() == null) {
             return "the answer does not say who registered the request";
         }
-        if (!registeredByThisService(answer.creatorPubkey(), ownKey, previousKeys)) {
+        if (!registeredByThisService(answer.creatorPubkey(), ownKey, previousKeys, purchase.getCreatedAt())) {
             return "registered by " + answer.creatorPubkey() + ", not this service";
         }
         if (purchase.getRecipientPubkey() == null
@@ -567,10 +567,15 @@ public class PurchaseDischargeService {
         return null;
     }
 
+    /**
+     * A previous key counts only for a row that already existed when the rollover was adopted
+     * (review of #303): anything recorded since was registered by the current key, so an old-key
+     * creator on it is somebody else holding that key.
+     */
     private static boolean registeredByThisService(String creatorPubkey, String ownKey,
-                                                   PreviousGatewayKeys previousKeys) {
+                                                   PreviousGatewayKeys previousKeys, Instant recordedAt) {
         return XOnlyKey.same(ownKey, creatorPubkey)
-                || (previousKeys != null && previousKeys.recognises(creatorPubkey));
+                || (previousKeys != null && previousKeys.recognisesFor(creatorPubkey, recordedAt));
     }
 
     /** The unit a currency is registered under: Stripe's lower-case ISO code, upper-cased. */

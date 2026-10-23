@@ -42,6 +42,15 @@ import nostr.crypto.Point;
  * removes the key from the configuration, the old key is a stranger again. A row's own buyer,
  * amount, unit, stall and coupon are still checked against the answer as before, so a previous key
  * only ever answers "who registered these terms", never what they are.
+ *
+ * <h2>Only rows that already existed</h2>
+ *
+ * <p>A previous key only vouches for a row recorded no later than {@link #adoptedAt()}, the moment
+ * this process read the rollover (its boot). Every row recorded after that was registered by the
+ * CURRENT key, so core naming the old key as its creator means somebody holding the old key
+ * registered it first: a leaked old key must not be able to squat rows created after the
+ * rotation and have them read as ours (review of #303). A restart during the window moves this
+ * cutoff later, never earlier; removing the variables ends the allowance.
  */
 @Slf4j
 public final class PreviousGatewayKeys {
@@ -49,15 +58,18 @@ public final class PreviousGatewayKeys {
     /** How far ahead the grace window may end: the re-check horizon (14 days) plus a week of slack. */
     static final Duration MAX_WINDOW = PurchaseDischargeService.RECHECK_HORIZON.plus(Duration.ofDays(7));
 
-    private static final PreviousGatewayKeys NONE = new PreviousGatewayKeys(Set.of(), null, Clock.systemUTC());
+    private static final PreviousGatewayKeys NONE =
+            new PreviousGatewayKeys(Set.of(), null, Instant.EPOCH, Clock.systemUTC());
 
     private final Set<String> keys;
     private final Instant until;
+    private final Instant adoptedAt;
     private final Clock clock;
 
-    private PreviousGatewayKeys(Set<String> keys, Instant until, Clock clock) {
+    private PreviousGatewayKeys(Set<String> keys, Instant until, Instant adoptedAt, Clock clock) {
         this.keys = keys;
         this.until = until;
+        this.adoptedAt = adoptedAt;
         this.clock = clock;
     }
 
@@ -79,13 +91,14 @@ public final class PreviousGatewayKeys {
     public static PreviousGatewayKeys parse(String rawKeys, String rawUntil, String currentPrivateKey, Clock clock) {
         Set<String> keys = parseKeys(rawKeys, currentPrivateKey);
         if (keys.isEmpty()) {
-            return new PreviousGatewayKeys(Set.of(), null, clock);
+            return new PreviousGatewayKeys(Set.of(), null, clock.instant(), clock);
         }
         Instant until = parseUntil(rawUntil, clock);
-        PreviousGatewayKeys parsed = new PreviousGatewayKeys(Set.copyOf(keys), until, clock);
+        PreviousGatewayKeys parsed = new PreviousGatewayKeys(Set.copyOf(keys), until, clock.instant(), clock);
         if (parsed.inForce()) {
-            log.warn("Purchase gateway key rollover: {} previous public key(s) {} recognised until {}",
-                    keys.size(), keys.stream().map(XOnlyKey::prefix).toList(), until);
+            log.warn("Purchase gateway key rollover: {} previous public key(s) {} recognised until {}, "
+                    + "for purchases recorded no later than {}",
+                    keys.size(), keys.stream().map(XOnlyKey::prefix).toList(), until, parsed.adoptedAt);
         } else {
             log.warn("Purchase gateway key rollover window ended at {}; {} previous key(s) ignored. "
                     + "Remove PURCHASE_GATEWAY_PREVIOUS_PUBKEYS.", until, keys.size());
@@ -159,6 +172,21 @@ public final class PreviousGatewayKeys {
     public boolean recognises(String creatorPubkey) {
         String key = XOnlyKey.of(creatorPubkey);
         return key != null && inForce() && keys.contains(key);
+    }
+
+    /**
+     * Whether {@code creatorPubkey} vouches for a row recorded at {@code recordedAt}: one of the
+     * previous keys, inside the window, and the row existed when the rollover was adopted. A row
+     * recorded later was registered by the current key, so an old-key creator on it is a squatter.
+     * An unknown recording time is refused.
+     */
+    public boolean recognisesFor(String creatorPubkey, Instant recordedAt) {
+        return recordedAt != null && !recordedAt.isAfter(adoptedAt) && recognises(creatorPubkey);
+    }
+
+    /** When this process adopted the rollover: rows recorded later are never vouched for by an old key. */
+    public Instant adoptedAt() {
+        return adoptedAt;
     }
 
     /** When the window ends, or null when no key is configured. */
