@@ -48,6 +48,15 @@ public class PurchaseDischargeService {
     /** imani-deploy#210. Set by the configuration; global registry otherwise. */
     private PaymentMetrics metrics = new PaymentMetrics();
 
+    /** Keys this service registered under before its current one (#288). None unless configured. */
+    private PreviousGatewayKeys previousKeys = PreviousGatewayKeys.none();
+
+    /** A key rollover (#288): registrations by these previous public keys are this service's too. */
+    public PurchaseDischargeService withPreviousKeys(PreviousGatewayKeys previousKeys) {
+        this.previousKeys = previousKeys == null ? PreviousGatewayKeys.none() : previousKeys;
+        return this;
+    }
+
     public PurchaseDischargeService withMetrics(PaymentMetrics metrics) {
         this.metrics = metrics.preRegister(Source.CARD, Status.ISSUED, Status.ISSUE_FAILED);
         return this;
@@ -460,7 +469,7 @@ public class PurchaseDischargeService {
         // imani-wallet#287 (U4): the verdict must also count THIS row's coupon. A core from
         // before U1 names no coupons, which is unverifiable like the missing facts above.
         String pinned = purchase.getVoucherId() != null ? purchase.getVoucherId() : voucherId;
-        String mismatch = mismatch(purchase, answer, fulfilment.publicKeyHex(), pinned);
+        String mismatch = mismatch(purchase, answer, fulfilment.publicKeyHex(), previousKeys, pinned);
         if (mismatch != null) {
             if (answer.recipientPubkey() == null || answer.amount() == null || answer.unit() == null
                     || answer.creatorPubkey() == null || NO_COUPONS_NAMED.equals(mismatch)) {
@@ -518,19 +527,21 @@ public class PurchaseDischargeService {
      * <p>Recipient, amount, unit and stall must all be the purchase's own. Any
      * of them missing is a reason too: the check is only as strong as its
      * weakest fact. So must the registering key: only terms this service
-     * registered itself ({@code ownKey}) count. And the coupon: core must have counted
+     * registered itself count, under {@code ownKey} or, during a rollover (#288), one of
+     * {@code previousKeys} inside its window. Compared x-only (gc#255 F1), so a 02/03 parity
+     * prefix neither hides our own key nor lets another pass. And the coupon: core must have counted
      * {@code voucherId}, the row's own (imani-wallet#287), so another coupon of the same
      * stall, buyer and face cannot close this debt.
      */
     static String mismatch(StripePurchase purchase, GatewayFulfilmentClient.Answer answer, String ownKey,
-                           String voucherId) {
+                           PreviousGatewayKeys previousKeys, String voucherId) {
         if (answer.recipientPubkey() == null || answer.amount() == null || answer.unit() == null) {
             return "the answer carries no recipient, amount or unit";
         }
         if (answer.creatorPubkey() == null) {
             return "the answer does not say who registered the request";
         }
-        if (ownKey == null || !ownKey.equalsIgnoreCase(answer.creatorPubkey())) {
+        if (!registeredByThisService(answer.creatorPubkey(), ownKey, previousKeys, purchase.getCreatedAt())) {
             return "registered by " + answer.creatorPubkey() + ", not this service";
         }
         if (purchase.getRecipientPubkey() == null
@@ -554,6 +565,17 @@ public class PurchaseDischargeService {
             return "coupon " + voucherId + " is not among those counted " + answer.voucherIds();
         }
         return null;
+    }
+
+    /**
+     * A previous key counts only for a row that already existed when the rollover was adopted
+     * (review of #303): anything recorded since was registered by the current key, so an old-key
+     * creator on it is somebody else holding that key.
+     */
+    private static boolean registeredByThisService(String creatorPubkey, String ownKey,
+                                                   PreviousGatewayKeys previousKeys, Instant recordedAt) {
+        return XOnlyKey.same(ownKey, creatorPubkey)
+                || (previousKeys != null && previousKeys.recognisesFor(creatorPubkey, recordedAt));
     }
 
     /** The unit a currency is registered under: Stripe's lower-case ISO code, upper-cased. */

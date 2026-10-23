@@ -54,6 +54,28 @@ public class PurchaseConfiguration {
     private String gatewayPrivateKey;
 
     /**
+     * The public keys this service registered under before {@link #gatewayPrivateKey}, during a
+     * rollover (#288): comma-separated x-only hex. PUBLIC keys only. Empty outside a rollover.
+     */
+    @Value("${purchase.gateway.previous-pubkeys:}")
+    private String gatewayPreviousPubkeys;
+
+    /**
+     * When {@link #gatewayPreviousPubkeys} stop counting, ISO-8601. Required with any previous key,
+     * at most {@link PreviousGatewayKeys#MAX_WINDOW} ahead: a leaked old key never keeps authority.
+     */
+    @Value("${purchase.gateway.previous-pubkeys-until:}")
+    private String gatewayPreviousPubkeysUntil;
+
+    /**
+     * Optional pinned cutoff for {@link #gatewayPreviousPubkeys}, ISO-8601: the instant the first
+     * new-key boot logged. Only rows recorded no later than the earlier of this and the current boot
+     * are vouched for by a previous key, so a restart inside the window does not widen it.
+     */
+    @Value("${purchase.gateway.previous-pubkeys-from:}")
+    private String gatewayPreviousPubkeysFrom;
+
+    /**
      * How long to wait on the gateway before treating the answer as unknown.
      *
      * <p>Short on purpose. A slow verification blocks a discharge, and an
@@ -117,12 +139,19 @@ public class PurchaseConfiguration {
                 gatewayBaseUrl, gatewayPrivateKey, Duration.ofSeconds(gatewayTimeoutSeconds));
     }
 
+    /** Parsed once at boot: a malformed or unbounded rollover stops the service rather than guessing. */
+    PreviousGatewayKeys previousGatewayKeys() {
+        return PreviousGatewayKeys.parse(gatewayPreviousPubkeys, gatewayPreviousPubkeysUntil,
+                gatewayPreviousPubkeysFrom, gatewayPrivateKey, java.time.Clock.systemUTC());
+    }
+
     @Bean
     public PurchaseDischargeService purchaseDischargeService(
             StripePurchaseRepository purchases, GatewayFulfilmentClient fulfilment,
             org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> registry) {
         return new PurchaseDischargeService(purchases, fulfilment, Duration.ofSeconds(claimLeaseSeconds),
                 maxLeaseExpiries)
+                .withPreviousKeys(previousGatewayKeys())
                 .withMetrics(new xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics(registry.getIfAvailable()));
     }
 
