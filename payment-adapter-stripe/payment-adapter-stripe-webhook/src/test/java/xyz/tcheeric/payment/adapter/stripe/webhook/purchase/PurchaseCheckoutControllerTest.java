@@ -166,4 +166,29 @@ class PurchaseCheckoutControllerTest {
 
         verify(readiness, never()).check(any());
     }
+
+    // imani-wallet#410: a gift is paid by its draft id alone; nothing else in the body is read.
+    @Test
+    void aDraftIdIsTheWholeRequestAndGoesToTheGiftingService() {
+        var gifting = org.mockito.Mockito.mock(xyz.tcheeric.payment.adapter.stripe.webhook.gifting.GiftingService.class);
+        java.util.UUID id = java.util.UUID.randomUUID();
+        when(gifting.pay(id)).thenReturn(new xyz.tcheeric.payment.adapter.stripe.webhook.gifting.GiftingService.Answer(
+                HttpStatus.OK, Map.of("checkoutUrl", "https://checkout.stripe.com/c/cs_g", "reference", id.toString())));
+        controller.setGifting(gifting);
+
+        ResponseEntity<?> response = controller.start(
+                new PurchaseCheckoutController.PurchaseRequest(STALL, 999_999L, "e".repeat(64), id.toString()));
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(gifting).pay(id);
+        verify(checkout, never()).createPurchaseSession(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void aDraftIdWithoutGiftingWiredIsRefusedNotTreatedAsAWalletPurchase() {
+        ResponseEntity<?> response = controller.start(
+                new PurchaseCheckoutController.PurchaseRequest(STALL, 2500L, BUYER, java.util.UUID.randomUUID().toString()));
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+        verify(checkout, never()).createPurchaseSession(any(), any(), any(), any(), any(), any(), any());
+    }
 }

@@ -90,8 +90,39 @@ public class PurchaseCheckoutController {
         return response;
     }
 
+    /**
+     * The gifting site's draft service (imani-wallet#410). Absent where gifting is not wired, in
+     * which case a {@code draftId} body is refused rather than read as a wallet purchase.
+     */
+    private xyz.tcheeric.payment.adapter.stripe.webhook.gifting.GiftingService gifting;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setGifting(xyz.tcheeric.payment.adapter.stripe.webhook.gifting.GiftingService gifting) {
+        this.gifting = gifting;
+    }
+
     @PostMapping("/purchase")
     public ResponseEntity<?> start(@RequestBody PurchaseRequest request) {
+        // A gift (#410): the draft id is the WHOLE request. Every other field is ignored, so
+        // nothing sent with Pay can change the amount or who receives the voucher (G-R1).
+        if (request != null && request.draftId() != null) {
+            if (gifting == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error("gifting is not available here"));
+            }
+            UUID id;
+            try {
+                id = UUID.fromString(request.draftId().trim());
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body(error("that is not a gift"));
+            }
+            var answer = gifting.pay(id);
+            if (answer.status().is2xxSuccessful()) {
+                metrics.record(Source.CARD, Status.INITIATED, Reason.NONE, null);
+            } else {
+                metrics.record(Source.CARD, Status.REFUSED, Reason.INVALID_REQUEST, null);
+            }
+            return ResponseEntity.status(answer.status()).body(answer.body());
+        }
         if (request == null || request.stallPubkey() == null || request.amountMinor() == null) {
             return refused(Reason.INVALID_REQUEST, null, ResponseEntity.badRequest().body(error("a stall and an amount are required")));
         }
@@ -250,9 +281,14 @@ public class PurchaseCheckoutController {
     /**
      * @param stallPubkey whose coupon is being bought
      * @param amountMinor the face value, in the stall's own currency
-     * @param buyerPubkey where to deliver. Required until Cashlink delivery exists.
+     * @param buyerPubkey where to deliver. Required for this wallet body; guests buy through a draft.
+     * @param draftId     a gifting Purchase Draft (imani-wallet#410); when present, the only field read
      */
-    public record PurchaseRequest(String stallPubkey, Long amountMinor, String buyerPubkey) {
+    public record PurchaseRequest(String stallPubkey, Long amountMinor, String buyerPubkey, String draftId) {
+        /** The wallet's Buy page body, unchanged. */
+        public PurchaseRequest(String stallPubkey, Long amountMinor, String buyerPubkey) {
+            this(stallPubkey, amountMinor, buyerPubkey, null);
+        }
     }
 
     /**

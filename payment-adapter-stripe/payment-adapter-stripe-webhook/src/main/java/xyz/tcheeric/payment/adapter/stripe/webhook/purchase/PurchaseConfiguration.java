@@ -199,8 +199,9 @@ public class PurchaseConfiguration {
     @Bean
     public StripePurchaseListener stripePurchaseListener(
             StripePurchaseRepository purchases, ConnectedStripeAccountRepository accounts,
-            GatewayFulfilmentClient fulfilment) {
-        return new RecordingPurchaseListener(purchases, accounts, fulfilment);
+            GatewayFulfilmentClient fulfilment,
+            ObjectProvider<xyz.tcheeric.payment.adapter.core.model.repository.PurchaseDraftRepository> drafts) {
+        return new RecordingPurchaseListener(purchases, accounts, fulfilment).withDrafts(drafts.getIfAvailable());
     }
 
     /**

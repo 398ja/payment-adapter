@@ -66,6 +66,66 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
         this(purchases, accounts, null);
     }
 
+    /** Where a gift's pinned delivery comes from (imani-wallet#410). Null where gifting is off. */
+    private xyz.tcheeric.payment.adapter.core.model.repository.PurchaseDraftRepository drafts;
+
+    public RecordingPurchaseListener withDrafts(xyz.tcheeric.payment.adapter.core.model.repository.PurchaseDraftRepository drafts) {
+        this.drafts = drafts;
+        return this;
+    }
+
+    /** Where the gifting draft id rides on the Checkout Session: the ONLY gift metadata Stripe sees. */
+    static final String DRAFT_ID = "draft_id";
+
+    /**
+     * Copy the draft's PINNED delivery onto the debt (G-R1): who receives it was decided at review,
+     * and nothing on the session, the return URL or a later handle change can alter it. A draft id
+     * that names no draft (or a different stall or amount) is recorded with no recipient, which
+     * the issuer parks for a person rather than guesses at.
+     */
+    private void applyDraft(StripePurchase row, PaidPurchase purchase) {
+        String raw = purchase.metadata().get(DRAFT_ID);
+        if (raw == null || drafts == null) {
+            return;
+        }
+        java.util.UUID id;
+        try {
+            id = java.util.UUID.fromString(raw);
+        } catch (IllegalArgumentException e) {
+            row.setRecipientPubkey(null);
+            return;
+        }
+        var found = drafts.findById(id);
+        row.setDraftId(id);
+        if (found.isEmpty()) {
+            log.warn("Purchase {} names gift draft {} which does not exist; recorded with no recipient", purchase.eventId(), id);
+            row.setRecipientPubkey(null);
+            return;
+        }
+        var d = found.get();
+        if (!d.getAmountMinor().equals(purchase.amountMinor())
+                || (row.getStallPubkey() != null && !row.getStallPubkey().equals(d.getStallPubkey()))) {
+            log.warn("Purchase {} does not match gift draft {} (amount or stall); recorded with no recipient", purchase.eventId(), id);
+            row.setRecipientPubkey(null);
+            return;
+        }
+        row.setDeliveryKind(d.getDeliveryKind());
+        row.setRecipientPubkey(xyz.tcheeric.payment.adapter.core.model.entity.gifting.PurchaseDraft.EMAIL.equals(d.getDeliveryKind())
+                ? null : d.getRecipientPubkey());
+        row.setRefundPubkey(d.getRefundPubkey());
+        row.setRecipientEmail(d.getRecipientEmail());
+        row.setSealedSecret(d.getSealedSecret());
+        row.setGiftMessage(d.getMessage());
+        row.setSenderName(d.getSenderName());
+        row.setBuyerEmail(d.getBuyerEmail());
+        if (d.getConsumedAt() == null) {
+            d.setConsumedAt(Instant.now());
+            // The draft no longer needs its secret: the debt holds it until delivery scrubs it.
+            d.setSealedSecret(null);
+            drafts.save(d);
+        }
+    }
+
     /**
      * {@inheritDoc}
      *
@@ -109,6 +169,7 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
                 .map(account -> account.getMerchantPubkey())
                 .orElse(null));
         row.setRecipientPubkey(normalisePubkey(purchase.metadata().get(BUYER_PUBKEY)));
+        applyDraft(row, purchase);
         row.setAmountMinor(purchase.amountMinor());
         row.setCurrency(purchase.currency());
         row.setLivemode(purchase.livemode());
