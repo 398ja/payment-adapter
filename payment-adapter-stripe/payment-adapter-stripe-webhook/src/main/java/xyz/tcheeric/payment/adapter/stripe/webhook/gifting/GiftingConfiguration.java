@@ -31,11 +31,19 @@ public class GiftingConfiguration {
     @Value("${purchase.gifting.kinds:self}")
     private String kinds;
 
+    /**
+     * gateway-customer, for the public nostr query a signed-in buyer's role is read from (customers
+     * only, never a stall). Unset refuses every signed-in buyer; guests are unaffected.
+     */
+    @Value("${purchase.gifting.gateway-base-url:}")
+    private String gatewayBaseUrl;
+
     @Bean
     GiftingService giftingService(PurchaseDraftRepository drafts, ConnectedStripeAccountRepository accounts,
             StallReadinessClient readiness, StripeCheckoutService checkout) {
         return new GiftingService(drafts, accounts, readiness, checkout, new GiftLookups.WellKnownResolver(),
                 new GiftLookups.DnsMailDomainChecker(), Clock.systemUTC(), maxAmountMinor, returnUrl)
-                .withEnabledKinds(java.util.Arrays.asList(kinds.split(",")));
+                .withEnabledKinds(java.util.Arrays.asList(kinds.split(",")))
+                .withBuyerRoles(new BuyerRoleReader(gatewayBaseUrl, java.time.Duration.ofSeconds(5)).asReader());
     }
 }

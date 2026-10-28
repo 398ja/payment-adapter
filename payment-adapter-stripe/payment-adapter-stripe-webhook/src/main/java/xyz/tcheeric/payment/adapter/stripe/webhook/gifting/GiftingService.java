@@ -42,6 +42,8 @@ public class GiftingService {
     static final String HANDLE_IS_STALL = "You can't send a voucher to the stall that sells it.";
     static final String EMAIL_UNDELIVERABLE = "That email address can't receive mail.";
     static final String SIGN_IN_REQUIRED = "Sign in to send to yourself.";
+    static final String STALL_BUYER = "Gifts are bought by customers. Sign in with a customer wallet, or buy as a guest.";
+    static final String BUYER_UNCHECKED = "We couldn't check your account just now. Try again, or buy as a guest.";
     static final String BUYER_EMAIL_REQUIRED = "We need your email for the receipt and the return link.";
     static final String MESSAGE_LINKS = "The message can't contain links.";
     static final String RATE_LIMITED = "Too many attempts. Please wait a minute and try again.";
@@ -88,6 +90,14 @@ public class GiftingService {
         return this;
     }
 
+    /** Who may buy while signed in: customers only (never a stall). Unset refuses every signed-in buyer. */
+    private BuyerRoleReader.Reader buyerRoles = pubkey -> BuyerRoleReader.Standing.UNKNOWN;
+
+    public GiftingService withBuyerRoles(BuyerRoleReader.Reader reader) {
+        this.buyerRoles = reader;
+        return this;
+    }
+
     public GiftingService(PurchaseDraftRepository drafts, ConnectedStripeAccountRepository accounts,
             StallReadinessClient readiness, StripeCheckoutService checkout, GiftLookups.HandleResolver handles,
             GiftLookups.MailDomainChecker mail, Clock clock, long maxAmountMinor, String returnUrl) {
@@ -124,6 +134,17 @@ public class GiftingService {
         if (req == null || req.stallPubkey() == null || req.amountMinor() == null || req.delivery() == null
                 || req.delivery().kind() == null || req.currency() == null) {
             return Answer.error(HttpStatus.BAD_REQUEST, "a stall, an amount, a currency and a delivery are required");
+        }
+        // Customers and guests only (owner, 2026-10-28): a signed-in stall does not buy gifts here.
+        // A role that cannot be checked is not assumed to be the permitted one.
+        if (buyerPubkey != null) {
+            BuyerRoleReader.Standing standing = buyerRoles.standingOf(buyerPubkey);
+            if (standing == BuyerRoleReader.Standing.MERCHANT) {
+                return Answer.error(HttpStatus.FORBIDDEN, STALL_BUYER);
+            }
+            if (standing != BuyerRoleReader.Standing.CUSTOMER) {
+                return Answer.error(HttpStatus.SERVICE_UNAVAILABLE, BUYER_UNCHECKED);
+            }
         }
         String stall = req.stallPubkey().trim().toLowerCase();
         if (!HEX64.matcher(stall).matches()) {

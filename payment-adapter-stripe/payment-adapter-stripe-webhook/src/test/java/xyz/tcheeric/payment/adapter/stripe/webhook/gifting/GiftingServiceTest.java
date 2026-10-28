@@ -76,13 +76,46 @@ class GiftingServiceTest {
                 .thenReturn(StripeCheckoutSession.builder().sessionId("cs_1").sessionUrl("https://checkout.stripe.com/c/cs_1").build());
         service = new GiftingService(drafts, accounts, readiness, checkout,
                 nip05 -> Optional.ofNullable(handleResolvesTo.get()), domain -> mx, clock, 1_000_000L,
-                "https://gifting.imani.casa/return").withEnabledKinds(java.util.List.of("self", "handle", "email"));
+                "https://gifting.imani.casa/return").withEnabledKinds(java.util.List.of("self", "handle", "email"))
+                .withBuyerRoles(pk -> buyerStanding.get());
+    }
+
+    /** What the role read says about a signed-in buyer. A customer by default. */
+    private final AtomicReference<BuyerRoleReader.Standing> buyerStanding = new AtomicReference<>(BuyerRoleReader.Standing.CUSTOMER);
+
+    @Test
+    void aStallSignedInIsRefusedGuestsAndCustomersAreNot() {
+        var self = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
+                new GiftingService.Delivery("self", null, null, null, null), null, null, null);
+        buyerStanding.set(BuyerRoleReader.Standing.MERCHANT);
+        GiftingService.Answer stall = service.create(self, BUYER);
+        assertEquals(HttpStatus.FORBIDDEN, stall.status());
+        assertEquals(GiftingService.STALL_BUYER, error(stall));
+        assertTrue(store.isEmpty());
+
+        buyerStanding.set(BuyerRoleReader.Standing.UNKNOWN);
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, service.create(self, BUYER).status());
+        assertTrue(store.isEmpty());
+
+        buyerStanding.set(BuyerRoleReader.Standing.CUSTOMER);
+        assertEquals(HttpStatus.CREATED, service.create(self, BUYER).status());
+    }
+
+    @Test
+    void withNoRoleReaderEverySignedInBuyerIsRefused() {
+        GiftingService unwired = new GiftingService(drafts, accounts, readiness, checkout,
+                nip05 -> Optional.of(BOB), domain -> true, clock, 1_000_000L, null);
+        var self = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
+                new GiftingService.Delivery("self", null, null, null, null), null, null, null);
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, unwired.create(self, BUYER).status());
+        assertTrue(store.isEmpty());
     }
 
     @Test
     void handleAndEmailGiftsAreRefusedUntilEnabled() {
         GiftingService closed = new GiftingService(drafts, accounts, readiness, checkout,
-                nip05 -> Optional.of(BOB), domain -> true, clock, 1_000_000L, null);
+                nip05 -> Optional.of(BOB), domain -> true, clock, 1_000_000L, null)
+                .withBuyerRoles(pk -> BuyerRoleReader.Standing.CUSTOMER);
         assertEquals("Sending a gift this way isn't available yet.", error(closed.create(handle("bob@example.com"), null)));
         assertEquals("Sending a gift this way isn't available yet.", error(closed.create(email("bob@example.com"), null)));
         var self = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
