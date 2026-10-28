@@ -73,6 +73,20 @@ public class GiftingService {
     /** {@code https://gifting.imani.casa/return}, or null for the deployment's purchase URLs. */
     private final String returnUrl;
     private final RateLimiter perRecipient;
+    /**
+     * Which deliveries may be SOLD. Fails closed: a handle or email gift is accepted only once
+     * purchase-issuer can arm it (an issuer-authorised Cashlink lock, imani-wallet#366), because a
+     * paid gift that cannot be delivered is a manual refund.
+     */
+    private java.util.Set<String> enabledKinds = java.util.Set.of(PurchaseDraft.SELF);
+
+    static final String KIND_NOT_YET = "Sending a gift this way isn't available yet.";
+
+    public GiftingService withEnabledKinds(java.util.Collection<String> kinds) {
+        this.enabledKinds = kinds.stream().map(k -> k.trim().toLowerCase()).filter(k -> !k.isEmpty())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        return this;
+    }
 
     public GiftingService(PurchaseDraftRepository drafts, ConnectedStripeAccountRepository accounts,
             StallReadinessClient readiness, StripeCheckoutService checkout, GiftLookups.HandleResolver handles,
@@ -140,6 +154,9 @@ public class GiftingService {
             return Answer.error(HttpStatus.UNPROCESSABLE_ENTITY, "Keep the name to 80 characters, plain text.");
         }
 
+        if (!enabledKinds.contains(req.delivery().kind().trim().toLowerCase())) {
+            return Answer.error(HttpStatus.UNPROCESSABLE_ENTITY, KIND_NOT_YET);
+        }
         if (buyerPubkey == null && PurchaseDraft.SELF.equalsIgnoreCase(req.delivery().kind().trim())) {
             return Answer.error(HttpStatus.UNAUTHORIZED, SIGN_IN_REQUIRED);
         }

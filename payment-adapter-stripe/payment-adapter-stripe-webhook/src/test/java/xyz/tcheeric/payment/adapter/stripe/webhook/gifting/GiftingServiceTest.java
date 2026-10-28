@@ -76,7 +76,19 @@ class GiftingServiceTest {
                 .thenReturn(StripeCheckoutSession.builder().sessionId("cs_1").sessionUrl("https://checkout.stripe.com/c/cs_1").build());
         service = new GiftingService(drafts, accounts, readiness, checkout,
                 nip05 -> Optional.ofNullable(handleResolvesTo.get()), domain -> mx, clock, 1_000_000L,
-                "https://gifting.imani.casa/return");
+                "https://gifting.imani.casa/return").withEnabledKinds(java.util.List.of("self", "handle", "email"));
+    }
+
+    @Test
+    void handleAndEmailGiftsAreRefusedUntilEnabled() {
+        GiftingService closed = new GiftingService(drafts, accounts, readiness, checkout,
+                nip05 -> Optional.of(BOB), domain -> true, clock, 1_000_000L, null);
+        assertEquals("Sending a gift this way isn't available yet.", error(closed.create(handle("bob@example.com"), null)));
+        assertEquals("Sending a gift this way isn't available yet.", error(closed.create(email("bob@example.com"), null)));
+        var self = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
+                new GiftingService.Delivery("self", null, null, null, null), null, null, null);
+        assertEquals(HttpStatus.CREATED, closed.create(self, BUYER).status());
+        assertTrue(store.size() == 1);
     }
 
     GiftingService.DraftRequest handle(String h) {

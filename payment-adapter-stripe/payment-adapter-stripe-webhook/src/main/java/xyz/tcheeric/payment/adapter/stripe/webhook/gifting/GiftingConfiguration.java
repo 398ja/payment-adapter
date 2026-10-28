@@ -24,10 +24,18 @@ public class GiftingConfiguration {
     @Value("${purchase.max-amount-minor:1000000}")
     private long maxAmountMinor;
 
+    /**
+     * Deliveries that may be sold, comma-separated. Default {@code self} only: add {@code handle}
+     * and {@code email} once purchase-issuer arms gift locks (imani-wallet#410 step 3, #366).
+     */
+    @Value("${purchase.gifting.kinds:self}")
+    private String kinds;
+
     @Bean
     GiftingService giftingService(PurchaseDraftRepository drafts, ConnectedStripeAccountRepository accounts,
             StallReadinessClient readiness, StripeCheckoutService checkout) {
         return new GiftingService(drafts, accounts, readiness, checkout, new GiftLookups.WellKnownResolver(),
-                new GiftLookups.DnsMailDomainChecker(), Clock.systemUTC(), maxAmountMinor, returnUrl);
+                new GiftLookups.DnsMailDomainChecker(), Clock.systemUTC(), maxAmountMinor, returnUrl)
+                .withEnabledKinds(java.util.Arrays.asList(kinds.split(",")));
     }
 }
