@@ -98,8 +98,12 @@ class GiftingServiceTest {
                 .withReturnLinkMail((to, key, fields) -> {
                     mails.add(new Sent(to, key, fields));
                     return mailerAccepts;
-                }, WALLET + "/");
+                }, WALLET + "/")
+                .withStallValidity(pk -> stallValidity.get());
     }
+
+    /** The stall's signed voucher validity (days, 0 = never); empty = the gateway could not say. */
+    private final AtomicReference<java.util.OptionalInt> stallValidity = new AtomicReference<>(java.util.OptionalInt.of(90));
 
     /** What the role read says about a signed-in buyer. A customer by default. */
     private final AtomicReference<BuyerRoleReader.Standing> buyerStanding = new AtomicReference<>(BuyerRoleReader.Standing.CUSTOMER);
@@ -177,7 +181,7 @@ class GiftingServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> delivery = (Map<String, Object>) body(service.get(id)).get("delivery");
         assertEquals(BOB, delivery.get("recipientPubkey"));
-        assertEquals(30, delivery.get("claimWindowDays"));
+        assertEquals(14, delivery.get("claimWindowDays"));
     }
 
     @Test
@@ -301,7 +305,39 @@ class GiftingServiceTest {
         assertEquals("me@example.com", sent.to());
         assertEquals(id + ":return-link", sent.key());
         // Without a profile name, never the handle or key: "the stall".
-        assertEquals(Map.of("stall", "the stall", "claimBy", "27 November 2026", "returnUrl", LINK), sent.fields());
+        // G17: 90-day stall, so the 14-day cap: 28 Oct + 14 d. (C) the expiry it keeps if it comes back.
+        assertEquals(Map.of("stall", "the stall", "claimBy", "11 November 2026", "spendBy", "spend it by 26 January 2027",
+                "returnUrl", LINK), sent.fields());
+    }
+
+    // G17: half the validity when that is shorter than 14 days; never-expiring gets the cap.
+    @Test
+    void theClaimByDateIsHalfTheValidityAtMostFourteenDays() {
+        stallValidity.set(java.util.OptionalInt.of(10));
+        UUID a = created(service.create(handle("bob@example.com"), null));
+        service.pay(a, LINK);
+        assertEquals("2 November 2026", mails.get(0).fields().get("claimBy"));
+        assertEquals("spend it by 7 November 2026", mails.get(0).fields().get("spendBy"));
+
+        stallValidity.set(java.util.OptionalInt.of(0));
+        UUID b = created(service.create(handle("bob@example.com"), null));
+        service.pay(b, LINK);
+        assertEquals("11 November 2026", mails.get(1).fields().get("claimBy"));
+        assertEquals("the voucher doesn't expire", mails.get(1).fields().get("spendBy"));
+
+        assertEquals(java.time.Duration.ofHours(12), GiftingService.claimWindow(1));
+        assertEquals(java.time.Duration.ofDays(14), GiftingService.claimWindow(28));
+        assertEquals(java.time.Duration.ofDays(14), GiftingService.claimWindow(730));
+    }
+
+    // A validity the gateway cannot give stops the purchase rather than email a wrong date.
+    @Test
+    void anUnknownValidityChargesNothing() {
+        stallValidity.set(java.util.OptionalInt.empty());
+        UUID id = created(service.create(handle("bob@example.com"), null));
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, service.pay(id, LINK).status());
+        assertTrue(mails.isEmpty());
+        verify(checkout, never()).createPurchaseSession(anyString(), anyInt(), anyString(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     // The email names the stall as its page does: its signed profile name (G15 local run).

@@ -56,6 +56,23 @@ class BuyerRoleReaderTest {
         return a;
     }
 
+    // G17: the validity a claim-by date is computed from, read as purchase-issuer reads it.
+    @Test
+    void theValidityIsReadFromTheNewestSignedRecordAsTheIssuerReadsIt() throws Exception {
+        assertEquals(java.util.OptionalInt.empty(), BuyerRoleReader.validityFrom(list(), pk));
+        assertEquals(java.util.OptionalInt.of(30), BuyerRoleReader.validityFrom(list(
+                record("{\"voucherValidityDays\":90}", 100, "imani:merchant", sk),
+                record("{\"voucherValidityDays\":30}", 200, "imani:merchant", sk)), pk));
+        assertEquals(java.util.OptionalInt.of(45), BuyerRoleReader.validityFrom(list(record("{\"voucherValidityDays\":\" 45 \"}", 1, "imani:merchant", sk)), pk));
+        // Anything not a validity is the default, never-expires (validityFromRecord).
+        for (String bad : new String[] {"{}", "{\"voucherValidityDays\":false}", "{\"voucherValidityDays\":731}",
+                "{\"voucherValidityDays\":1.5}", "{\"voucherValidityDays\":\"0x10\"}", "not json"}) {
+            assertEquals(java.util.OptionalInt.of(0), BuyerRoleReader.validityFrom(list(record(bad, 1, "imani:merchant", sk)), pk), bad);
+        }
+        // Someone else's record says nothing about this stall.
+        assertEquals(java.util.OptionalInt.empty(), BuyerRoleReader.validityFrom(list(record("{\"voucherValidityDays\":30}", 1, "imani:profile", sk)), pk));
+    }
+
     @Test
     void noRecordIsACustomer() {
         assertEquals(BuyerRoleReader.Standing.CUSTOMER, BuyerRoleReader.standingFrom(list(), pk));

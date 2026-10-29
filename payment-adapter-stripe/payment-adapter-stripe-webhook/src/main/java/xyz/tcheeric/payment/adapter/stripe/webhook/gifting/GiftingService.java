@@ -34,7 +34,13 @@ import xyz.tcheeric.payment.adapter.stripe.webhook.purchase.StallReadinessClient
 public class GiftingService {
 
     public static final Duration DRAFT_TTL = Duration.ofMinutes(30);
-    public static final int CLAIM_WINDOW_DAYS = 30;
+    /**
+     * G17: the most a gift waits to be claimed. The real window is half the stall's voucher validity
+     * when that is shorter ({@link #claimWindowDays(int)}), so a gift taken back unclaimed keeps at
+     * least half its life: the voucher keeps its original expiry. Mirrors purchase-issuer's
+     * {@code claimWindowEnd}, which is what locks it.
+     */
+    public static final int CLAIM_WINDOW_DAYS = 14;
     public static final int MESSAGE_MAX = 280;
     public static final int FROM_MAX = 80;
 
@@ -92,6 +98,14 @@ public class GiftingService {
     /** Guest return-link mailing; both unset refuses guest handle/email pay (fail closed). */
     private ReturnLinkMailer returnLinkMailer;
     private java.util.function.Function<String, Optional<String>> stallNames = pubkey -> Optional.empty();
+
+    /** The stall's voucher validity in days (0 = never), from its signed record; empty = unknown. */
+    private java.util.function.Function<String, java.util.OptionalInt> stallValidity = pubkey -> java.util.OptionalInt.empty();
+
+    public GiftingService withStallValidity(java.util.function.Function<String, java.util.OptionalInt> validity) {
+        this.stallValidity = validity;
+        return this;
+    }
 
     /** Where an email's stall name comes from (the stall's signed profile). */
     public GiftingService withStallNames(java.util.function.Function<String, Optional<String>> names) {
@@ -407,7 +421,16 @@ public class GiftingService {
         Map<String, String> fields = new LinkedHashMap<>();
         // The stall's own name, as the gifting page shows it; never its handle or key.
         fields.put("stall", stallNames.apply(d.getStallPubkey()).orElse("the stall"));
-        fields.put("claimBy", CLAIM_BY_FORMAT.format(claimBy(d)));
+        // G17: the claim-by date and (C) the expiry the voucher keeps if it comes back. Read from the
+        // stall's signed record; unreadable stops the purchase, as a wrong date in the email would mislead.
+        java.util.OptionalInt validity = stallValidity.apply(d.getStallPubkey());
+        if (validity.isEmpty()) {
+            return Optional.of(Answer.error(HttpStatus.SERVICE_UNAVAILABLE, CARD_SALES_UNAVAILABLE));
+        }
+        fields.put("claimBy", CLAIM_BY_FORMAT.format(claimBy(d, validity.getAsInt())));
+        fields.put("spendBy", validity.getAsInt() <= 0
+                ? "the voucher doesn't expire"
+                : "spend it by " + CLAIM_BY_FORMAT.format(d.getCreatedAt().plus(Duration.ofDays(validity.getAsInt()))));
         fields.put("returnUrl", returnLink.trim());
         if (!returnLinkMailer.send(d.getBuyerEmail(), d.getId() + ":return-link", fields)) {
             log.warn("Gift draft {} not charged: the return-link email was not accepted", d.getId());
@@ -420,9 +443,22 @@ public class GiftingService {
         return d.getBuyerPubkey() == null && !PurchaseDraft.SELF.equals(d.getDeliveryKind());
     }
 
-    /** The end of the claim window as the draft view states it: creation + {@link #CLAIM_WINDOW_DAYS}. */
-    static Instant claimBy(PurchaseDraft d) {
-        return d.getCreatedAt().plus(Duration.ofDays(CLAIM_WINDOW_DAYS));
+    /**
+     * The end of the claim window as the buyer is told it: creation + {@link #claimWindow(int)}. The
+     * issuer measures from its first mint, a little later, so the real date is never earlier than this.
+     */
+    static Instant claimBy(PurchaseDraft d, int validityDays) {
+        return d.getCreatedAt().plus(claimWindow(validityDays));
+    }
+
+    /** G17: min(half the validity, {@link #CLAIM_WINDOW_DAYS}); a voucher that never expires gets the cap. */
+    static Duration claimWindow(int validityDays) {
+        Duration cap = Duration.ofDays(CLAIM_WINDOW_DAYS);
+        if (validityDays <= 0) {
+            return cap;
+        }
+        Duration half = Duration.ofDays(validityDays).dividedBy(2);
+        return half.compareTo(cap) < 0 ? half : cap;
     }
 
     private boolean returnLinkMatches(String link, String refundPubkey) {

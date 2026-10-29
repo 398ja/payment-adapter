@@ -75,7 +75,8 @@ public class GiftingConfiguration {
                 .withEnabledKinds(java.util.Arrays.asList(kinds.split(",")))
                 .withBuyerRoles(buyerRoles())
                 .withReturnLinkMail(returnLinkMailer(), walletOrigin)
-                .withStallNames(new BuyerRoleReader(gatewayBaseUrl, java.time.Duration.ofSeconds(5))::displayNameOf);
+                .withStallNames(new BuyerRoleReader(gatewayBaseUrl, java.time.Duration.ofSeconds(5))::displayNameOf)
+                .withStallValidity(new BuyerRoleReader(gatewayBaseUrl, java.time.Duration.ofSeconds(5))::validityDaysOf);
     }
 
     private ReturnLinkMailer returnLinkMailer() {

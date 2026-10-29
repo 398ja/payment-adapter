@@ -196,6 +196,83 @@ public class BuyerRoleReader {
         }
     }
 
+    /** The wallet's {@code NEVER_EXPIRES} / {@code DEFAULT_VALIDITY_DAYS} and bounds ({@code merchant-record}). */
+    static final int NEVER_EXPIRES = 0;
+    static final int MAX_VALIDITY_DAYS = 730;
+
+    /**
+     * The stall's voucher validity in days ({@link #NEVER_EXPIRES} = never), from its newest SIGNED
+     * merchant record, read as purchase-issuer reads it ({@code validityFromRecord}), so the claim-by
+     * date an email states is the one the issuer locks (#410 G17). Empty when the gateway cannot be
+     * asked or has no signed record: purchase-issuer treats "no record" at mint as unknown too.
+     */
+    public java.util.OptionalInt validityDaysOf(String pubkey) {
+        String key = pubkey == null ? "" : pubkey.toLowerCase();
+        if (gatewayBaseUrl.isEmpty() || !key.matches("^[0-9a-f]{64}$")) {
+            return java.util.OptionalInt.empty();
+        }
+        try {
+            String body = MAPPER.writeValueAsString(Map.of(
+                    "kinds", new int[] {30078},
+                    "authors", new String[] {key},
+                    "tags", Map.of("#d", new String[] {"imani:merchant"}),
+                    "limit", 50));
+            HttpRequest req = HttpRequest.newBuilder(URI.create(gatewayBaseUrl + QUERY_PATH))
+                    .timeout(timeout)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+            HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
+            if (res.statusCode() != 200 || res.body().length() > 512 * 1024) {
+                return java.util.OptionalInt.empty();
+            }
+            return validityFrom(MAPPER.readTree(res.body()).path("events"), key);
+        } catch (Exception e) {
+            return java.util.OptionalInt.empty();
+        }
+    }
+
+    /** Pure: the validity in the newest signed merchant record, or empty when there is none. */
+    static java.util.OptionalInt validityFrom(JsonNode events, String key) {
+        JsonNode newest = null;
+        long newestAt = Long.MIN_VALUE;
+        for (JsonNode e : events) {
+            if (!isStallRecord(e, key)) {
+                continue;
+            }
+            long at = createdAt(e);
+            if (at > newestAt) {
+                newest = e;
+                newestAt = at;
+            }
+        }
+        if (newest == null) {
+            return java.util.OptionalInt.empty();
+        }
+        try {
+            return java.util.OptionalInt.of(validityDays(MAPPER.readTree(newest.path("content").asText("")).path("voucherValidityDays")));
+        } catch (Exception e) {
+            return java.util.OptionalInt.of(NEVER_EXPIRES);
+        }
+    }
+
+    /** {@code validValidityDays}, else the default: an integer or a plain run of digits, 0 or 1..730. */
+    static int validityDays(JsonNode v) {
+        long days;
+        if (v.isIntegralNumber()) {
+            days = v.asLong();
+        } else if (v.isTextual() && v.asText().matches("^\\s*\\d+\\s*$")) {
+            try {
+                days = Long.parseLong(v.asText().trim());
+            } catch (NumberFormatException tooLong) {
+                return NEVER_EXPIRES;
+            }
+        } else {
+            return NEVER_EXPIRES;
+        }
+        return days >= 1 && days <= MAX_VALIDITY_DAYS ? (int) days : NEVER_EXPIRES;
+    }
+
     private static long createdAt(JsonNode e) {
         JsonNode at = e.has("created_at") ? e.path("created_at") : e.path("createdAt");
         return at.asLong(Long.MIN_VALUE);
