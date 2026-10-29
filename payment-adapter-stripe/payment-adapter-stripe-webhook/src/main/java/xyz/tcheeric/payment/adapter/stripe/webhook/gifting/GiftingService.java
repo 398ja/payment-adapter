@@ -91,6 +91,13 @@ public class GiftingService {
 
     /** Guest return-link mailing; both unset refuses guest handle/email pay (fail closed). */
     private ReturnLinkMailer returnLinkMailer;
+    private java.util.function.Function<String, Optional<String>> stallNames = pubkey -> Optional.empty();
+
+    /** Where an email's stall name comes from (the stall's signed profile). */
+    public GiftingService withStallNames(java.util.function.Function<String, Optional<String>> names) {
+        this.stallNames = names;
+        return this;
+    }
     private String walletOrigin;
 
     public GiftingService withReturnLinkMail(ReturnLinkMailer mailer, String walletOrigin) {
@@ -398,7 +405,8 @@ public class GiftingService {
             return Optional.of(Answer.error(HttpStatus.BAD_REQUEST, RETURN_LINK_INVALID));
         }
         Map<String, String> fields = new LinkedHashMap<>();
-        fields.put("stall", d.getStallHandle() == null || d.getStallHandle().isBlank() ? "the stall" : d.getStallHandle());
+        // The stall's own name, as the gifting page shows it; never its handle or key.
+        fields.put("stall", stallNames.apply(d.getStallPubkey()).orElse("the stall"));
         fields.put("claimBy", CLAIM_BY_FORMAT.format(claimBy(d)));
         fields.put("returnUrl", returnLink.trim());
         if (!returnLinkMailer.send(d.getBuyerEmail(), d.getId() + ":return-link", fields)) {

@@ -74,7 +74,8 @@ public class GiftingConfiguration {
                 new GiftLookups.DnsMailDomainChecker(), Clock.systemUTC(), maxAmountMinor, returnUrl)
                 .withEnabledKinds(java.util.Arrays.asList(kinds.split(",")))
                 .withBuyerRoles(buyerRoles())
-                .withReturnLinkMail(returnLinkMailer(), walletOrigin);
+                .withReturnLinkMail(returnLinkMailer(), walletOrigin)
+                .withStallNames(new BuyerRoleReader(gatewayBaseUrl, java.time.Duration.ofSeconds(5))::displayNameOf);
     }
 
     private ReturnLinkMailer returnLinkMailer() {

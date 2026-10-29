@@ -111,4 +111,42 @@ class BuyerRoleReaderTest {
     void noGatewayConfiguredIsUnknownNeverCustomer() {
         assertEquals(BuyerRoleReader.Standing.UNKNOWN, new BuyerRoleReader("", java.time.Duration.ofSeconds(1)).standingOf(pk));
     }
+
+    private ObjectNode profile(String content, long createdAt, byte[] key) throws Exception {
+        String author = HEX.formatHex(Schnorr.genPubKey(key));
+        ArrayNode tags = MAPPER.createArrayNode();
+        ArrayNode canonical = MAPPER.createArrayNode();
+        canonical.add(0).add(author).add(createdAt).add(0).add(tags).add(content);
+        byte[] id = MessageDigest.getInstance("SHA-256").digest(MAPPER.writeValueAsString(canonical).getBytes(StandardCharsets.UTF_8));
+        ObjectNode e = MAPPER.createObjectNode();
+        e.put("id", HEX.formatHex(id));
+        e.put("pubkey", author);
+        e.put("created_at", createdAt);
+        e.put("kind", 0);
+        e.set("tags", tags);
+        e.put("content", content);
+        e.put("sig", HEX.formatHex(Schnorr.sign(id, key, new byte[32])));
+        return e;
+    }
+
+    // #410 G15: the return-link email names the stall as its page does (kind-0 name), never a handle.
+    @Test
+    void theStallsDisplayNameIsItsNewestSignedProfileName() throws Exception {
+        assertEquals(java.util.Optional.of("Card Test Bakery"), BuyerRoleReader.displayNameFrom(list(
+                profile("{\"name\":\"Old Name\"}", 100, sk),
+                profile("{\"name\":\"Card Test Bakery\"}", 200, sk)), pk));
+        assertEquals(java.util.Optional.of("Shown"), BuyerRoleReader.displayNameFrom(list(profile("{\"display_name\":\"Shown\"}", 1, sk)), pk));
+        assertEquals(java.util.Optional.of("Two lines"), BuyerRoleReader.displayNameFrom(list(profile("{\"name\":\"Two\\nlines\"}", 1, sk)), pk));
+    }
+
+    @Test
+    void aProfileSomeoneElseSignedOrNoNameGivesNothing() throws Exception {
+        byte[] other = new byte[32];
+        new SecureRandom().nextBytes(other);
+        ObjectNode forged = profile("{\"name\":\"Evil\"}", 300, other);
+        forged.put("pubkey", pk);
+        assertEquals(java.util.Optional.empty(), BuyerRoleReader.displayNameFrom(list(forged), pk));
+        assertEquals(java.util.Optional.empty(), BuyerRoleReader.displayNameFrom(list(profile("{}", 1, sk)), pk));
+        assertEquals(java.util.Optional.empty(), BuyerRoleReader.displayNameFrom(list(), pk));
+    }
 }

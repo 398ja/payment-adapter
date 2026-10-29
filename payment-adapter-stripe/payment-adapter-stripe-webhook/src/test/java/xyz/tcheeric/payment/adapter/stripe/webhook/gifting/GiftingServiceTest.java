@@ -300,7 +300,17 @@ class GiftingServiceTest {
         Sent sent = mails.get(0);
         assertEquals("me@example.com", sent.to());
         assertEquals(id + ":return-link", sent.key());
-        assertEquals(Map.of("stall", "alice@imani.casa", "claimBy", "27 November 2026", "returnUrl", LINK), sent.fields());
+        // Without a profile name, never the handle or key: "the stall".
+        assertEquals(Map.of("stall", "the stall", "claimBy", "27 November 2026", "returnUrl", LINK), sent.fields());
+    }
+
+    // The email names the stall as its page does: its signed profile name (G15 local run).
+    @Test
+    void theReturnLinkEmailNamesTheStallByItsProfileName() {
+        service.withStallNames(pubkey -> java.util.Optional.of("Alice's Bakery"));
+        UUID id = created(service.create(handle("bob@example.com"), null));
+        assertEquals(HttpStatus.OK, service.pay(id, LINK).status());
+        assertEquals("Alice's Bakery", mails.get(0).fields().get("stall"));
     }
 
     // A repeat pay answers the same session and sends no second email.
