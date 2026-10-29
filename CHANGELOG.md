@@ -2,8 +2,18 @@
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-29
+
+A **minor** with a breaking default: the gifting Purchase Draft API (#305, imani-wallet#410), NAP
+cookie login for gift buyers, the return link emailed at Pay (G15) and the G17 claim window.
+`purchase.gifting.kinds` now defaults to empty, so set it (e.g. `handle,email`) to sell gifts, and
+set `purchase.gifting.mailer-url`, `mailer-token` and `wallet-origin` for guest handle/email Pay.
+
 ### Added
 
+- Gifting Purchase Draft API and one Checkout Session per draft (imani-wallet#410); a signed-in stall
+  cannot buy gifts. G17: claim-by = min(half the stall's validity, 14 days), and the return-link
+  email says the spend-by date.
 - Gifting (imani-wallet#410 G15): a guest handle/email gift's Pay (`POST /api/v1/checkout/purchase`
   `{draftId, returnLink}`) checks the return link against the draft's refund key and emails it via
   imani-mailer (`gift-return-link`) before the first Checkout Session. New config
