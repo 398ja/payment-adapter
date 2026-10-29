@@ -45,12 +45,30 @@ public class GiftingConfiguration {
     @Value("${purchase.gifting.nip05-overrides:}")
     private String nip05Overrides;
 
+    @Value("${purchase.gifting.mailer-url:}")
+    private String mailerUrl;
+
+    @Value("${purchase.gifting.mailer-token:}")
+    private String mailerToken;
+
+    /** The wallet origin a guest's return link must start with, e.g. https://wallet.imani.casa. */
+    @Value("${purchase.gifting.wallet-origin:}")
+    private String walletOrigin;
+
     @Bean
     GiftingService giftingService(PurchaseDraftRepository drafts, ConnectedStripeAccountRepository accounts,
             StallReadinessClient readiness, StripeCheckoutService checkout) {
         return new GiftingService(drafts, accounts, readiness, checkout, new GiftLookups.WellKnownResolver(GiftLookups.WellKnownResolver.parseOverrides(nip05Overrides)),
                 new GiftLookups.DnsMailDomainChecker(), Clock.systemUTC(), maxAmountMinor, returnUrl)
                 .withEnabledKinds(java.util.Arrays.asList(kinds.split(",")))
-                .withBuyerRoles(new BuyerRoleReader(gatewayBaseUrl, java.time.Duration.ofSeconds(5)).asReader());
+                .withBuyerRoles(new BuyerRoleReader(gatewayBaseUrl, java.time.Duration.ofSeconds(5)).asReader())
+                .withReturnLinkMail(returnLinkMailer(), walletOrigin);
+    }
+
+    private ReturnLinkMailer returnLinkMailer() {
+        if (mailerUrl == null || mailerUrl.isBlank() || mailerToken == null || mailerToken.isBlank()) {
+            return null;
+        }
+        return new ReturnLinkMailer.ImaniMailer(mailerUrl.trim(), mailerToken.trim(), java.time.Duration.ofSeconds(10));
     }
 }

@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- Gifting (imani-wallet#410 G15): a guest handle/email gift's Pay (`POST /api/v1/checkout/purchase`
+  `{draftId, returnLink}`) checks the return link against the draft's refund key and emails it via
+  imani-mailer (`gift-return-link`) before the first Checkout Session. New config
+  `purchase.gifting.mailer-url`, `mailer-token`, `wallet-origin`; unset refuses guest handle/email Pay (503).
+
+### Changed
+
+- Gifting: the sender's email is required for handle and email gifts, signed in or not, and stored for
+  signed-in buyers too.
+
 ## [0.25.0] - 2026-10-23
 
 Gateway key rollover without a drain (#288). No migrations. With the new variables unset, behaviour

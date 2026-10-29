@@ -45,6 +45,13 @@ public class GiftingService {
     static final String STALL_BUYER = "Gifts are bought by customers. Sign in with a customer wallet, or buy as a guest.";
     static final String BUYER_UNCHECKED = "We couldn't check your account just now. Try again, or buy as a guest.";
     static final String BUYER_EMAIL_REQUIRED = "We need your email for the receipt and the return link.";
+    static final String SENDER_EMAIL_REQUIRED = "We need your email to tell you when it's claimed.";
+    static final String RETURN_LINK_REQUIRED = "A return link is required to pay for this gift.";
+    static final String RETURN_LINK_INVALID = "That return link doesn't belong to this gift.";
+    static final String RETURN_LINK_UNSENT = "We couldn't email your return link. Try again.";
+    static final String RETURN_LINK_UNAVAILABLE = "Gifts to someone else can't be paid as a guest right now.";
+    private static final java.time.format.DateTimeFormatter CLAIM_BY_FORMAT =
+            java.time.format.DateTimeFormatter.ofPattern("d MMMM yyyy", java.util.Locale.ENGLISH).withZone(java.time.ZoneOffset.UTC);
     static final String MESSAGE_LINKS = "The message can't contain links.";
     static final String RATE_LIMITED = "Too many attempts. Please wait a minute and try again.";
     public static final String DRAFT_EXPIRED = "DRAFT_EXPIRED";
@@ -81,6 +88,16 @@ public class GiftingService {
      * paid gift that cannot be delivered is a manual refund.
      */
     private java.util.Set<String> enabledKinds = java.util.Set.of(PurchaseDraft.SELF);
+
+    /** Guest return-link mailing; both unset refuses guest handle/email pay (fail closed). */
+    private ReturnLinkMailer returnLinkMailer;
+    private String walletOrigin;
+
+    public GiftingService withReturnLinkMail(ReturnLinkMailer mailer, String walletOrigin) {
+        this.returnLinkMailer = mailer;
+        this.walletOrigin = walletOrigin == null || walletOrigin.isBlank() ? null : walletOrigin.trim().replaceAll("/+$", "");
+        return this;
+    }
 
     static final String KIND_NOT_YET = "Sending a gift this way isn't available yet.";
 
@@ -181,13 +198,13 @@ public class GiftingService {
         if (buyerPubkey == null && PurchaseDraft.SELF.equalsIgnoreCase(req.delivery().kind().trim())) {
             return Answer.error(HttpStatus.UNAUTHORIZED, SIGN_IN_REQUIRED);
         }
-        String buyerEmail = null;
-        if (buyerPubkey == null) {
-            if (req.buyerEmail() == null || !EMAIL.matcher(req.buyerEmail().trim()).matches()) {
-                return Answer.error(HttpStatus.UNPROCESSABLE_ENTITY, BUYER_EMAIL_REQUIRED);
-            }
-            buyerEmail = req.buyerEmail().trim();
+        Optional<String> givenEmail = Optional.ofNullable(req.buyerEmail()).map(String::trim)
+                .filter(e -> e.length() <= 320 && EMAIL.matcher(e).matches());
+        boolean toSomeoneElse = !PurchaseDraft.SELF.equalsIgnoreCase(req.delivery().kind().trim());
+        if (toSomeoneElse && givenEmail.isEmpty()) {
+            return Answer.error(HttpStatus.UNPROCESSABLE_ENTITY, SENDER_EMAIL_REQUIRED);
         }
+        String buyerEmail = givenEmail.orElse(null);
 
         // Stall checks: the same refusals, in the same order, as a wallet card purchase.
         Optional<Answer> refused = stallRefusal(stall, req.currency());
@@ -307,6 +324,14 @@ public class GiftingService {
      * idempotency key, which is derived from the draft id.
      */
     public Answer pay(UUID id) {
+        return pay(id, null);
+    }
+
+    /**
+     * @param returnLink the guest's {@code <wallet>/gift-return#r=<hex>}: required for a guest
+     *     handle/email gift, mailed once, then forgotten. Never stored, logged or echoed.
+     */
+    public Answer pay(UUID id, String returnLink) {
         Optional<PurchaseDraft> found = drafts.findById(id);
         if (found.isEmpty()) {
             return Answer.error(HttpStatus.NOT_FOUND, "no such gift");
@@ -324,6 +349,10 @@ public class GiftingService {
         Optional<Answer> refused = stallRefusal(d.getStallPubkey(), d.getCurrency());
         if (refused.isPresent()) {
             return refused.get();
+        }
+        Optional<Answer> unmailed = mailReturnLinkIfGuest(d, returnLink);
+        if (unmailed.isPresent()) {
+            return unmailed.get();
         }
         ConnectedStripeAccount account = accounts.findByMerchantPubkey(d.getStallPubkey()).orElseThrow();
 
@@ -360,6 +389,56 @@ public class GiftingService {
         }
         log.info("Gift draft {} checkout started for stall {}", d.getId(), d.getStallPubkey());
         return new Answer(HttpStatus.OK, Map.of("checkoutUrl", session.getSessionUrl(), "reference", d.getId().toString()));
+    }
+
+    private Optional<Answer> mailReturnLinkIfGuest(PurchaseDraft d, String returnLink) {
+        if (!needsReturnLink(d)) {
+            return Optional.empty();
+        }
+        if (returnLinkMailer == null || walletOrigin == null) {
+            return Optional.of(Answer.error(HttpStatus.SERVICE_UNAVAILABLE, RETURN_LINK_UNAVAILABLE));
+        }
+        if (returnLink == null || returnLink.isBlank()) {
+            return Optional.of(Answer.error(HttpStatus.BAD_REQUEST, RETURN_LINK_REQUIRED));
+        }
+        if (!returnLinkMatches(returnLink.trim(), d.getRefundPubkey())) {
+            return Optional.of(Answer.error(HttpStatus.BAD_REQUEST, RETURN_LINK_INVALID));
+        }
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("stall", d.getStallHandle() == null || d.getStallHandle().isBlank() ? "the stall" : d.getStallHandle());
+        fields.put("claimBy", CLAIM_BY_FORMAT.format(claimBy(d)));
+        fields.put("returnUrl", returnLink.trim());
+        if (!returnLinkMailer.send(d.getBuyerEmail(), d.getId() + ":return-link", fields)) {
+            log.warn("Gift draft {} not charged: the return-link email was not accepted", d.getId());
+            return Optional.of(Answer.error(HttpStatus.SERVICE_UNAVAILABLE, RETURN_LINK_UNSENT));
+        }
+        return Optional.empty();
+    }
+
+    private static boolean needsReturnLink(PurchaseDraft d) {
+        return d.getBuyerPubkey() == null && !PurchaseDraft.SELF.equals(d.getDeliveryKind());
+    }
+
+    /** The end of the claim window as the draft view states it: creation + {@link #CLAIM_WINDOW_DAYS}. */
+    static Instant claimBy(PurchaseDraft d) {
+        return d.getCreatedAt().plus(Duration.ofDays(CLAIM_WINDOW_DAYS));
+    }
+
+    private boolean returnLinkMatches(String link, String refundPubkey) {
+        String prefix = walletOrigin + "/gift-return#r=";
+        if (!link.startsWith(prefix)) {
+            return false;
+        }
+        String secret = link.substring(prefix.length());
+        if (!HEX64.matcher(secret).matches() || refundPubkey == null) {
+            return false;
+        }
+        try {
+            byte[] pub = nostr.crypto.schnorr.Schnorr.genPubKey(java.util.HexFormat.of().parseHex(secret));
+            return java.util.HexFormat.of().formatHex(pub).equals(refundPubkey);
+        } catch (Exception notAKey) {
+            return false;
+        }
     }
 
     /** The checks every wallet card purchase makes, plus the draft's own currency against the stall's. */

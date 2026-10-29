@@ -172,7 +172,7 @@ class PurchaseCheckoutControllerTest {
     void aDraftIdIsTheWholeRequestAndGoesToTheGiftingService() {
         var gifting = org.mockito.Mockito.mock(xyz.tcheeric.payment.adapter.stripe.webhook.gifting.GiftingService.class);
         java.util.UUID id = java.util.UUID.randomUUID();
-        when(gifting.pay(id)).thenReturn(new xyz.tcheeric.payment.adapter.stripe.webhook.gifting.GiftingService.Answer(
+        when(gifting.pay(id, null)).thenReturn(new xyz.tcheeric.payment.adapter.stripe.webhook.gifting.GiftingService.Answer(
                 HttpStatus.OK, Map.of("checkoutUrl", "https://checkout.stripe.com/c/cs_g", "reference", id.toString())));
         controller.setGifting(gifting);
 
@@ -180,7 +180,7 @@ class PurchaseCheckoutControllerTest {
                 new PurchaseCheckoutController.PurchaseRequest(STALL, 999_999L, "e".repeat(64), id.toString()));
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        verify(gifting).pay(id);
+        verify(gifting).pay(id, null);
         verify(checkout, never()).createPurchaseSession(any(), any(), any(), any(), any(), any(), any());
     }
 

@@ -40,7 +40,24 @@ class GiftingServiceTest {
 
     static final String STALL = "a".repeat(64);
     static final String BOB = "b".repeat(64);
-    static final String R = "c".repeat(64);
+    static final String SECRET = "1a".repeat(32);
+    static final String R = pubkeyOf(SECRET);
+    static final String WALLET = "https://wallet.imani.casa";
+    static final String LINK = WALLET + "/gift-return#r=" + SECRET;
+
+    static String pubkeyOf(String secret) {
+        try {
+            return java.util.HexFormat.of().formatHex(nostr.crypto.schnorr.Schnorr.genPubKey(java.util.HexFormat.of().parseHex(secret)));
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    record Sent(String to, String key, Map<String, String> fields) {
+    }
+
+    final java.util.List<Sent> mails = new java.util.ArrayList<>();
+    boolean mailerAccepts = true;
     static final String BUYER = "d".repeat(64);
 
     final Map<UUID, PurchaseDraft> store = new HashMap<>();
@@ -77,7 +94,11 @@ class GiftingServiceTest {
         service = new GiftingService(drafts, accounts, readiness, checkout,
                 nip05 -> Optional.ofNullable(handleResolvesTo.get()), domain -> mx, clock, 1_000_000L,
                 "https://gifting.imani.casa/return").withEnabledKinds(java.util.List.of("self", "handle", "email"))
-                .withBuyerRoles(pk -> buyerStanding.get());
+                .withBuyerRoles(pk -> buyerStanding.get())
+                .withReturnLinkMail((to, key, fields) -> {
+                    mails.add(new Sent(to, key, fields));
+                    return mailerAccepts;
+                }, WALLET + "/");
     }
 
     /** What the role read says about a signed-in buyer. A customer by default. */
@@ -168,7 +189,7 @@ class GiftingServiceTest {
     void aHandleThatMovesAfterReviewStillDeliversToTheReviewedKey() {
         UUID id = created(service.create(handle("bob@example.com"), null));
         handleResolvesTo.set("e".repeat(64));
-        assertEquals(HttpStatus.OK, service.pay(id).status());
+        assertEquals(HttpStatus.OK, service.pay(id, LINK).status());
         assertEquals(BOB, store.get(id).getRecipientPubkey());
         assertEquals(BOB, ((Map<?, ?>) body(service.get(id)).get("delivery")).get("recipientPubkey"));
     }
@@ -224,8 +245,137 @@ class GiftingServiceTest {
     void guestsMustGiveAnEmail() {
         var req = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
                 new GiftingService.Delivery("handle", "bob@example.com", null, R, null), null, null, null);
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, service.create(req, null).status());
-        assertEquals(HttpStatus.CREATED, service.create(req, BUYER).status());
+        assertEquals(GiftingService.SENDER_EMAIL_REQUIRED, error(service.create(req, null)));
+        assertEquals(GiftingService.SENDER_EMAIL_REQUIRED, error(service.create(req, BUYER)));
+    }
+
+    // Email gifts need the sender's email whether or not the buyer is signed in.
+    @Test
+    void emailGiftsNeedTheSendersEmailSignedInOrNot() {
+        var req = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
+                new GiftingService.Delivery("email", null, "bob@example.com", R, "v1.abc.def"), null, null, " ");
+        assertEquals(GiftingService.SENDER_EMAIL_REQUIRED, error(service.create(req, null)));
+        assertEquals(GiftingService.SENDER_EMAIL_REQUIRED, error(service.create(req, BUYER)));
+    }
+
+    // A signed-in buyer's email is stored too, so the issuer can tell them about the claim.
+    @Test
+    void aSignedInBuyersEmailIsStored() {
+        UUID id = created(service.create(handle("bob@example.com"), BUYER));
+        assertEquals("me@example.com", store.get(id).getBuyerEmail());
+    }
+
+    // "To myself" does not need an email, but keeps one that is given.
+    @Test
+    void selfTakesAnOptionalEmail() {
+        var req = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
+                new GiftingService.Delivery("self", null, null, null, null), null, null, "me@example.com");
+        assertEquals("me@example.com", store.get(created(service.create(req, BUYER))).getBuyerEmail());
+    }
+
+    // ─── the guest's return link (G15) ───────────────────────────────────────
+
+    // A guest handle gift cannot be paid without its return link, and nothing is charged or mailed.
+    @Test
+    void guestPayWithoutAReturnLinkIsRefused() {
+        UUID id = created(service.create(handle("bob@example.com"), null));
+        assertEquals(HttpStatus.BAD_REQUEST, service.pay(id, null).status());
+        assertNoCheckoutAndNoMail();
+    }
+
+    // A link on another origin, or not shaped like one, is refused.
+    @Test
+    void guestPayWithABadReturnLinkIsRefused() {
+        UUID id = created(service.create(handle("bob@example.com"), null));
+        for (String bad : java.util.List.of("https://evil.example/gift-return#r=" + SECRET, WALLET + "/gift-return#r=" + SECRET.toUpperCase(),
+                WALLET + "/gift-return#r=abc", WALLET + "/gift-return?r=" + SECRET, LINK + "0")) {
+            assertEquals(HttpStatus.BAD_REQUEST, service.pay(id, bad).status(), bad);
+        }
+        assertNoCheckoutAndNoMail();
+    }
+
+    // A well-formed link whose secret is not the draft's refund key is refused.
+    @Test
+    void guestPayWithSomeoneElsesReturnLinkIsRefused() {
+        UUID id = created(service.create(email("bob@example.com"), null));
+        GiftingService.Answer a = service.pay(id, WALLET + "/gift-return#r=" + "2".repeat(64));
+        assertEquals(GiftingService.RETURN_LINK_INVALID, error(a));
+        assertNoCheckoutAndNoMail();
+    }
+
+    // The first pay mails the link to the buyer with the draft's idempotency key, then charges.
+    @Test
+    void firstPayMailsTheReturnLinkBeforeCheckout() {
+        UUID id = created(service.create(handle("bob@example.com"), null));
+        assertEquals(HttpStatus.OK, service.pay(id, LINK).status());
+        assertEquals(1, mails.size());
+        Sent sent = mails.get(0);
+        assertEquals("me@example.com", sent.to());
+        assertEquals(id + ":return-link", sent.key());
+        assertEquals(Map.of("stall", "alice@imani.casa", "claimBy", "27 November 2026", "returnUrl", LINK), sent.fields());
+    }
+
+    // A repeat pay answers the same session and sends no second email.
+    @Test
+    void repeatPaySendsNoSecondMail() {
+        UUID id = created(service.create(handle("bob@example.com"), null));
+        service.pay(id, LINK);
+        assertEquals(HttpStatus.OK, service.pay(id, null).status());
+        assertEquals(1, mails.size());
+    }
+
+    // A refusing or unreachable mailer stops the purchase: 503, no checkout.
+    @Test
+    void aMailerThatDoesNotAcceptStopsThePurchase() {
+        mailerAccepts = false;
+        UUID id = created(service.create(handle("bob@example.com"), null));
+        GiftingService.Answer a = service.pay(id, LINK);
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, a.status());
+        assertEquals("We couldn't email your return link. Try again.", error(a));
+        verify(checkout, never()).createPurchaseSession(anyString(), anyInt(), anyString(), anyString(), anyString(), any(), any(), any(), any());
+    }
+
+    // The real HTTP client reports an unreachable mailer as not accepted.
+    @Test
+    void anUnreachableMailerIsNotAccepted() {
+        var mailer = new ReturnLinkMailer.ImaniMailer("http://127.0.0.1:1", "t".repeat(32), Duration.ofSeconds(2));
+        assertFalse(mailer.send("me@example.com", "k", Map.of("returnUrl", LINK)));
+    }
+
+    // Unconfigured mail refuses guest handle/email pay rather than charging without a link.
+    @Test
+    void withoutMailConfigGuestGiftsAreNotCharged() {
+        service.withReturnLinkMail(null, null);
+        UUID id = created(service.create(handle("bob@example.com"), null));
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, service.pay(id, LINK).status());
+        assertNoCheckoutAndNoMail();
+    }
+
+    // Signed-in buyers pay without a return link: their wallet takes the gift back.
+    @Test
+    void signedInBuyersNeedNoReturnLink() {
+        UUID id = created(service.create(handle("bob@example.com"), BUYER));
+        assertEquals(HttpStatus.OK, service.pay(id, null).status());
+        assertTrue(mails.isEmpty());
+    }
+
+    // The link is never echoed in an answer nor kept on the draft.
+    @Test
+    void theReturnLinkIsNeverEchoedOrStored() {
+        UUID id = created(service.create(handle("bob@example.com"), null));
+        java.util.List<GiftingService.Answer> answers = java.util.List.of(service.pay(id, WALLET + "/gift-return#r=" + "2".repeat(64)),
+                service.pay(id, LINK), service.pay(id, LINK), service.get(id));
+        for (GiftingService.Answer a : answers) {
+            assertFalse(String.valueOf(a.body()).contains(SECRET));
+        }
+        assertFalse(String.valueOf(store.get(id)).contains(SECRET));
+        assertFalse(new xyz.tcheeric.payment.adapter.stripe.webhook.purchase.PurchaseCheckoutController.PurchaseRequest(
+                null, null, null, id.toString(), LINK).toString().contains(SECRET));
+    }
+
+    private void assertNoCheckoutAndNoMail() {
+        assertTrue(mails.isEmpty());
+        verify(checkout, never()).createPurchaseSession(anyString(), anyInt(), anyString(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -288,8 +438,8 @@ class GiftingServiceTest {
     @Test
     void oneCheckoutSessionPerDraftAndNoPersonalDataInStripe() {
         UUID id = created(service.create(email("bob@example.com"), null));
-        GiftingService.Answer first = service.pay(id);
-        GiftingService.Answer second = service.pay(id);
+        GiftingService.Answer first = service.pay(id, LINK);
+        GiftingService.Answer second = service.pay(id, LINK);
         assertEquals(body(first).get("checkoutUrl"), body(second).get("checkoutUrl"));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> metadata = ArgumentCaptor.forClass(Map.class);
@@ -304,7 +454,7 @@ class GiftingServiceTest {
         var req = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
                 new GiftingService.Delivery("self", null, null, null, null), null, null, null);
         UUID id = created(service.create(req, BUYER));
-        service.pay(id);
+        service.pay(id, LINK);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> metadata = ArgumentCaptor.forClass(Map.class);
         verify(checkout).createPurchaseSession(anyString(), anyInt(), anyString(), anyString(), anyString(), any(), metadata.capture(), any(), any());
@@ -315,7 +465,7 @@ class GiftingServiceTest {
     void anExpiredDraftIsNeverCharged() {
         UUID id = created(service.create(handle("bob@example.com"), null));
         clock.advance(Duration.ofMinutes(31));
-        GiftingService.Answer a = service.pay(id);
+        GiftingService.Answer a = service.pay(id, LINK);
         assertEquals(HttpStatus.GONE, a.status());
         assertEquals("DRAFT_EXPIRED", error(a));
         assertEquals(HttpStatus.GONE, service.get(id).status());
@@ -326,28 +476,28 @@ class GiftingServiceTest {
     void anInvalidatedDraftIsNeverCharged() {
         UUID id = created(service.create(handle("bob@example.com"), null));
         service.invalidate(id);
-        assertEquals("DRAFT_INVALIDATED", error(service.pay(id)));
+        assertEquals("DRAFT_INVALIDATED", error(service.pay(id, LINK)));
     }
 
     @Test
     void stallDisconnectingBetweenReviewAndPayIsRefusedWithItsWords() {
         UUID id = created(service.create(handle("bob@example.com"), null));
         when(account.isChargesEnabled()).thenReturn(false);
-        assertEquals("this stall cannot accept card payments yet", error(service.pay(id)));
+        assertEquals("this stall cannot accept card payments yet", error(service.pay(id, LINK)));
         when(account.isChargesEnabled()).thenReturn(true);
         when(account.getDefaultCurrency()).thenReturn("gbp");
-        assertEquals("STALL_TERMS_CHANGED", error(service.pay(id)));
+        assertEquals("STALL_TERMS_CHANGED", error(service.pay(id, LINK)));
     }
 
     @Test
     void aPaidDraftStaysReadableForTheReturnPageAndCannotBeInvalidated() {
         UUID id = created(service.create(handle("bob@example.com"), null));
-        service.pay(id);
+        service.pay(id, LINK);
         clock.advance(Duration.ofHours(2));
         service.invalidate(id);
         assertNull(store.get(id).getInvalidatedAt());
         assertEquals(HttpStatus.OK, service.get(id).status());
-        assertEquals(HttpStatus.OK, service.pay(id).status(), "same session after the draft's own expiry");
+        assertEquals(HttpStatus.OK, service.pay(id, LINK).status(), "same session after the draft's own expiry");
     }
 
     static final class MutableClock extends Clock {

@@ -115,7 +115,7 @@ public class PurchaseCheckoutController {
             } catch (IllegalArgumentException e) {
                 return ResponseEntity.badRequest().body(error("that is not a gift"));
             }
-            var answer = gifting.pay(id);
+            var answer = gifting.pay(id, request.returnLink());
             if (answer.status().is2xxSuccessful()) {
                 metrics.record(Source.CARD, Status.INITIATED, Reason.NONE, null);
             } else {
@@ -284,10 +284,22 @@ public class PurchaseCheckoutController {
      * @param buyerPubkey where to deliver. Required for this wallet body; guests buy through a draft.
      * @param draftId     a gifting Purchase Draft (imani-wallet#410); when present, the only field read
      */
-    public record PurchaseRequest(String stallPubkey, Long amountMinor, String buyerPubkey, String draftId) {
+    public record PurchaseRequest(String stallPubkey, Long amountMinor, String buyerPubkey, String draftId, String returnLink) {
+        /** A gift pay without a return link. */
+        public PurchaseRequest(String stallPubkey, Long amountMinor, String buyerPubkey, String draftId) {
+            this(stallPubkey, amountMinor, buyerPubkey, draftId, null);
+        }
+
+        /** The return link holds the refund secret: never in a log line. */
+        @Override
+        public String toString() {
+            return "PurchaseRequest[stallPubkey=" + stallPubkey + ", amountMinor=" + amountMinor + ", buyerPubkey=" + buyerPubkey
+                    + ", draftId=" + draftId + ", returnLink=" + (returnLink == null ? "absent" : "redacted") + "]";
+        }
+
         /** The wallet's Buy page body, unchanged. */
         public PurchaseRequest(String stallPubkey, Long amountMinor, String buyerPubkey) {
-            this(stallPubkey, amountMinor, buyerPubkey, null);
+            this(stallPubkey, amountMinor, buyerPubkey, null, null);
         }
     }
 
