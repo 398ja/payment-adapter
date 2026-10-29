@@ -38,10 +38,17 @@ public class GiftingConfiguration {
     @Value("${purchase.gifting.gateway-base-url:}")
     private String gatewayBaseUrl;
 
+    /**
+     * Local stacks only: handle domains resolved by an internal NIP-05 server instead of over HTTPS
+     * (see {@code GiftLookups.WellKnownResolver}). Empty everywhere else.
+     */
+    @Value("${purchase.gifting.nip05-overrides:}")
+    private String nip05Overrides;
+
     @Bean
     GiftingService giftingService(PurchaseDraftRepository drafts, ConnectedStripeAccountRepository accounts,
             StallReadinessClient readiness, StripeCheckoutService checkout) {
-        return new GiftingService(drafts, accounts, readiness, checkout, new GiftLookups.WellKnownResolver(),
+        return new GiftingService(drafts, accounts, readiness, checkout, new GiftLookups.WellKnownResolver(GiftLookups.WellKnownResolver.parseOverrides(nip05Overrides)),
                 new GiftLookups.DnsMailDomainChecker(), Clock.systemUTC(), maxAmountMinor, returnUrl)
                 .withEnabledKinds(java.util.Arrays.asList(kinds.split(",")))
                 .withBuyerRoles(new BuyerRoleReader(gatewayBaseUrl, java.time.Duration.ofSeconds(5)).asReader());
