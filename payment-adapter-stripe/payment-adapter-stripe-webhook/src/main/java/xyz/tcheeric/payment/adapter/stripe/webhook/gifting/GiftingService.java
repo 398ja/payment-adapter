@@ -41,10 +41,10 @@ public class GiftingService {
     static final String HANDLE_NOT_FOUND = "We couldn't find that handle.";
     static final String HANDLE_IS_STALL = "You can't send a voucher to the stall that sells it.";
     static final String EMAIL_UNDELIVERABLE = "That email address can't receive mail.";
-    static final String SIGN_IN_REQUIRED = "Sign in to send to yourself.";
     static final String STALL_BUYER = "Gifts are bought by customers. Sign in with a customer wallet, or buy as a guest.";
     static final String BUYER_UNCHECKED = "We couldn't check your account just now. Try again, or buy as a guest.";
     static final String BUYER_EMAIL_REQUIRED = "We need your email for the receipt and the return link.";
+    static final String CHOOSE_RECIPIENT = "Choose who the gift is for.";
     static final String SENDER_EMAIL_REQUIRED = "We need your email to tell you when it's claimed.";
     static final String RETURN_LINK_REQUIRED = "A return link is required to pay for this gift.";
     static final String RETURN_LINK_INVALID = "That return link doesn't belong to this gift.";
@@ -87,7 +87,7 @@ public class GiftingService {
      * purchase-issuer can arm it (an issuer-authorised Cashlink lock, imani-wallet#366), because a
      * paid gift that cannot be delivered is a manual refund.
      */
-    private java.util.Set<String> enabledKinds = java.util.Set.of(PurchaseDraft.SELF);
+    private java.util.Set<String> enabledKinds = java.util.Set.of();
 
     /** Guest return-link mailing; both unset refuses guest handle/email pay (fail closed). */
     private ReturnLinkMailer returnLinkMailer;
@@ -192,16 +192,16 @@ public class GiftingService {
             return Answer.error(HttpStatus.UNPROCESSABLE_ENTITY, "Keep the name to 80 characters, plain text.");
         }
 
+        // A gift is always for someone else (owner, 2026-10-29): "to myself" is the wallet's Buy page.
+        if (PurchaseDraft.SELF.equalsIgnoreCase(req.delivery().kind().trim())) {
+            return Answer.error(HttpStatus.UNPROCESSABLE_ENTITY, CHOOSE_RECIPIENT);
+        }
         if (!enabledKinds.contains(req.delivery().kind().trim().toLowerCase())) {
             return Answer.error(HttpStatus.UNPROCESSABLE_ENTITY, KIND_NOT_YET);
         }
-        if (buyerPubkey == null && PurchaseDraft.SELF.equalsIgnoreCase(req.delivery().kind().trim())) {
-            return Answer.error(HttpStatus.UNAUTHORIZED, SIGN_IN_REQUIRED);
-        }
         Optional<String> givenEmail = Optional.ofNullable(req.buyerEmail()).map(String::trim)
                 .filter(e -> e.length() <= 320 && EMAIL.matcher(e).matches());
-        boolean toSomeoneElse = !PurchaseDraft.SELF.equalsIgnoreCase(req.delivery().kind().trim());
-        if (toSomeoneElse && givenEmail.isEmpty()) {
+        if (givenEmail.isEmpty()) {
             return Answer.error(HttpStatus.UNPROCESSABLE_ENTITY, SENDER_EMAIL_REQUIRED);
         }
         String buyerEmail = givenEmail.orElse(null);
@@ -228,13 +228,6 @@ public class GiftingService {
         String kind = delivery.kind().trim().toLowerCase();
         String refund = delivery.refundPubkey() == null ? null : delivery.refundPubkey().trim().toLowerCase();
         switch (kind) {
-            case PurchaseDraft.SELF -> {
-                if (buyerPubkey == null) {
-                    return Answer.error(HttpStatus.UNAUTHORIZED, SIGN_IN_REQUIRED);
-                }
-                d.setDeliveryKind(PurchaseDraft.SELF);
-                d.setRecipientPubkey(buyerPubkey);
-            }
             case PurchaseDraft.HANDLE -> {
                 if (refund == null || !HEX64.matcher(refund).matches()) {
                     return Answer.error(HttpStatus.BAD_REQUEST, "a refund key is required");

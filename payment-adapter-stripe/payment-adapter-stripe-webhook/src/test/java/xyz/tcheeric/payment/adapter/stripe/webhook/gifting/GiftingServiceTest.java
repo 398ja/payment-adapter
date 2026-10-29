@@ -93,7 +93,7 @@ class GiftingServiceTest {
                 .thenReturn(StripeCheckoutSession.builder().sessionId("cs_1").sessionUrl("https://checkout.stripe.com/c/cs_1").build());
         service = new GiftingService(drafts, accounts, readiness, checkout,
                 nip05 -> Optional.ofNullable(handleResolvesTo.get()), domain -> mx, clock, 1_000_000L,
-                "https://gifting.imani.casa/return").withEnabledKinds(java.util.List.of("self", "handle", "email"))
+                "https://gifting.imani.casa/return").withEnabledKinds(java.util.List.of("handle", "email"))
                 .withBuyerRoles(pk -> buyerStanding.get())
                 .withReturnLinkMail((to, key, fields) -> {
                     mails.add(new Sent(to, key, fields));
@@ -106,8 +106,7 @@ class GiftingServiceTest {
 
     @Test
     void aStallSignedInIsRefusedGuestsAndCustomersAreNot() {
-        var self = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
-                new GiftingService.Delivery("self", null, null, null, null), null, null, null);
+        var self = handle("bob@example.com");
         buyerStanding.set(BuyerRoleReader.Standing.MERCHANT);
         GiftingService.Answer stall = service.create(self, BUYER);
         assertEquals(HttpStatus.FORBIDDEN, stall.status());
@@ -126,23 +125,19 @@ class GiftingServiceTest {
     void withNoRoleReaderEverySignedInBuyerIsRefused() {
         GiftingService unwired = new GiftingService(drafts, accounts, readiness, checkout,
                 nip05 -> Optional.of(BOB), domain -> true, clock, 1_000_000L, null);
-        var self = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
-                new GiftingService.Delivery("self", null, null, null, null), null, null, null);
+        var self = handle("bob@example.com");
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, unwired.create(self, BUYER).status());
         assertTrue(store.isEmpty());
     }
 
     @Test
-    void handleAndEmailGiftsAreRefusedUntilEnabled() {
+    void nothingIsSellableUntilConfigured() {
         GiftingService closed = new GiftingService(drafts, accounts, readiness, checkout,
                 nip05 -> Optional.of(BOB), domain -> true, clock, 1_000_000L, null)
                 .withBuyerRoles(pk -> BuyerRoleReader.Standing.CUSTOMER);
         assertEquals("Sending a gift this way isn't available yet.", error(closed.create(handle("bob@example.com"), null)));
         assertEquals("Sending a gift this way isn't available yet.", error(closed.create(email("bob@example.com"), null)));
-        var self = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
-                new GiftingService.Delivery("self", null, null, null, null), null, null, null);
-        assertEquals(HttpStatus.CREATED, closed.create(self, BUYER).status());
-        assertTrue(store.size() == 1);
+        assertTrue(store.isEmpty());
     }
 
     GiftingService.DraftRequest handle(String h) {
@@ -232,13 +227,14 @@ class GiftingServiceTest {
     }
 
     @Test
-    void selfNeedsASignedInBuyerAndDeliversToTheSigner() {
+    void selfIsNoLongerAGiftSignedInOrNot() {
+        // "To myself" was removed (owner, 2026-10-29): even when enabled by config it is refused.
+        GiftingService legacy = service.withEnabledKinds(java.util.List.of("self", "handle", "email"));
         var req = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
-                new GiftingService.Delivery("self", null, null, null, null), null, null, null);
-        assertEquals(HttpStatus.UNAUTHORIZED, service.create(req, null).status());
-        UUID id = created(service.create(req, BUYER));
-        assertEquals(BUYER, store.get(id).getRecipientPubkey());
-        assertNull(store.get(id).getBuyerEmail());
+                new GiftingService.Delivery("self", null, null, null, null), null, null, "me@example.com");
+        assertEquals("Choose who the gift is for.", error(legacy.create(req, null)));
+        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, legacy.create(req, BUYER).status());
+        assertTrue(store.isEmpty());
     }
 
     @Test
@@ -263,14 +259,6 @@ class GiftingServiceTest {
     void aSignedInBuyersEmailIsStored() {
         UUID id = created(service.create(handle("bob@example.com"), BUYER));
         assertEquals("me@example.com", store.get(id).getBuyerEmail());
-    }
-
-    // "To myself" does not need an email, but keeps one that is given.
-    @Test
-    void selfTakesAnOptionalEmail() {
-        var req = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
-                new GiftingService.Delivery("self", null, null, null, null), null, null, "me@example.com");
-        assertEquals("me@example.com", store.get(created(service.create(req, BUYER))).getBuyerEmail());
     }
 
     // ─── the guest's return link (G15) ───────────────────────────────────────
@@ -447,18 +435,6 @@ class GiftingServiceTest {
                 eq(null), metadata.capture(), eq("https://gifting.imani.casa/return?draft=" + id + "&session={CHECKOUT_SESSION_ID}"),
                 eq("https://gifting.imani.casa/return?draft=" + id + "&cancelled=1"));
         assertEquals(Map.of("draft_id", id.toString()), metadata.getValue());
-    }
-
-    @Test
-    void selfPurchaseAlsoCarriesTheBuyersOwnKey() {
-        var req = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
-                new GiftingService.Delivery("self", null, null, null, null), null, null, null);
-        UUID id = created(service.create(req, BUYER));
-        service.pay(id, LINK);
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<Map<String, String>> metadata = ArgumentCaptor.forClass(Map.class);
-        verify(checkout).createPurchaseSession(anyString(), anyInt(), anyString(), anyString(), anyString(), any(), metadata.capture(), any(), any());
-        assertEquals(Map.of("draft_id", id.toString(), "buyer_pubkey", BUYER), metadata.getValue());
     }
 
     @Test

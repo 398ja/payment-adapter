@@ -11,8 +11,14 @@
 
 ### Changed
 
-- Gifting: the sender's email is required for handle and email gifts, signed in or not, and stored for
+- Gifting: the sender's email is required on every gifting draft, signed in or not, and stored for
   signed-in buyers too.
+
+### Removed
+
+- Gifting "to myself": a `self` draft is refused (422 "Choose who the gift is for."), and
+  `purchase.gifting.kinds` now defaults to empty (nothing sellable until configured). Wallet Buy-page
+  purchases are unchanged.
 
 ## [0.25.0] - 2026-10-23
 

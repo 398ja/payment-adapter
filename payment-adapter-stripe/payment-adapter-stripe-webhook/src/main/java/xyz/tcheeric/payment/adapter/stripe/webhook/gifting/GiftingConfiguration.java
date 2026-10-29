@@ -25,10 +25,10 @@ public class GiftingConfiguration {
     private long maxAmountMinor;
 
     /**
-     * Deliveries that may be sold, comma-separated. Default {@code self} only: add {@code handle}
-     * and {@code email} once purchase-issuer arms gift locks (imani-wallet#410 step 3, #366).
+     * Deliveries that may be sold, comma-separated. Default empty (nothing sellable, fail closed): set {@code handle,email}
+     * once purchase-issuer arms gift locks (imani-wallet#410 step 3, #366).
      */
-    @Value("${purchase.gifting.kinds:self}")
+    @Value("${purchase.gifting.kinds:}")
     private String kinds;
 
     /**
