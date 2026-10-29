@@ -55,13 +55,25 @@ public class GiftingConfiguration {
     @Value("${purchase.gifting.wallet-origin:}")
     private String walletOrigin;
 
+    @Value("${purchase.gifting.public-origin:https://gifting.imani.casa}")
+    private String publicOrigin;
+
+    @Bean
+    GiftingAuth giftingAuth() {
+        return new GiftingAuth(publicOrigin, buyerRoles(), Clock.systemUTC());
+    }
+
+    private BuyerRoleReader.Reader buyerRoles() {
+        return new BuyerRoleReader(gatewayBaseUrl, java.time.Duration.ofSeconds(5)).asReader();
+    }
+
     @Bean
     GiftingService giftingService(PurchaseDraftRepository drafts, ConnectedStripeAccountRepository accounts,
             StallReadinessClient readiness, StripeCheckoutService checkout) {
         return new GiftingService(drafts, accounts, readiness, checkout, new GiftLookups.WellKnownResolver(GiftLookups.WellKnownResolver.parseOverrides(nip05Overrides)),
                 new GiftLookups.DnsMailDomainChecker(), Clock.systemUTC(), maxAmountMinor, returnUrl)
                 .withEnabledKinds(java.util.Arrays.asList(kinds.split(",")))
-                .withBuyerRoles(new BuyerRoleReader(gatewayBaseUrl, java.time.Duration.ofSeconds(5)).asReader())
+                .withBuyerRoles(buyerRoles())
                 .withReturnLinkMail(returnLinkMailer(), walletOrigin);
     }
 

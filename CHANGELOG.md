@@ -8,6 +8,9 @@
   `{draftId, returnLink}`) checks the return link against the draft's refund key and emails it via
   imani-mailer (`gift-return-link`) before the first Checkout Session. New config
   `purchase.gifting.mailer-url`, `mailer-token`, `wallet-origin`; unset refuses guest handle/email Pay (503).
+- Gifting NAP login (`/api/v1/gifting/auth/{init,complete,session,logout}`, nap-server 0.9.0): customers
+  only, HttpOnly SameSite=Lax cookie `imani_gifting_session` on `/api/v1/gifting` (30 min idle, 2 h
+  absolute), so a signed-in buyer survives the trip to Stripe. Drafts accept the cookie or NIP-98.
 
 ### Changed
 

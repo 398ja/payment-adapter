@@ -38,6 +38,13 @@ public class GiftingController {
     private final String publicOrigin;
     /** The Purchase Issuer's x-only pubkey, hex: what the page seals ℓ to (G4). */
     private final String issuerPubkey;
+    /** NAP login (cookie sessions). Absent only in tests that predate it. */
+    private GiftingAuth auth;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setAuth(GiftingAuth auth) {
+        this.auth = auth;
+    }
 
     @org.springframework.beans.factory.annotation.Autowired
     public GiftingController(GiftingService service,
@@ -59,7 +66,8 @@ public class GiftingController {
 
     @PostMapping("/drafts")
     public ResponseEntity<?> create(@RequestBody(required = false) byte[] body,
-            @RequestHeader(value = "Authorization", required = false) String authorization, HttpServletRequest http) {
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "Cookie", required = false) String cookie, HttpServletRequest http) {
         if (!perIp.tryAcquire(clientIp(http))) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(java.util.Map.of("error", GiftingService.RATE_LIMITED));
         }
@@ -72,8 +80,9 @@ public class GiftingController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(java.util.Map.of("error", "that is not a gift"));
         }
-        String buyer = null;
-        if (authorization != null) {
+        // The session cookie is preferred; a per-request NIP-98 header still works.
+        String buyer = auth == null ? null : auth.buyer(cookie).orElse(null);
+        if (buyer == null && authorization != null) {
             Optional<String> signer = nip98.verify(authorization, publicOrigin + "/api/v1/gifting/drafts", "POST", body);
             if (signer.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(java.util.Map.of("error", "Sign in again to continue."));
@@ -82,6 +91,48 @@ public class GiftingController {
         }
         GiftingService.Answer a = service.create(req, buyer);
         return ResponseEntity.status(a.status()).body(a.body());
+    }
+
+    @PostMapping("/auth/init")
+    public ResponseEntity<?> authInit(@RequestBody(required = false) byte[] body, HttpServletRequest http) {
+        if (!perIp.tryAcquire(clientIp(http))) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(java.util.Map.of("error", GiftingService.RATE_LIMITED));
+        }
+        return reply(auth().init(body == null ? new byte[0] : body, clientIp(http)));
+    }
+
+    @PostMapping("/auth/complete")
+    public ResponseEntity<?> authComplete(@RequestBody(required = false) byte[] body,
+            @RequestHeader(value = "Authorization", required = false) String authorization, HttpServletRequest http) {
+        if (body != null && body.length > 16 * 1024) {
+            return ResponseEntity.badRequest().build();
+        }
+        return reply(auth().complete(authorization, body, clientIp(http)));
+    }
+
+    @GetMapping("/auth/session")
+    public ResponseEntity<?> authSession(@RequestHeader(value = "Cookie", required = false) String cookie) {
+        return reply(auth().session(cookie));
+    }
+
+    @PostMapping("/auth/logout")
+    public ResponseEntity<?> authLogout(@RequestHeader(value = "Cookie", required = false) String cookie) {
+        return reply(auth().logout(cookie));
+    }
+
+    private GiftingAuth auth() {
+        if (auth == null) {
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        return auth;
+    }
+
+    private static ResponseEntity<?> reply(GiftingAuth.Reply r) {
+        ResponseEntity.BodyBuilder b = ResponseEntity.status(r.status()).header("Cache-Control", "no-store");
+        if (r.setCookie() != null) {
+            b.header("Set-Cookie", r.setCookie());
+        }
+        return b.body(r.body());
     }
 
     @GetMapping("/drafts/{id}")
