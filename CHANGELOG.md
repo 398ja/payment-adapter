@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Added
+
+- Gifting (imani-wallet#410 G15): a guest handle/email gift's Pay (`POST /api/v1/checkout/purchase`
+  `{draftId, returnLink}`) checks the return link against the draft's refund key and emails it via
+  imani-mailer (`gift-return-link`) before the first Checkout Session. New config
+  `purchase.gifting.mailer-url`, `mailer-token`, `wallet-origin`; unset refuses guest handle/email Pay (503).
+- Gifting NAP login (`/api/v1/gifting/auth/{init,complete,session,logout}`, nap-server 0.9.0): customers
+  only, HttpOnly SameSite=Lax cookie `imani_gifting_session` on `/api/v1/gifting` (30 min idle, 2 h
+  absolute), so a signed-in buyer survives the trip to Stripe. Drafts accept the cookie or NIP-98.
+
+### Changed
+
+- Gifting: the sender's email is required on every gifting draft, signed in or not, and stored for
+  signed-in buyers too.
+
+### Removed
+
+- Gifting "to myself": a `self` draft is refused (422 "Choose who the gift is for."), and
+  `purchase.gifting.kinds` now defaults to empty (nothing sellable until configured). Wallet Buy-page
+  purchases are unchanged.
+
 ## [0.25.0] - 2026-10-23
 
 Gateway key rollover without a drain (#288). No migrations. With the new variables unset, behaviour

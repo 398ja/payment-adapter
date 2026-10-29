@@ -380,4 +380,39 @@ public class StripePurchase {
     @Version
     @Column(name = "version", nullable = false)
     private long version;
+
+    // ─── imani-wallet#410: a gift's pinned delivery, copied from its Purchase Draft ───
+
+    /** The draft this payment answered, or null for a wallet purchase. */
+    @Column(name = "draft_id")
+    private UUID draftId;
+
+    /** {@code self}, {@code handle} or {@code email}; null for a wallet purchase. */
+    @Column(name = "delivery_kind", length = 16)
+    private String deliveryKind;
+
+    /** R: the key an unclaimed gift returns to. */
+    @Column(name = "refund_pubkey", length = 64)
+    private String refundPubkey;
+
+    /** Personal data. Scrubbed after delivery. Never logged. */
+    @Column(name = "recipient_email", length = 320)
+    private String recipientEmail;
+
+    /** The link secret sealed to the issuer (G4). Scrubbed once the email is accepted. Never logged. */
+    @Column(name = "sealed_secret", length = 2048)
+    private String sealedSecret;
+
+    @Column(name = "gift_message", length = 280)
+    private String giftMessage;
+
+    @Column(name = "sender_name", length = 80)
+    private String senderName;
+
+    /** A guest's email, for the receipt and return link. Personal data. */
+    @Column(name = "buyer_email", length = 320)
+    private String buyerEmail;
+
+    @Column(name = "scrubbed_at")
+    private Instant scrubbedAt;
 }

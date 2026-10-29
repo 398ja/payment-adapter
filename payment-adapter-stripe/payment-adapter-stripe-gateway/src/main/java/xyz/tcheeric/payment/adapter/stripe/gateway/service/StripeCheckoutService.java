@@ -72,6 +72,25 @@ public class StripeCheckoutService {
             String connectedAccountId,
             Long applicationFeeMinor,
             java.util.Map<String, String> metadata) {
+        return createPurchaseSession(quoteId, amount, description, currency, connectedAccountId,
+                applicationFeeMinor, metadata, null, null);
+    }
+
+    /**
+     * The same purchase, returning the buyer somewhere other than the wallet's own return pages:
+     * the gifting site (imani-wallet#410) sends them back to {@code gifting.imani.casa/return}.
+     * Null URLs fall back to the deployment's purchase URLs.
+     */
+    public StripeCheckoutSession createPurchaseSession(
+            String quoteId,
+            Integer amount,
+            String description,
+            String currency,
+            String connectedAccountId,
+            Long applicationFeeMinor,
+            java.util.Map<String, String> metadata,
+            String successUrl,
+            String cancelUrl) {
         validateAmount(amount);
         if (StringUtils.isBlank(connectedAccountId)) {
             throw new StripeValidationException("Stripe connectedAccountId must not be blank for a purchase");
@@ -101,8 +120,8 @@ public class StripeCheckoutService {
                 .applicationFeeMinor(applicationFeeMinor)
                 // The buyer's own return pages, not the merchant settings
                 // screen the global URLs point at (imani-wallet#267).
-                .successUrl(properties.resolvedPurchaseSuccessUrl())
-                .cancelUrl(properties.resolvedPurchaseCancelUrl());
+                .successUrl(StringUtils.isBlank(successUrl) ? properties.resolvedPurchaseSuccessUrl() : successUrl)
+                .cancelUrl(StringUtils.isBlank(cancelUrl) ? properties.resolvedPurchaseCancelUrl() : cancelUrl);
         if (metadata != null) {
             metadata.forEach(builder::metadata);
         }

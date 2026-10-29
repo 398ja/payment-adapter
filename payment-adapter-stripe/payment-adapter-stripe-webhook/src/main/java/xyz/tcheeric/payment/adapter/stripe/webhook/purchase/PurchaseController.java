@@ -337,7 +337,11 @@ public class PurchaseController {
              * into the warrant: the issuer takes no action on it. Null when
              * the webhook did not record one.
              */
-            String processorReference) {
+            String processorReference,
+            /** The gifting draft this debt answers (imani-wallet#410), or null for a wallet purchase. */
+            String draftId,
+            /** A gift's pinned delivery, or null for a wallet purchase. */
+            GiftDelivery delivery) {
 
         static OwedPurchase of(StripePurchase purchase) {
             return new OwedPurchase(
@@ -354,8 +358,53 @@ public class PurchaseController {
                     purchase.getCurrency(),
                     purchase.isLivemode(),
                     purchase.getAttempts(),
-                    purchase.getPaymentIntentId());
+                    purchase.getPaymentIntentId(),
+                    purchase.getDraftId() == null ? null : purchase.getDraftId().toString(),
+                    GiftDelivery.of(purchase));
         }
+    }
+
+    /**
+     * How a gift is delivered (imani-wallet#410 §4). Only the issuer sees this, behind the bearer
+     * token: the sealed link secret travels here once and is scrubbed after the email is accepted.
+     */
+    public record GiftDelivery(String kind, String refundPubkey, String recipientEmail, String sealed,
+            String message, String from, String buyerEmail, int claimWindowDays) {
+        static GiftDelivery of(StripePurchase p) {
+            if (p.getDeliveryKind() == null) {
+                return null;
+            }
+            return new GiftDelivery(p.getDeliveryKind(), p.getRefundPubkey(), p.getRecipientEmail(), p.getSealedSecret(),
+                    p.getGiftMessage(), p.getSenderName(), p.getBuyerEmail(),
+                    xyz.tcheeric.payment.adapter.stripe.webhook.gifting.GiftingService.CLAIM_WINDOW_DAYS);
+        }
+    }
+
+    /**
+     * Forget a gift's secret and personal data once it is delivered (G4, #410 privacy). Idempotent.
+     * {@code all=false} drops only the sealed secret (after the claim email is accepted);
+     * {@code all=true} also drops the recipient's email, the message and the buyer's email
+     * (after the claim window, or a take-back).
+     */
+    @PostMapping("/{eventId}/scrub")
+    public ResponseEntity<Void> scrub(@PathVariable String eventId,
+            @org.springframework.web.bind.annotation.RequestParam(name = "all", defaultValue = "false") boolean all) {
+        var found = purchases.findByEventId(eventId);
+        if (found.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        StripePurchase row = found.get();
+        row.setSealedSecret(null);
+        if (all) {
+            row.setRecipientEmail(null);
+            row.setGiftMessage(null);
+            row.setBuyerEmail(null);
+            row.setSenderName(null);
+        }
+        row.setScrubbedAt(Instant.now());
+        row.setUpdatedAt(Instant.now());
+        purchases.save(row);
+        return ResponseEntity.noContent().build();
     }
 
     /**

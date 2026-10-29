@@ -53,6 +53,11 @@
             <groupId>xyz.tcheeric</groupId>
             <artifactId>nostr-java-id</artifactId>
         </dependency>
+        <!-- NAP login for the gifting site's signed-in buyers (imani-wallet#410). -->
+        <dependency>
+            <groupId>xyz.tcheeric</groupId>
+            <artifactId>nap-server</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
