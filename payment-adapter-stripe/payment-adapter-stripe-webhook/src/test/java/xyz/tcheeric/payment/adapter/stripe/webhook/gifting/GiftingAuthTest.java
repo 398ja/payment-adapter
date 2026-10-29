@@ -92,7 +92,14 @@ class GiftingAuthTest {
         GiftingAuth.Reply r = login();
         assertEquals(HttpStatus.OK, r.status());
         assertEquals(pubkey(), ((Map<?, ?>) r.body()).get("pubkey"));
+        // The NAP success shape the web client's login() reads, and no token anywhere in the body.
+        Map<?, ?> principal = (Map<?, ?>) ((Map<?, ?>) r.body()).get("principal");
+        assertEquals(pubkey(), principal.get("pubkey"));
+        assertTrue(String.valueOf(principal.get("npub")).startsWith("npub1"));
+        assertTrue(((Map<?, ?>) r.body()).get("expires_at") instanceof Number);
+        assertTrue(!((Map<?, ?>) r.body()).containsKey("access_token"));
         String cookie = r.setCookie();
+        assertTrue(!r.body().toString().contains(cookie.substring("imani_gifting_session=".length(), cookie.indexOf(';'))));
         assertTrue(cookie.startsWith("imani_gifting_session="));
         assertTrue(cookie.contains("; Path=/api/v1/gifting"));
         assertTrue(cookie.contains("; HttpOnly"));

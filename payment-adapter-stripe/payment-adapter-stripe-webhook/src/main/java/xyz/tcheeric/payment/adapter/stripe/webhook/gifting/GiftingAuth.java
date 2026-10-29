@@ -116,9 +116,14 @@ public class GiftingAuth {
     }
 
     private Reply signedIn(SessionRecord session) {
-        // The token goes in the HttpOnly cookie only, never in the body.
+        // The NAP success shape the web client reads (`principal`, `expires_at`), WITHOUT the
+        // access token: it goes in the HttpOnly cookie only, never in the body. `pubkey` and
+        // `expiresAt` are kept at the top level for callers that read them there.
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("status", "ok");
+        out.put("principal", Map.of("npub", session.principalNpub(), "pubkey", session.principalPubkey()));
+        out.put("expires_at", session.expiresAt());
+        out.put("roles", List.of("customer"));
         out.put("pubkey", session.principalPubkey());
         out.put("expiresAt", session.expiresAt());
         return new Reply(HttpStatus.OK, out, cookie(session.accessToken(), ABSOLUTE_TTL_SECONDS));
