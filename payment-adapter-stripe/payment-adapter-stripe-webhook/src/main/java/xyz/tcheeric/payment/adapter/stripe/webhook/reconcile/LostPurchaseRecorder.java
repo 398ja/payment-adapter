@@ -34,7 +34,7 @@ class LostPurchaseRecorder {
 
     static final String EVENT_PREFIX = "reconcile:";
 
-    enum Outcome { NOT_PAID, ALREADY_RECORDED, RECORDED_OWED, RECORDED_REFUNDED, RECORDED_PARKED, DEFERRED }
+    enum Outcome { NOT_PAID, ALREADY_RECORDED, RECORDED_OWED, RECORDED_REFUNDED, RECORDED_PARKED, DEFERRED, FOREIGN }
 
     private final StripeReconcileSource stripe;
     private final StripePurchaseRepository purchases;
@@ -42,9 +42,24 @@ class LostPurchaseRecorder {
     private final TransactionOperations transactions;
     private final PaymentMetrics metrics;
 
+    /**
+     * Whether a session was created by another deployment, so it is not ours to record. Asked before
+     * the live read, so a foreign session costs no Stripe call. Never true without a configured
+     * environment (see RecordingPurchaseListener#withEnvironment).
+     */
+    private java.util.function.Predicate<CompletedSession> foreign = session -> false;
+
+    LostPurchaseRecorder withForeign(java.util.function.Predicate<CompletedSession> foreign) {
+        this.foreign = foreign == null ? session -> false : foreign;
+        return this;
+    }
+
     Outcome reconcile(String accountId, CompletedSession session, ReconcileBudget budget) {
         if (!session.paid()) {
             return Outcome.NOT_PAID;
+        }
+        if (foreign.test(session)) {
+            return Outcome.FOREIGN;
         }
         if (purchases.findByCheckoutSessionId(session.id()).isPresent()) {
             return Outcome.ALREADY_RECORDED;

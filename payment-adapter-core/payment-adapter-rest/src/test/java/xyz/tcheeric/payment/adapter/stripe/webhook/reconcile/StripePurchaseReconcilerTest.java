@@ -193,6 +193,57 @@ class StripePurchaseReconcilerTest {
         assertThat(row.isDisputed()).isTrue();
     }
 
+    /**
+     * Staging 2026-10-28/29: a paid session another deployment created (a local dev site on the same
+     * test key) is not recorded, costs no Stripe read, and does not hold the cursor back; our own
+     * paid session on the same page still is.
+     */
+    @Test
+    void aForeignSessionIsSkippedWithoutAReadAndTheCursorMovesOn() {
+        listener = new RecordingPurchaseListener(purchases, accounts).withEnvironment("staging");
+        stripe.page(tagged("cs_dev", "pi_dev", "dev"), tagged("cs_ours", "pi_ours", "staging"));
+
+        reconciler("staging").run(NOW);
+
+        assertThat(purchases.findByCheckoutSessionId("cs_dev")).isEmpty();
+        assertThat(purchases.findByCheckoutSessionId("cs_ours").orElseThrow().getStatus()).isEqualTo(Status.OWED);
+        assertThat(purchases.count()).isEqualTo(1);
+        // One live read and one recheck for OUR session, none for the foreign one.
+        assertThat(stripe.paymentReads).isEqualTo(2);
+        assertThat(reconciled()).isEqualTo(1.0);
+        StripeReconcileCursor cursor = cursors.findById(ACCOUNT).orElseThrow();
+        assertThat(cursor.getCreatedThrough()).isEqualTo(NOW.minus(Duration.ofMinutes(10)));
+    }
+
+    /** Without STRIPE_ENVIRONMENT the reconciler records every paid session, tagged or not, as before. */
+    @Test
+    void withNoEnvironmentEveryPaidSessionIsStillRecorded() {
+        stripe.page(tagged("cs_dev", "pi_dev", "dev"));
+
+        reconciler().run(NOW);
+
+        assertThat(purchases.findByCheckoutSessionId("cs_dev").orElseThrow().getStatus()).isEqualTo(Status.OWED);
+    }
+
+    private static CompletedSession tagged(String id, String pi, String environment) {
+        return new CompletedSession(id, NOW.minus(Duration.ofHours(2)), "paid", pi, 500L, "gbp",
+                Map.of("buyer_pubkey", BUYER, "imani_env", environment), false);
+    }
+
+    private StripePurchaseReconciler reconciler(String environment) {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        PaymentMetrics metrics = new PaymentMetrics(registry).preRegisterReconciled(Source.CARD);
+        return new StripePurchaseReconciler(accounts, cursors, stripe,
+                new LostPurchaseRecorder(stripe, purchases, listener, tx, metrics)
+                        .withForeign(s -> RecordingPurchaseListener.foreignEnvironment(environment, s.metadata()) != null),
+                new StaleRows(stripe, purchases, listener, tx, Duration.ofHours(1), Duration.ofDays(14), 20),
+                new ParkedRows(new StripeLivePaymentCheck(stripe, listener), purchases, parkedBatch),
+                tx,
+                new ReconcilerSettings(true, Duration.ofHours(1), Duration.ofMinutes(10), Duration.ofDays(30),
+                        Duration.ofMinutes(15), 2, maxCalls),
+                "test-worker");
+    }
+
     /** The cursor moves to the end of the pass, and the next pass reads from there less the overlap. */
     @Test
     void theCursorAdvancesAndTheNextPassOverlaps() {

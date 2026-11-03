@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A paid Checkout Session another deployment created is no longer recorded as a debt** (#308).
+  New `stripe.environment` (`STRIPE_ENVIRONMENT`, e.g. `staging`, `dev`) is stamped on every
+  purchase session as `imani_env`. The webhook listener and the reconciler skip a paid session whose
+  `imani_env` names a different deployment (logged `purchase_foreign_environment`, no Stripe read
+  in the reconciler). Untagged sessions are still recorded, and with no `STRIPE_ENVIRONMENT` nothing
+  changes. Staging, 2026-10-28/29: a developer's local gifting site on staging's test key charged a
+  stall 55 times, and staging recorded GBP 315 of debts it never sold (`CardPaidNotIssued`).
+
 ## [0.26.0] - 2026-10-29
 
 A **minor** with a breaking default: the gifting Purchase Draft API (#305, imani-wallet#410), NAP

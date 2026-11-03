@@ -17,6 +17,7 @@ import xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseReposito
 import xyz.tcheeric.payment.adapter.core.model.repository.StripeReconcileCursorRepository;
 import xyz.tcheeric.payment.adapter.stripe.gateway.config.StripeGatewayProperties;
 import xyz.tcheeric.payment.adapter.stripe.webhook.purchase.LivePaymentCheck;
+import xyz.tcheeric.payment.adapter.stripe.webhook.purchase.RecordingPurchaseListener;
 import xyz.tcheeric.payment.adapter.stripe.webhook.reconcile.StripePurchaseReconciler.ReconcilerSettings;
 import xyz.tcheeric.payment.adapter.stripe.webhook.spi.StripePurchaseListener;
 
@@ -44,6 +45,7 @@ public class StripeReconcileConfiguration {
     StripePurchaseReconciler stripePurchaseReconciler(
             ConnectedStripeAccountRepository accounts, StripeReconcileCursorRepository cursors,
             StripePurchaseRepository purchases, StripePurchaseListener listener, StripeReconcileSource stripe,
+            StripeGatewayProperties properties,
             PlatformTransactionManager transactionManager, ObjectProvider<MeterRegistry> registry,
             @Value("${purchase.reconcile.enabled:true}") boolean enabled,
             @Value("${purchase.reconcile.overlap:PT1H}") Duration overlap,
@@ -59,7 +61,9 @@ public class StripeReconcileConfiguration {
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
         PaymentMetrics metrics = new PaymentMetrics(registry.getIfAvailable()).preRegisterReconciled(Source.CARD);
         return new StripePurchaseReconciler(accounts, cursors, stripe,
-                new LostPurchaseRecorder(stripe, purchases, listener, transactions, metrics),
+                new LostPurchaseRecorder(stripe, purchases, listener, transactions, metrics)
+                        .withForeign(session -> RecordingPurchaseListener.foreignEnvironment(
+                                properties.resolvedEnvironment(), session.metadata()) != null),
                 new StaleRows(stripe, purchases, listener, transactions, issuingStaleAfter, issuedStaleAfter,
                         Math.max(1, staleBatch)),
                 new ParkedRows(new StripeLivePaymentCheck(stripe, listener), purchases, Math.max(1, parkedBatch)),

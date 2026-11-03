@@ -125,6 +125,11 @@ public class StripeCheckoutService {
         if (metadata != null) {
             metadata.forEach(builder::metadata);
         }
+        // After the caller's metadata, so no caller can claim another deployment's sessions.
+        String environment = properties.resolvedEnvironment();
+        if (environment != null) {
+            builder.metadata(StripeGatewayProperties.ENVIRONMENT_METADATA_KEY, environment);
+        }
         return checkoutClient.createCheckoutSession(builder.build());
     }
 
