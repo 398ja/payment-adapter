@@ -200,8 +200,11 @@ public class PurchaseConfiguration {
     public StripePurchaseListener stripePurchaseListener(
             StripePurchaseRepository purchases, ConnectedStripeAccountRepository accounts,
             GatewayFulfilmentClient fulfilment,
-            ObjectProvider<xyz.tcheeric.payment.adapter.core.model.repository.PurchaseDraftRepository> drafts) {
-        return new RecordingPurchaseListener(purchases, accounts, fulfilment).withDrafts(drafts.getIfAvailable());
+            ObjectProvider<xyz.tcheeric.payment.adapter.core.model.repository.PurchaseDraftRepository> drafts,
+            // The same value the checkout service stamps sessions with (StripeGatewayProperties).
+            @org.springframework.beans.factory.annotation.Value("${stripe.environment:}") String environment) {
+        return new RecordingPurchaseListener(purchases, accounts, fulfilment).withDrafts(drafts.getIfAvailable())
+                .withEnvironment(environment);
     }
 
     /**

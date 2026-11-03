@@ -69,6 +69,26 @@ public class StripeGatewayProperties {
     private String webhookEndpointId;
 
     /**
+     * Which deployment this is ({@code STRIPE_ENVIRONMENT}: e.g. {@code staging}, {@code prod},
+     * {@code dev}), stamped on every Checkout Session as {@link #ENVIRONMENT_METADATA_KEY}.
+     *
+     * <p>A Stripe test key is shared more easily than it should be. On 2026-10-28/29 a developer's
+     * local gifting site, on staging's test key, charged a stall's connected account 55 times, and
+     * staging's Connect webhook recorded every one as a debt it owed (CardPaidNotIssued). A paid
+     * session that names ANOTHER environment is now acknowledged and not recorded. Blank: sessions
+     * are not stamped and every paid session is recorded, as before.
+     */
+    private String environment;
+
+    /** The Checkout Session metadata key that names the deployment which created it. */
+    public static final String ENVIRONMENT_METADATA_KEY = "imani_env";
+
+    /** {@link #environment}, trimmed and lower-cased, or null when unset. */
+    public String resolvedEnvironment() {
+        return environment == null || environment.isBlank() ? null : environment.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /**
      * Bounds on the Checkout create call, which a buyer waits on (payment-adapter#274, audit S9).
      *
      * <p>The SDK defaults (30 s connect, 80 s read, plus retries) held a buyer for minutes during

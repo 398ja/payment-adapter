@@ -170,4 +170,34 @@ class PurchaseSessionTest {
         assertNull(request.getSuccessUrl(), "null means the client uses stripe.success-url");
         assertNull(request.getCancelUrl());
     }
+
+    /** Staging 2026-10-28/29: every purchase session names the deployment that made it. */
+    @Test
+    void aPurchaseSessionNamesThisDeployment() {
+        properties.setEnvironment(" Staging ");
+
+        checkoutService.createPurchaseSession("quote-env", 500, "Voucher", "gbp", ACCOUNT, null,
+                java.util.Map.of("buyer_pubkey", "a".repeat(64)));
+
+        StripeCheckoutRequest request = capture();
+        assertEquals("staging", request.getMetadata().get(StripeGatewayProperties.ENVIRONMENT_METADATA_KEY));
+        assertEquals("a".repeat(64), request.getMetadata().get("buyer_pubkey"), "the caller's metadata stays");
+    }
+
+    @Test
+    void aCallerCannotNameAnotherDeployment() {
+        properties.setEnvironment("staging");
+
+        checkoutService.createPurchaseSession("quote-env2", 500, "Voucher", "gbp", ACCOUNT, null,
+                java.util.Map.of(StripeGatewayProperties.ENVIRONMENT_METADATA_KEY, "prod"));
+
+        assertEquals("staging", capture().getMetadata().get(StripeGatewayProperties.ENVIRONMENT_METADATA_KEY));
+    }
+
+    @Test
+    void noEnvironmentConfiguredStampsNothing() {
+        checkoutService.createPurchaseSession("quote-env3", 500, "Voucher", "gbp", ACCOUNT, null, java.util.Map.of());
+
+        assertFalse(capture().getMetadata().containsKey(StripeGatewayProperties.ENVIRONMENT_METADATA_KEY));
+    }
 }

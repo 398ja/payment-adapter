@@ -77,6 +77,53 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
     /** Where the gifting draft id rides on the Checkout Session: the ONLY gift metadata Stripe sees. */
     static final String DRAFT_ID = "draft_id";
 
+    /** The session metadata key naming the deployment that created it. */
+    static final String ENVIRONMENT =
+            xyz.tcheeric.payment.adapter.stripe.gateway.config.StripeGatewayProperties.ENVIRONMENT_METADATA_KEY;
+
+    /** This deployment's name, lower-case, or null: then every paid session is recorded, as before. */
+    private String environment;
+
+    /**
+     * Record only sessions this deployment created (staging 2026-10-28/29, CardPaidNotIssued).
+     *
+     * <p>A Connect webhook reports EVERY payment on a stall's connected account, whoever created the
+     * session. A developer's local gifting site on staging's test key charged a stall 55 times, and
+     * staging recorded each as a debt it owed for a stall with no card sales, which no Buy button and
+     * no {@code /checkout/purchase} check could stop: neither was asked.
+     */
+    public RecordingPurchaseListener withEnvironment(String environment) {
+        this.environment = environment == null || environment.isBlank()
+                ? null : environment.trim().toLowerCase(java.util.Locale.ROOT);
+        return this;
+    }
+
+    /**
+     * The deployment a paid session names, when it names one that is not this one. Null when the
+     * session is ours, names none (created before stamping, or by a deployment that does not stamp),
+     * or this deployment has no name. An unnamed session is still recorded: a missing tag must never
+     * drop a payment a real buyer made here.
+     */
+    String foreignEnvironment(PaidPurchase purchase) {
+        return foreignEnvironment(environment, purchase.metadata());
+    }
+
+    /**
+     * The rule, for anything holding a session's metadata (the reconciler asks it before its live
+     * read). {@code ours} null or blank: nothing is foreign.
+     */
+    public static String foreignEnvironment(String ours, java.util.Map<String, String> metadata) {
+        if (ours == null || ours.isBlank()) {
+            return null;
+        }
+        String named = metadata == null ? null : metadata.get(ENVIRONMENT);
+        if (named == null || named.isBlank()) {
+            return null;
+        }
+        String normalised = named.trim().toLowerCase(java.util.Locale.ROOT);
+        return normalised.equals(ours.trim().toLowerCase(java.util.Locale.ROOT)) ? null : normalised;
+    }
+
     /**
      * Copy the draft's PINNED delivery onto the debt (G-R1): who receives it was decided at review,
      * and nothing on the session, the return URL or a later handle change can alter it. A draft id
@@ -136,6 +183,17 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
     @Override
     @Transactional
     public void onPurchasePaid(PaidPurchase purchase) {
+        // Another deployment's checkout (a local dev site on a shared test key): acknowledged, never
+        // a debt here. Returning normally lets the webhook mark it processed, so Stripe stops
+        // redelivering, and lets the reconciler move its cursor past it.
+        String foreign = foreignEnvironment(purchase);
+        if (foreign != null) {
+            log.warn("purchase_foreign_environment event={} session={} account={} names environment '{}', this is '{}':"
+                            + " not recorded", purchase.eventId(), purchase.checkoutSessionId(),
+                    purchase.connectedAccountId(), foreign, environment);
+            return;
+        }
+
         // Stripe redelivers. The unique constraint would catch it as an
         // exception; asking first makes it an ordinary outcome, and logs it as
         // one so a duplicate does not read like a fault.
