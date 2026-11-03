@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-03
+
 ### Fixed
 
 - **A paid Checkout Session another deployment created is no longer recorded as a debt** (#308).
