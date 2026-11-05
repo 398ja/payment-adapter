@@ -174,6 +174,14 @@ public class PurchaseConfiguration {
         return new PaidUnissuedGauge(purchases, registry.getIfAvailable());
     }
 
+    /** Business metrics: imani_product_items / imani_product_value{product="gift"}. */
+    @Bean
+    public GiftBusinessGauge giftBusinessGauge(
+            StripePurchaseRepository purchases,
+            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> registry) {
+        return new GiftBusinessGauge(purchases, registry.getIfAvailable());
+    }
+
     /** #273: card purchases waiting for a person, by reason. */
     @Bean
     public NeedsAttentionGauge needsAttentionGauge(
