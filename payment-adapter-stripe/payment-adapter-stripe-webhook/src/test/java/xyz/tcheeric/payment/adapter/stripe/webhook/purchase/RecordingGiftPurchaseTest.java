@@ -116,6 +116,28 @@ class RecordingGiftPurchaseTest {
         assertNull(row.getRecipientPubkey());
     }
 
+    // imani-wallet#410 G14: an email gift has no recipient key, so it used never to be registered,
+    // and nothing could ever answer its request. It is registered to pay R, the buyer's refund key,
+    // which is the only key its locked coupon pays before it is claimed.
+    @Test
+    void anEmailGiftIsRegisteredToPayTheRefundKey() {
+        GatewayFulfilmentClient fulfilment = mock(GatewayFulfilmentClient.class);
+        ConnectedStripeAccountRepository accounts = mock(ConnectedStripeAccountRepository.class);
+        ConnectedStripeAccount account = new ConnectedStripeAccount();
+        account.setMerchantPubkey(STALL);
+        account.setStripeAccountId(ACCOUNT);
+        when(accounts.findByStripeAccountId(ACCOUNT)).thenReturn(Optional.of(account));
+        listener = new RecordingPurchaseListener(purchases, accounts, fulfilment).withDrafts(drafts);
+        draft.setDeliveryKind(PurchaseDraft.EMAIL);
+        draft.setRecipientEmail("bob@example.com");
+        draft.setRefundPubkey(R);
+        draft.setSealedSecret("v1.x.y");
+
+        StripePurchase row = record(Map.of("draft_id", draft.getId().toString()), 2000);
+
+        verify(fulfilment).register(row.getPaymentRequestId(), R, STALL, 2000L, "EUR");
+    }
+
     @Test
     void aWalletPurchaseIsUnchanged() {
         StripePurchase row = record(Map.of("buyer_pubkey", BOB), 2000);

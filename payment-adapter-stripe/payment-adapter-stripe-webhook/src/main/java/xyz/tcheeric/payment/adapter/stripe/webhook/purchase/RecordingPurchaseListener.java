@@ -345,13 +345,15 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
      * {@link PurchaseDischargeService} to register at discharge.
      */
     private void register(StripePurchase row) {
-        if (fulfilment == null || row.getRecipientPubkey() == null || row.getStallPubkey() == null
+        // imani-wallet#410 G14: a locked gift is registered to pay R, the buyer's refund key.
+        String recipient = PurchaseDischargeService.registeredRecipient(row);
+        if (fulfilment == null || recipient == null || row.getStallPubkey() == null
                 || row.getAmountMinor() == null || row.getCurrency() == null) {
             return;
         }
         try {
             GatewayFulfilmentClient.Registration outcome = fulfilment.register(
-                    row.getPaymentRequestId(), row.getRecipientPubkey(), row.getStallPubkey(),
+                    row.getPaymentRequestId(), recipient, row.getStallPubkey(),
                     row.getAmountMinor(), PurchaseDischargeService.unitOf(row.getCurrency()));
             log.info("Payment request for purchase {}: {}", row.getEventId(), outcome);
         } catch (RuntimeException e) {

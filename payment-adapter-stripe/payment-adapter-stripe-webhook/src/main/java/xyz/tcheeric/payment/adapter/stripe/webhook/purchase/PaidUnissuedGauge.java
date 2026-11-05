@@ -23,6 +23,12 @@ import xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseReposito
  * and how old. The refund and dispute series there are facts on issued coupons, not counted here
  * unless the row is itself open.
  *
+ * <p>An email or code gift (imani-wallet#410 G14) that was delivered but not yet confirmed counts
+ * too, deliberately. "Delivered" is the issuer's word until core has read the coupon's lock; a
+ * gauge that trusted it would hide exactly the gift that was never minted locked as asked. Such a
+ * row now discharges on its own (the issuer's call, or the re-check sweep within 15 minutes), so
+ * a gift that stays here is one somebody should look at.
+ *
  * <p>Re-derived from SQL, like {@code PaidUnforwardedGauge}, because this is state that must
  * survive a restart, not a moment. Both series are bound eagerly, so the alert sees a healthy zero
  * rather than an absent series, and a failed poll holds the last value rather than reporting a
