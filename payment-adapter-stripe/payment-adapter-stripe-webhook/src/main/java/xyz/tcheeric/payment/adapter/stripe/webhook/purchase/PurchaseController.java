@@ -369,14 +369,16 @@ public class PurchaseController {
      * token: the sealed link secret travels here once and is scrubbed after the email is accepted.
      */
     public record GiftDelivery(String kind, String refundPubkey, String recipientEmail, String sealed,
-            String message, String from, String buyerEmail, int claimWindowDays) {
+            String message, String from, String buyerEmail, int claimWindowDays,
+            String gift, String shopKey, String shopUrl, Long codeExpiresAt) {
         static GiftDelivery of(StripePurchase p) {
             if (p.getDeliveryKind() == null) {
                 return null;
             }
             return new GiftDelivery(p.getDeliveryKind(), p.getRefundPubkey(), p.getRecipientEmail(), p.getSealedSecret(),
                     p.getGiftMessage(), p.getSenderName(), p.getBuyerEmail(),
-                    xyz.tcheeric.payment.adapter.stripe.webhook.gifting.GiftingService.CLAIM_WINDOW_DAYS);
+                    xyz.tcheeric.payment.adapter.stripe.webhook.gifting.GiftingService.CLAIM_WINDOW_DAYS,
+                    p.getGiftKind() == null ? "voucher" : p.getGiftKind(), p.getShopKey(), p.getShopUrl(), p.getCodeExpiresAt());
         }
     }
 

@@ -53,7 +53,7 @@ class GiftingServiceTest {
         }
     }
 
-    record Sent(String to, String key, Map<String, String> fields) {
+    record Sent(String to, String key, Map<String, String> fields, String template) {
     }
 
     final java.util.List<Sent> mails = new java.util.ArrayList<>();
@@ -95,12 +95,17 @@ class GiftingServiceTest {
                 nip05 -> Optional.ofNullable(handleResolvesTo.get()), domain -> mx, clock, 1_000_000L,
                 "https://gifting.imani.casa/return").withEnabledKinds(java.util.List.of("handle", "email"))
                 .withBuyerRoles(pk -> buyerStanding.get())
-                .withReturnLinkMail((to, key, fields) -> {
-                    mails.add(new Sent(to, key, fields));
+                .withReturnLinkMail((to, key, fields, template) -> {
+                    mails.add(new Sent(to, key, fields, template));
                     return mailerAccepts;
                 }, WALLET + "/")
-                .withStallValidity(pk -> stallValidity.get());
+                .withStallValidity(pk -> stallValidity.get())
+                .withCodeGifts(true, pk -> STALL.equals(pk) ? shop.get() : Optional.empty());
     }
+
+    static final String S = "5".repeat(64);
+    final AtomicReference<Optional<BuyerRoleReader.OnlineShop>> shop =
+            new AtomicReference<>(Optional.of(new BuyerRoleReader.OnlineShop("https://olive.example", S)));
 
     /** The stall's signed voucher validity (days, 0 = never); empty = the gateway could not say. */
     private final AtomicReference<java.util.OptionalInt> stallValidity = new AtomicReference<>(java.util.OptionalInt.of(90));
@@ -547,5 +552,98 @@ class GiftingServiceTest {
         public Instant instant() {
             return now;
         }
+    }
+
+    // ─── #410 code gifts ────────────────────────────────────────────────────
+
+    GiftingService.DraftRequest code(String e) {
+        return new GiftingService.DraftRequest(STALL, "alice@imani.casa", 2000L, "EUR", "EUR:90:1",
+                new GiftingService.Delivery("email", null, e, R, "v1.abc.def"), null, null, "me@example.com", "code");
+    }
+
+    @Test
+    void aVoucherIsStillAVoucherAndEchoesIt() {
+        var a = service.create(email("bob@example.com"), null);
+        assertEquals(HttpStatus.CREATED, a.status());
+        assertEquals("voucher", body(a).get("gift"));
+        PurchaseDraft d = store.values().iterator().next();
+        assertEquals(null, d.getGiftKind());
+        assertEquals(null, d.getShopKey());
+    }
+
+    @Test
+    void aCodeGiftPinsTheShopKeyAndExpiry() {
+        var a = service.create(code("bob@example.com"), null);
+        assertEquals(HttpStatus.CREATED, a.status());
+        assertEquals("code", body(a).get("gift"));
+        assertEquals("https://olive.example", body(a).get("shopUrl"));
+        PurchaseDraft d = store.values().iterator().next();
+        assertEquals(PurchaseDraft.CODE, d.getGiftKind());
+        assertEquals(S, d.getShopKey());
+        // validity 90 days: x = created + 29 days
+        assertEquals(clock.instant().plus(Duration.ofDays(29)).getEpochSecond(), d.getCodeExpiresAt());
+        assertEquals(d.getCodeExpiresAt(), body(a).get("codeExpiresAt"));
+    }
+
+    @Test
+    void aShortValidityPullsXInside() {
+        stallValidity.set(java.util.OptionalInt.of(10));
+        service.create(code("bob@example.com"), null);
+        PurchaseDraft d = store.values().iterator().next();
+        assertEquals(clock.instant().plus(Duration.ofDays(8)).getEpochSecond(), d.getCodeExpiresAt());
+    }
+
+    @Test
+    void noOnlineShopNoCode() {
+        shop.set(Optional.empty());
+        var a = service.create(code("bob@example.com"), null);
+        assertEquals(HttpStatus.CONFLICT, a.status());
+        assertEquals(GiftingService.SHOP_UNAVAILABLE, error(a));
+        assertTrue(store.isEmpty());
+    }
+
+    @Test
+    void codeGiftsOffRefusesAndUnknownGiftIsBadRequest() {
+        service.withCodeGifts(false, pk -> shop.get());
+        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, service.create(code("bob@example.com"), null).status());
+        var odd = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
+                new GiftingService.Delivery("email", null, "bob@example.com", R, "v1.abc.def"), null, null, "me@example.com", "cheque");
+        assertEquals(HttpStatus.BAD_REQUEST, service.create(odd, null).status());
+        assertTrue(store.isEmpty());
+    }
+
+    @Test
+    void aCodeGiftRefusesAnIdentityKeyAsR() {
+        var signedIn = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
+                new GiftingService.Delivery("email", null, "bob@example.com", BUYER, "v1.abc.def"), null, null, "me@example.com", "code");
+        assertEquals(HttpStatus.BAD_REQUEST, service.create(signedIn, BUYER).status());
+        var shopKey = new GiftingService.DraftRequest(STALL, null, 2000L, "EUR", null,
+                new GiftingService.Delivery("email", null, "bob@example.com", S, "v1.abc.def"), null, null, "me@example.com", "code");
+        assertEquals(HttpStatus.BAD_REQUEST, service.create(shopKey, null).status());
+        assertTrue(store.isEmpty());
+    }
+
+    @Test
+    void aSignedInCodeBuyerNeedsAndGetsTheReturnLink() {
+        UUID id = UUID.fromString((String) body(service.create(code("bob@example.com"), BUYER)).get("draftId"));
+        assertEquals(HttpStatus.BAD_REQUEST, service.pay(id, null).status());
+        assertEquals(HttpStatus.OK, service.pay(id, LINK).status());
+        assertEquals(1, mails.size());
+        Sent m = mails.get(0);
+        assertEquals(ReturnLinkMailer.CODE_TEMPLATE, m.template());
+        assertTrue(m.fields().containsKey("expiresOn"));
+        assertFalse(m.fields().containsKey("claimBy"), "a code gift mail never offers a claim-by take-back");
+    }
+
+    @Test
+    void theShopMovingBeforePayRefusesWith409() {
+        UUID id = UUID.fromString((String) body(service.create(code("bob@example.com"), null)).get("draftId"));
+        shop.set(Optional.of(new BuyerRoleReader.OnlineShop("https://olive.example", "6".repeat(64))));
+        var a = service.pay(id, LINK);
+        assertEquals(HttpStatus.CONFLICT, a.status());
+        assertEquals(GiftingService.SHOP_CHANGED, error(a));
+        assertTrue(mails.isEmpty());
+        shop.set(Optional.empty());
+        assertEquals(HttpStatus.CONFLICT, service.pay(id, LINK).status());
     }
 }

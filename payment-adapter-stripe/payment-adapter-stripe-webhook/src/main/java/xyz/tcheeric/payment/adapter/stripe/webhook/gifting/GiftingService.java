@@ -162,7 +162,30 @@ public class GiftingService {
     }
 
     public record DraftRequest(String stallPubkey, String stallHandle, Long amountMinor, String currency,
-            String termsVersion, Delivery delivery, String message, String from, String buyerEmail) {
+            String termsVersion, Delivery delivery, String message, String from, String buyerEmail, String gift) {
+
+        /** Every request before #410 code gifts: a voucher. */
+        public DraftRequest(String stallPubkey, String stallHandle, Long amountMinor, String currency,
+                String termsVersion, Delivery delivery, String message, String from, String buyerEmail) {
+            this(stallPubkey, stallHandle, amountMinor, currency, termsVersion, delivery, message, from, buyerEmail, null);
+        }
+    }
+
+    static final String SHOP_UNAVAILABLE = "This shop doesn't take codes online right now.";
+    static final String SHOP_CHANGED = "SHOP_CHANGED";
+
+    /** The stall's signed online_shop (contract §4). Unset: no stall has one, so no code gift is sold. */
+    private java.util.function.Function<String, Optional<BuyerRoleReader.OnlineShop>> onlineShops = pubkey -> Optional.empty();
+    private boolean codeGifts;
+
+    /**
+     * #410: sell checkout-code gifts. Off unless {@code purchase.gifting.code-gifts} is on, which waits
+     * for purchase-issuer to mint and deposit them: a paid code gift nothing can issue is a manual refund.
+     */
+    public GiftingService withCodeGifts(boolean enabled, java.util.function.Function<String, Optional<BuyerRoleReader.OnlineShop>> shops) {
+        this.codeGifts = enabled;
+        this.onlineShops = shops;
+        return this;
     }
 
     // ─── create ─────────────────────────────────────────────────────────────
@@ -245,6 +268,29 @@ public class GiftingService {
         d.setBuyerPubkey(buyerPubkey);
         d.setBuyerEmail(buyerEmail);
 
+        // #410 code gifts: absent is a voucher, exactly as before. A code is sold only for a stall
+        // whose signed record carries a valid online_shop, and S is PINNED here: the stall can move
+        // its shop later, the gift will not.
+        String gift = req.gift() == null || req.gift().isBlank() ? null : req.gift().trim().toLowerCase();
+        if (gift != null) {
+            if (!PurchaseDraft.CODE.equals(gift)) {
+                return Answer.error(HttpStatus.BAD_REQUEST, "unknown gift");
+            }
+            if (!codeGifts) {
+                return Answer.error(HttpStatus.UNPROCESSABLE_ENTITY, KIND_NOT_YET);
+            }
+            if (!PurchaseDraft.EMAIL.equals(req.delivery().kind().trim().toLowerCase())) {
+                return Answer.error(HttpStatus.BAD_REQUEST, "a code gift is sent by email");
+            }
+            Optional<BuyerRoleReader.OnlineShop> shop = onlineShops.apply(stall);
+            if (shop.isEmpty()) {
+                return Answer.error(HttpStatus.CONFLICT, SHOP_UNAVAILABLE);
+            }
+            d.setGiftKind(PurchaseDraft.CODE);
+            d.setShopKey(shop.get().redeemKey());
+            d.setShopUrl(shop.get().url());
+        }
+
         Delivery delivery = req.delivery();
         String kind = delivery.kind().trim().toLowerCase();
         String refund = delivery.refundPubkey() == null ? null : delivery.refundPubkey().trim().toLowerCase();
@@ -273,6 +319,10 @@ public class GiftingService {
                 if (refund == null || !HEX64.matcher(refund).matches()) {
                     return Answer.error(HttpStatus.BAD_REQUEST, "a refund key is required");
                 }
+                // Contract §2: a code's refund key R is fresh per code, never an identity key and never S.
+                if (gift != null && (refund.equals(buyerPubkey) || refund.equals(d.getShopKey()) || refund.equals(stall))) {
+                    return Answer.error(HttpStatus.BAD_REQUEST, "a code gift needs its own refund key");
+                }
                 String email = delivery.email() == null ? "" : delivery.email().trim();
                 var m = EMAIL.matcher(email);
                 if (email.length() > 254 || !m.matches()) {
@@ -299,6 +349,15 @@ public class GiftingService {
         }
         Instant now = clock.instant();
         d.setCreatedAt(now);
+        if (PurchaseDraft.CODE.equals(d.getGiftKind())) {
+            // x is pinned now, from the stall's signed validity: the review page, the buyer's email and
+            // the issuer's lock all name this one date. Unreadable stops the draft (fail closed).
+            java.util.OptionalInt validity = stallValidity.apply(stall);
+            if (validity.isEmpty()) {
+                return Answer.error(HttpStatus.SERVICE_UNAVAILABLE, CARD_SALES_UNAVAILABLE);
+            }
+            d.setCodeExpiresAt(codeExpiry(d, validity.getAsInt()).getEpochSecond());
+        }
         d.setExpiresAt(now.plus(DRAFT_TTL));
         drafts.save(d);
         log.info("Gift draft {} created for stall {} ({} {}, {})", d.getId(), stall, d.getAmountMinor(), d.getCurrency(), d.getDeliveryKind());
@@ -364,6 +423,13 @@ public class GiftingService {
         if (refused.isPresent()) {
             return refused.get();
         }
+        // The shop must still be there, with the same S, when the buyer pays (spec §1).
+        if (PurchaseDraft.CODE.equals(d.getGiftKind())) {
+            Optional<BuyerRoleReader.OnlineShop> shop = codeGifts ? onlineShops.apply(d.getStallPubkey()) : Optional.empty();
+            if (shop.isEmpty() || !shop.get().redeemKey().equals(d.getShopKey())) {
+                return Answer.error(HttpStatus.CONFLICT, SHOP_CHANGED);
+            }
+        }
         Optional<Answer> unmailed = mailReturnLinkIfGuest(d, returnLink);
         if (unmailed.isPresent()) {
             return unmailed.get();
@@ -381,7 +447,8 @@ public class GiftingService {
         String cancel = returnUrl == null ? null : returnUrl + "?draft=" + d.getId() + "&cancelled=1";
         StripeCheckoutSession session;
         try {
-            session = checkout.createPurchaseSession(d.getId().toString(), Math.toIntExact(d.getAmountMinor()), "Voucher",
+            session = checkout.createPurchaseSession(d.getId().toString(), Math.toIntExact(d.getAmountMinor()),
+                    PurchaseDraft.CODE.equals(d.getGiftKind()) ? "Shop code" : "Voucher",
                     account.getDefaultCurrency(), account.getStripeAccountId(), null, metadata, success, cancel);
         } catch (xyz.tcheeric.payment.adapter.stripe.gateway.exception.StripeCheckoutCreationException e) {
             log.warn("Could not start checkout for gift draft {}: {}", d.getId(), e.getMessage());
@@ -427,12 +494,20 @@ public class GiftingService {
         if (validity.isEmpty()) {
             return Optional.of(Answer.error(HttpStatus.SERVICE_UNAVAILABLE, CARD_SALES_UNAVAILABLE));
         }
-        fields.put("claimBy", CLAIM_BY_FORMAT.format(claimBy(d, validity.getAsInt())));
-        fields.put("spendBy", validity.getAsInt() <= 0
-                ? "the voucher doesn't expire"
-                : "spend it by " + CLAIM_BY_FORMAT.format(d.getCreatedAt().plus(Duration.ofDays(validity.getAsInt()))));
+        boolean code = PurchaseDraft.CODE.equals(d.getGiftKind());
+        if (code) {
+            // No take-back (owner, 2026-11-05): the link only receives what is unspent at expiry.
+            // The issuer sets x at mint; this is the date it aims for, never later than the real one.
+            fields.put("expiresOn", CLAIM_BY_FORMAT.format(Instant.ofEpochSecond(d.getCodeExpiresAt())));
+        } else {
+            fields.put("claimBy", CLAIM_BY_FORMAT.format(claimBy(d, validity.getAsInt())));
+            fields.put("spendBy", validity.getAsInt() <= 0
+                    ? "the voucher doesn't expire"
+                    : "spend it by " + CLAIM_BY_FORMAT.format(d.getCreatedAt().plus(Duration.ofDays(validity.getAsInt()))));
+        }
         fields.put("returnUrl", returnLink.trim());
-        if (!returnLinkMailer.send(d.getBuyerEmail(), d.getId() + ":return-link", fields)) {
+        if (!returnLinkMailer.send(d.getBuyerEmail(), d.getId() + ":return-link", fields,
+                code ? ReturnLinkMailer.CODE_TEMPLATE : ReturnLinkMailer.TEMPLATE)) {
             log.warn("Gift draft {} not charged: the return-link email was not accepted", d.getId());
             return Optional.of(Answer.error(HttpStatus.SERVICE_UNAVAILABLE, RETURN_LINK_UNSENT));
         }
@@ -440,7 +515,28 @@ public class GiftingService {
     }
 
     private static boolean needsReturnLink(PurchaseDraft d) {
-        return d.getBuyerPubkey() == null && !PurchaseDraft.SELF.equals(d.getDeliveryKind());
+        // A code gift's R is fresh for every buyer, signed in or not (owner, 2026-11-05), so every
+        // code buyer gets the return link: it is the only place R lives.
+        return PurchaseDraft.CODE.equals(d.getGiftKind())
+                || (d.getBuyerPubkey() == null && !PurchaseDraft.SELF.equals(d.getDeliveryKind()));
+    }
+
+    /** The most a code's x may be: the store's 30-day lock window, less a day of slack, inside the coupon's life. */
+    public static final int CODE_WINDOW_DAYS = 29;
+
+    /**
+     * x for a code gift: min(29 days, validity - 2 days) from the draft's creation. Inside the gateway's
+     * lock window (at most 30 days ahead, a day before the coupon's expiry) for a mint up to a day late.
+     */
+    static Instant codeExpiry(PurchaseDraft d, int validityDays) {
+        Duration w = Duration.ofDays(CODE_WINDOW_DAYS);
+        if (validityDays > 0) {
+            Duration cap = Duration.ofDays(validityDays).minusDays(2);
+            if (cap.compareTo(w) < 0) {
+                w = cap;
+            }
+        }
+        return d.getCreatedAt().plus(w);
     }
 
     /**
@@ -526,6 +622,14 @@ public class GiftingService {
         out.put("amountMinor", d.getAmountMinor());
         out.put("currency", d.getCurrency());
         out.put("delivery", delivery);
+        // Echoed so the page refuses a draft that is not the kind it asked for (draftMatches).
+        out.put("gift", PurchaseDraft.CODE.equals(d.getGiftKind()) ? PurchaseDraft.CODE : "voucher");
+        if (d.getShopUrl() != null) {
+            out.put("shopUrl", d.getShopUrl());
+        }
+        if (d.getCodeExpiresAt() != null) {
+            out.put("codeExpiresAt", d.getCodeExpiresAt());
+        }
         if (d.getMessage() != null) {
             out.put("message", d.getMessage());
         }

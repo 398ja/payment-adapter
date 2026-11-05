@@ -18,9 +18,15 @@ import lombok.extern.slf4j.Slf4j;
 public interface ReturnLinkMailer {
 
     String TEMPLATE = "gift-return-link";
+    /** #410 code gifts: the link only receives what is unspent at expiry; no take-back. */
+    String CODE_TEMPLATE = "gift-code-return-link";
 
     /** @return true once imani-mailer accepted the message (202), false when refused or unreachable */
-    boolean send(String to, String idempotencyKey, Map<String, String> fields);
+    default boolean send(String to, String idempotencyKey, Map<String, String> fields) {
+        return send(to, idempotencyKey, fields, TEMPLATE);
+    }
+
+    boolean send(String to, String idempotencyKey, Map<String, String> fields, String template);
 
     /** imani-mailer over HTTP, Bearer-authenticated. */
     @Slf4j
@@ -41,10 +47,10 @@ public interface ReturnLinkMailer {
         }
 
         @Override
-        public boolean send(String to, String idempotencyKey, Map<String, String> fields) {
+        public boolean send(String to, String idempotencyKey, Map<String, String> fields, String template) {
             try {
                 Map<String, Object> body = new LinkedHashMap<>();
-                body.put("template", TEMPLATE);
+                body.put("template", template);
                 body.put("to", to);
                 body.put("fields", fields);
                 body.put("idempotencyKey", idempotencyKey);

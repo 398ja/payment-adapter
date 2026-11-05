@@ -208,8 +208,55 @@ public class BuyerRoleReader {
      */
     public java.util.OptionalInt validityDaysOf(String pubkey) {
         String key = pubkey == null ? "" : pubkey.toLowerCase();
+        JsonNode events = merchantEvents(key);
+        return events == null ? java.util.OptionalInt.empty() : validityFrom(events, key);
+    }
+
+    /**
+     * #410 code gifts: the stall's {@code online_shop} (checkout-codes contract §4) from its newest
+     * SIGNED merchant record, parsed fail closed as the wallet's {@code parseOnlineShop}: absent,
+     * malformed, a non-https url or a key that is not 64-hex is no shop. Empty also when the
+     * gateway cannot be asked.
+     */
+    public java.util.Optional<OnlineShop> onlineShopOf(String pubkey) {
+        String key = pubkey == null ? "" : pubkey.toLowerCase();
+        JsonNode events = merchantEvents(key);
+        return events == null ? java.util.Optional.empty() : onlineShopFrom(events, key);
+    }
+
+    /** A stall's online shop: where its codes are spent, and the shop's redeem key S. */
+    public record OnlineShop(String url, String redeemKey) {
+    }
+
+    /** Pure: the online shop in the newest signed merchant record, or empty. */
+    static java.util.Optional<OnlineShop> onlineShopFrom(JsonNode events, String key) {
+        JsonNode newest = newestRecord(events, key);
+        if (newest == null) {
+            return java.util.Optional.empty();
+        }
+        try {
+            JsonNode shop = MAPPER.readTree(newest.path("content").asText("")).path("online_shop");
+            if (!shop.isObject() || !shop.path("url").isTextual() || !shop.path("redeem_key").isTextual()) {
+                return java.util.Optional.empty();
+            }
+            String s = shop.path("redeem_key").asText();
+            String url = shop.path("url").asText().trim();
+            if (!s.matches("^[0-9a-f]{64}$") || s.equals(key) || url.length() > 2048) {
+                return java.util.Optional.empty();
+            }
+            URI u = URI.create(url);
+            if (!"https".equals(u.getScheme()) || u.getHost() == null || u.getUserInfo() != null) {
+                return java.util.Optional.empty();
+            }
+            return java.util.Optional.of(new OnlineShop(url, s));
+        } catch (Exception e) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    private JsonNode merchantEvents(String key) {
         if (gatewayBaseUrl.isEmpty() || !key.matches("^[0-9a-f]{64}$")) {
-            return java.util.OptionalInt.empty();
+            return null;
         }
         try {
             String body = MAPPER.writeValueAsString(Map.of(
@@ -224,16 +271,18 @@ public class BuyerRoleReader {
                     .build();
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
             if (res.statusCode() != 200 || res.body().length() > 512 * 1024) {
-                return java.util.OptionalInt.empty();
+                return null;
             }
-            return validityFrom(MAPPER.readTree(res.body()).path("events"), key);
+            return MAPPER.readTree(res.body()).path("events");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
         } catch (Exception e) {
-            return java.util.OptionalInt.empty();
+            return null;
         }
     }
 
-    /** Pure: the validity in the newest signed merchant record, or empty when there is none. */
-    static java.util.OptionalInt validityFrom(JsonNode events, String key) {
+    private static JsonNode newestRecord(JsonNode events, String key) {
         JsonNode newest = null;
         long newestAt = Long.MIN_VALUE;
         for (JsonNode e : events) {
@@ -246,6 +295,12 @@ public class BuyerRoleReader {
                 newestAt = at;
             }
         }
+        return newest;
+    }
+
+    /** Pure: the validity in the newest signed merchant record, or empty when there is none. */
+    static java.util.OptionalInt validityFrom(JsonNode events, String key) {
+        JsonNode newest = newestRecord(events, key);
         if (newest == null) {
             return java.util.OptionalInt.empty();
         }
