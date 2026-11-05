@@ -193,6 +193,19 @@ class GiftDischargeTest {
         verify(fulfilment, never()).recordLockedGift(anyString(), anyString());
     }
 
+    // Review of #316: the locked path is for a row with NO recipient key. An email-kind row that has
+    // one (a wallet-signed-in delivery, or a future kind) is verified like a wallet purchase, so a
+    // value paid to R can never stand in for the recipient it names.
+    @Test
+    void anEmailRowThatNamesARecipientKeyNeverTakesTheLockedGiftPath() {
+        gift.setRecipientPubkey("a".repeat(64));
+        when(fulfilment.check(REQUEST)).thenReturn(unpaid());
+
+        assertEquals(PurchaseDischargeService.Result.REFUSED, service.discharge(EVENT, VOUCHER, ISSUER));
+        verify(fulfilment, never()).recordLockedGift(anyString(), anyString());
+        assertEquals("a".repeat(64), PurchaseDischargeService.registeredRecipient(gift));
+    }
+
     // A wallet purchase is still never satisfied by value to someone else, R or not.
     @Test
     void aWalletPurchaseIsNotDischargedByValueToAnotherKey() {
