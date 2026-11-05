@@ -55,7 +55,7 @@
         <!-- Dependency versions -->
         <spring-boot.version>3.5.5</spring-boot.version>
         <imani-bom.version>0.1.98</imani-bom.version>
-        <postgresql.version>42.7.7</postgresql.version>
+        <postgresql.version>42.7.14</postgresql.version>
         <h2.version>2.2.224</h2.version>
         <lombok.version>1.18.40</lombok.version>
         <!-- Deliberately NOT set: Spring Boot (via imani-bom) versions
