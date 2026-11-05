@@ -429,6 +429,25 @@ public class PurchaseDischargeService {
             // retrying cannot help, and a person needs to look.
         }
 
+        // imani-wallet#410 G14: an email or code gift has no DM, so no send or issuance receipt can
+        // ever answer its request, and the verdict alone stayed "unpaid" forever. Its evidence is
+        // the lock: core reads the coupon's token from gateway-customer itself and records it only
+        // when every proof is the mint's, the stall's, and refunds to R (the registered recipient).
+        // Asked only for a gift row, so the wallet-purchase path is exactly as before.
+        if (answer.fulfilment() == Fulfilment.NOT_FULFILLED && isLockedGift(purchase)) {
+            String coupon = purchase.getVoucherId() != null ? purchase.getVoucherId() : voucherId;
+            GatewayFulfilmentClient.LockedGift locked = fulfilment.recordLockedGift(
+                    purchase.getPaymentRequestId(), coupon);
+            if (locked == GatewayFulfilmentClient.LockedGift.RECORDED) {
+                answer = fulfilment.check(purchase.getPaymentRequestId());
+            } else if (locked == GatewayFulfilmentClient.LockedGift.UNAVAILABLE) {
+                // Nothing learned (outage, or a core without the endpoint yet): not a refusal.
+                log.info("Could not record locked gift {} for {}; leaving it for a retry", coupon, eventId);
+                return Result.UNVERIFIABLE;
+            }
+            // REFUSED falls through: core read the coupon and it is not this gift as asked.
+        }
+
         if (answer.fulfilment() == Fulfilment.UNKNOWN) {
             // Deliberately NOT recorded as a failed attempt. Nothing was
             // learned about the issuer's work, so counting it would make an
@@ -544,8 +563,8 @@ public class PurchaseDischargeService {
         if (!registeredByThisService(answer.creatorPubkey(), ownKey, previousKeys, purchase.getCreatedAt())) {
             return "registered by " + answer.creatorPubkey() + ", not this service";
         }
-        if (purchase.getRecipientPubkey() == null
-                || !purchase.getRecipientPubkey().equalsIgnoreCase(answer.recipientPubkey())) {
+        String recipient = registeredRecipient(purchase);
+        if (recipient == null || !recipient.equalsIgnoreCase(answer.recipientPubkey())) {
             return "paid to " + answer.recipientPubkey() + ", not the buyer";
         }
         if (purchase.getAmountMinor() == null || answer.amount() < purchase.getAmountMinor()) {
@@ -599,13 +618,35 @@ public class PurchaseDischargeService {
      * @return the gateway's answer, or null when the row lacks the facts to register
      */
     private GatewayFulfilmentClient.Registration registerLate(StripePurchase purchase) {
-        if (purchase.getRecipientPubkey() == null || purchase.getStallPubkey() == null
+        String recipient = registeredRecipient(purchase);
+        if (recipient == null || purchase.getStallPubkey() == null
                 || purchase.getAmountMinor() == null || purchase.getCurrency() == null) {
             return null;
         }
         return fulfilment.register(
-                purchase.getPaymentRequestId(), purchase.getRecipientPubkey(), purchase.getStallPubkey(),
+                purchase.getPaymentRequestId(), recipient, purchase.getStallPubkey(),
                 purchase.getAmountMinor(), unitOf(purchase.getCurrency()));
+    }
+
+    /**
+     * An email or code gift (imani-wallet#410 G14): minted locked to a link key or a shop key, with
+     * the buyer's refund key R, and delivered by Cashlink wrap and email rather than by DM. A handle
+     * gift is NOT one: it has a recipient key and a DM, and is verified like a wallet purchase.
+     */
+    static boolean isLockedGift(StripePurchase purchase) {
+        return xyz.tcheeric.payment.adapter.core.model.entity.gifting.PurchaseDraft.EMAIL
+                        .equals(purchase.getDeliveryKind())
+                && purchase.getRecipientPubkey() == null
+                && purchase.getRefundPubkey() != null && !purchase.getRefundPubkey().isBlank();
+    }
+
+    /**
+     * Whom the request is registered to pay. For a locked gift that is R: the value is the buyer's
+     * until the recipient claims it, and returns to them after the locktime. For everything else, the
+     * buyer's (or a handle recipient's) key, as before.
+     */
+    static String registeredRecipient(StripePurchase purchase) {
+        return isLockedGift(purchase) ? purchase.getRefundPubkey() : purchase.getRecipientPubkey();
     }
 
     private void keepVoucherForRevocation(StripePurchase purchase, String voucherId) {

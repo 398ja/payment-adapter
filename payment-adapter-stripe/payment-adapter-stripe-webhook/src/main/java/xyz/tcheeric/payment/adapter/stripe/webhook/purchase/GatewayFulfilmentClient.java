@@ -253,6 +253,59 @@ public class GatewayFulfilmentClient {
         }
     }
 
+    /** What core said to a locked-gift receipt (imani-wallet#410 G14). */
+    public enum LockedGift {
+        /** 201/200: core read the coupon's own token and recorded it. Ask the verdict again. */
+        RECORDED,
+        /** 422/409: core read it and refused: not this stall's, not locked as asked, or another request's. */
+        REFUSED,
+        /** Anything else, a core without the endpoint included: nothing learned, retry later. */
+        UNAVAILABLE
+    }
+
+    /**
+     * Ask core to record that a LOCKED GIFT answers this request (imani-gateway-core, locked-gift).
+     *
+     * <p>Not a claim core believes: it names only the coupon. Core reads that coupon's token from
+     * gateway-customer itself and records it only when every proof is the mint's, the stall's, and
+     * locked with this request's registered recipient (the buyer's refund key R) as its refund
+     * key. Only the request's creator, this service, may ask. Never throws.</p>
+     */
+    public LockedGift recordLockedGift(String paymentRequestId, String voucherId) {
+        if (!isEnabled() || paymentRequestId == null || paymentRequestId.length() < MINIMUM_ID_LENGTH
+                || voucherId == null || voucherId.isBlank()) {
+            return LockedGift.UNAVAILABLE;
+        }
+        String url = baseUrl + "/api/v1/atomic/fulfilment/" + paymentRequestId + "/locked-gift";
+        try {
+            byte[] body = MAPPER.writeValueAsBytes(MAPPER.createObjectNode().put("voucherId", voucherId));
+            HttpResponse<String> response = http.send(
+                    HttpRequest.newBuilder(URI.create(url))
+                            .timeout(timeout)
+                            .header("Content-Type", "application/json")
+                            .header("Authorization", authorization("POST", url, body))
+                            .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            return switch (response.statusCode()) {
+                case 200, 201 -> LockedGift.RECORDED;
+                case 409, 422 -> {
+                    log.warn("Gateway refused the locked gift for {} (HTTP {})", truncate(paymentRequestId),
+                            response.statusCode());
+                    yield LockedGift.REFUSED;
+                }
+                default -> {
+                    log.warn("Locked gift for {} returned status {}", truncate(paymentRequestId), response.statusCode());
+                    yield LockedGift.UNAVAILABLE;
+                }
+            };
+        } catch (Exception e) {
+            log.warn("Could not reach the gateway to record the locked gift for {}: {}",
+                    truncate(paymentRequestId), e.getMessage());
+            return LockedGift.UNAVAILABLE;
+        }
+    }
+
     /**
      * The coupons core counted towards the request, or null from a core that does not
      * say (before imani-wallet#287 U1). Null and empty differ: empty is "none counted".
