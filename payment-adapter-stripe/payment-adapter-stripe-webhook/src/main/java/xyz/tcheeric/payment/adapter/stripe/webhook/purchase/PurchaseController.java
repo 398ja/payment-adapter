@@ -410,6 +410,68 @@ public class PurchaseController {
     }
 
     /**
+     * What the recipient did with a delivered gift, reported by the purchase issuer's gift tracker
+     * (business metrics, V21). Stored on the purchase so {@link GiftBusinessGauge} counts every gift
+     * state from one row, with nothing counted twice.
+     *
+     * <p>By draft id, the only id the tracker holds. Idempotent: a final outcome (CLAIMED,
+     * RETURNED) is never moved back by a late or replayed report (200, unchanged). EXPIRED can
+     * still become RETURNED or CLAIMED (a take-back or a late claim). {@code remainingMinor} is a
+     * code gift's unspent balance, clamped to 0..amount; CLAIMED means nothing is left.
+     *
+     * @return 204 recorded, 200 already final, 400 bad body, 404 no such gift, 409 not a gift
+     */
+    @PostMapping("/gifts/{draftId}/outcome")
+    public ResponseEntity<Void> giftOutcome(@PathVariable String draftId, @RequestBody GiftOutcomeRequest request) {
+        java.util.UUID id;
+        StripePurchase.GiftOutcome outcome;
+        try {
+            id = java.util.UUID.fromString(draftId);
+            outcome = StripePurchase.GiftOutcome.valueOf(request == null || request.outcome() == null
+                    ? "" : request.outcome().trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        }
+        if (outcome == StripePurchase.GiftOutcome.PARTLY_USED && request.remainingMinor() == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        var found = purchases.findFirstByDraftId(id);
+        if (found.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        StripePurchase row = found.get();
+        if (!"handle".equals(row.getDeliveryKind()) && !"email".equals(row.getDeliveryKind())) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        }
+        if (row.getGiftOutcome() != null && row.getGiftOutcome().isFinal()) {
+            return ResponseEntity.ok().build();
+        }
+        long amount = row.getAmountMinor() == null ? 0 : row.getAmountMinor();
+        Long remaining = request.remainingMinor() == null ? null
+                : Math.max(0, Math.min(amount, request.remainingMinor()));
+        if (outcome == StripePurchase.GiftOutcome.CLAIMED) {
+            remaining = 0L;
+        }
+        row.setGiftOutcome(outcome);
+        if (remaining != null) {
+            row.setGiftRemainingMinor(remaining);
+        }
+        row.setGiftOutcomeAt(Instant.now());
+        row.setUpdatedAt(Instant.now());
+        try {
+            purchases.save(row);
+        } catch (OptimisticLockingFailureException e) {
+            // A concurrent writer (a discharge, a refund) won; the tracker reports again next sweep.
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    /** @param outcome PARTLY_USED | CLAIMED | EXPIRED | RETURNED; @param remainingMinor code gifts only */
+    public record GiftOutcomeRequest(String outcome, Long remainingMinor) {
+    }
+
+    /**
      * @param worker which worker is claiming, recorded on the row for an
      *               operator. Not an authority: the bearer token is.
      */

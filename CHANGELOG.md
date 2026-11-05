@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Gift business metrics** (business-metrics contract, 2026-11-05).
+  `imani_product_items` and `imani_product_value` with `product="gift"` and labels
+  `state` (outstanding|redeemed|returned|expired|cancelled), `unit` (upper-case currency, 40 then
+  `OTHER`), `kind` (voucher|code) and `delivery` (email|handle), re-derived every 60 s
+  (`business-metrics.poll-interval`) by one grouped read-only query over `stripe_purchase`, plus
+  `imani_business_metrics_poll_failures_total{source="payment-adapter"}` and
+  `imani_business_metrics_last_poll_seconds{source="payment-adapter"}`. payment-adapter owns every
+  gift state: the purchase issuer reports what the recipient did to the new
+  `POST /api/v1/purchases/gifts/{draftId}/outcome` (PARTLY_USED | CLAIMED | EXPIRED | RETURNED,
+  purchase API token, idempotent, a final outcome never moves back). Migration V21 adds
+  `gift_outcome`, `gift_remaining_minor`, `gift_outcome_at` and indexes on `delivery_kind` and
+  `draft_id`. Value is major units of the face currency.
+
 ## [0.28.0] - 2026-11-05
 
 ### Added

@@ -431,4 +431,34 @@ public class StripePurchase {
 
     @Column(name = "scrubbed_at")
     private Instant scrubbedAt;
+
+    // ─── Business metrics: a delivered gift's outcome, reported by the purchase issuer (V21) ───
+
+    /** What the recipient did with a delivered gift (V21); null while nothing is known. */
+    public enum GiftOutcome {
+        /** A code gift with part of its value spent and some left. */
+        PARTLY_USED,
+        /** Claimed (voucher) or spent in full (code). */
+        CLAIMED,
+        /** The claim window or the code lapsed with value left, not yet taken back. */
+        EXPIRED,
+        /** Back with the buyer: a take-back after the claim window. */
+        RETURNED;
+
+        /** CLAIMED and RETURNED are final: a late or replayed report never moves them back. */
+        public boolean isFinal() {
+            return this == CLAIMED || this == RETURNED;
+        }
+    }
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "gift_outcome", length = 16)
+    private GiftOutcome giftOutcome;
+
+    /** A code gift's unspent balance, minor units, as last reported; null = the full amount. */
+    @Column(name = "gift_remaining_minor")
+    private Long giftRemainingMinor;
+
+    @Column(name = "gift_outcome_at")
+    private Instant giftOutcomeAt;
 }

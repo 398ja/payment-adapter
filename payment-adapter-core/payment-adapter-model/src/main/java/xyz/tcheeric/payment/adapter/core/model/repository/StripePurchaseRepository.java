@@ -44,6 +44,22 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
      */
     Optional<StripePurchase> findByPaymentIntentId(String paymentIntentId);
 
+    /** By the gift's Purchase Draft, which is the only id the issuer's gift tracker holds (V21). */
+    Optional<StripePurchase> findFirstByDraftId(UUID draftId);
+
+    /**
+     * Gift purchases (delivery {@code handle} or {@code email}) grouped for
+     * {@code imani_product_*{product="gift"}}: one row of
+     * {@code [deliveryKind, giftKind, status, giftOutcome, currency, count, sumAmountMinor, sumRemainingMinor]}
+     * per group, where remaining is {@code gift_remaining_minor} or, when unknown, the full amount.
+     * Read-only, one grouped query per poll, answered from {@code idx_stripe_purchase_delivery_kind}.
+     */
+    @Query("select p.deliveryKind, p.giftKind, p.status, p.giftOutcome, upper(p.currency), count(p),"
+            + " sum(p.amountMinor), sum(coalesce(p.giftRemainingMinor, p.amountMinor))"
+            + " from StripePurchase p where p.deliveryKind in :kinds"
+            + " group by p.deliveryKind, p.giftKind, p.status, p.giftOutcome, upper(p.currency)")
+    List<Object[]> summariseGifts(@Param("kinds") java.util.Collection<String> kinds);
+
     /**
      * Everything still owed, oldest first.
      *
