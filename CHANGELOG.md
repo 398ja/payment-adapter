@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-05
+
+### Added
+
+- **Shop-code gifts** (imani-wallet#410, #314). A purchase draft may ask for `gift: "code"`: a
+  checkout code for the stall's online shop instead of a voucher. Accepted only with
+  `purchase.gifting.code-gifts=true` (default off), only for email delivery, and only for a stall
+  whose newest signed `imani:merchant` record has a valid `online_shop`. The draft pins the shop key,
+  the shop url and the code's expiry (migration V20), refuses a refund key that is the buyer's, the
+  shop's or the stall's, mails every code buyer the `gift-code-return-link` (no take-back), and pay
+  answers `409 SHOP_CHANGED` when the shop went away or changed its key since review.
+
 ## [0.27.0] - 2026-11-03
 
 ### Fixed
