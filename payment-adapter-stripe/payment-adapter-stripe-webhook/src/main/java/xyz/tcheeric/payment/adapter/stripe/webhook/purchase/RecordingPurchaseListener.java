@@ -160,6 +160,11 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
         row.setRecipientPubkey(xyz.tcheeric.payment.adapter.core.model.entity.gifting.PurchaseDraft.EMAIL.equals(d.getDeliveryKind())
                 ? null : d.getRecipientPubkey());
         row.setRefundPubkey(d.getRefundPubkey());
+        // #410 code gifts: what the issuer mints (null = a voucher), and the shop and x pinned at review.
+        row.setGiftKind(d.getGiftKind());
+        row.setShopKey(d.getShopKey());
+        row.setShopUrl(d.getShopUrl());
+        row.setCodeExpiresAt(d.getCodeExpiresAt());
         row.setRecipientEmail(d.getRecipientEmail());
         row.setSealedSecret(d.getSealedSecret());
         row.setGiftMessage(d.getMessage());

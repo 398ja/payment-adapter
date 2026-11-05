@@ -166,4 +166,24 @@ class BuyerRoleReaderTest {
         assertEquals(java.util.Optional.empty(), BuyerRoleReader.displayNameFrom(list(profile("{}", 1, sk)), pk));
         assertEquals(java.util.Optional.empty(), BuyerRoleReader.displayNameFrom(list(), pk));
     }
+
+    @Test
+    void onlineShopIsReadFailClosed() throws Exception {
+        byte[] sk = new byte[32];
+        sk[31] = 7;
+        String pk = java.util.HexFormat.of().formatHex(nostr.crypto.schnorr.Schnorr.genPubKey(sk));
+        String s = "5".repeat(64);
+        var ok = BuyerRoleReader.onlineShopFrom(list(record(
+                "{\"online_shop\":{\"url\":\"https://olive.example\",\"redeem_key\":\"" + s + "\",\"platform\":\"woocommerce\"}}", 1, "imani:merchant", sk)), pk);
+        assertEquals(java.util.Optional.of(new BuyerRoleReader.OnlineShop("https://olive.example", s)), ok);
+        for (String bad : new String[] {"{}", "{\"online_shop\":null}", "{\"online_shop\":{\"url\":\"http://olive.example\",\"redeem_key\":\"" + s + "\"}}",
+                "{\"online_shop\":{\"url\":\"https://olive.example\",\"redeem_key\":\"XYZ\"}}",
+                "{\"online_shop\":{\"url\":\"https://olive.example\",\"redeem_key\":\"" + pk + "\"}}", "not json"}) {
+            assertEquals(java.util.Optional.empty(), BuyerRoleReader.onlineShopFrom(list(record(bad, 1, "imani:merchant", sk)), pk), bad);
+        }
+        // Newest record wins: a stall that withdrew its shop has none.
+        assertEquals(java.util.Optional.empty(), BuyerRoleReader.onlineShopFrom(list(
+                record("{\"online_shop\":{\"url\":\"https://olive.example\",\"redeem_key\":\"" + s + "\"}}", 1, "imani:merchant", sk),
+                record("{}", 2, "imani:merchant", sk)), pk));
+    }
 }

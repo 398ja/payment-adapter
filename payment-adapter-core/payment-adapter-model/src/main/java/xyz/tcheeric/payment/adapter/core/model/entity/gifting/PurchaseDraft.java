@@ -30,6 +30,8 @@ public class PurchaseDraft {
     public static final String SELF = "self";
     public static final String HANDLE = "handle";
     public static final String EMAIL = "email";
+    /** The gift kind of a checkout code for the stall's online shop. */
+    public static final String CODE = "code";
 
     @Id
     private UUID id;
@@ -67,6 +69,22 @@ public class PurchaseDraft {
     private String sealedSecret;
 
     @ToString.Exclude
+    /** imani-wallet#410: {@code code} for a checkout-code gift; null for a voucher. */
+    @Column(name = "gift_kind", length = 16)
+    private String giftKind;
+
+    /** S: the shop's redeem key a code gift is locked to (contract §4), pinned at review. */
+    @Column(name = "shop_key", length = 64)
+    private String shopKey;
+
+    /** x for a code gift, epoch seconds, pinned at draft (every part's locktime). */
+    @Column(name = "code_expires_at")
+    private Long codeExpiresAt;
+
+    /** The online shop the code is spent at, for the recipient's email. */
+    @Column(name = "shop_url", length = 2048)
+    private String shopUrl;
+
     @Column(name = "message", length = 280)
     private String message;
 

@@ -45,6 +45,13 @@ public class GiftingConfiguration {
     @Value("${purchase.gifting.nip05-overrides:}")
     private String nip05Overrides;
 
+    /**
+     * #410: sell checkout-code gifts (a code for the stall's online shop). Off by default: turn on
+     * with purchase-issuer's code-gift minting (PURCHASE_CODE_GIFTS) and the page's VITE_GIFTING_CODE_GIFTS.
+     */
+    @Value("${purchase.gifting.code-gifts:false}")
+    private boolean codeGifts;
+
     @Value("${purchase.gifting.mailer-url:}")
     private String mailerUrl;
 
@@ -76,7 +83,8 @@ public class GiftingConfiguration {
                 .withBuyerRoles(buyerRoles())
                 .withReturnLinkMail(returnLinkMailer(), walletOrigin)
                 .withStallNames(new BuyerRoleReader(gatewayBaseUrl, java.time.Duration.ofSeconds(5))::displayNameOf)
-                .withStallValidity(new BuyerRoleReader(gatewayBaseUrl, java.time.Duration.ofSeconds(5))::validityDaysOf);
+                .withStallValidity(new BuyerRoleReader(gatewayBaseUrl, java.time.Duration.ofSeconds(5))::validityDaysOf)
+                .withCodeGifts(codeGifts, new BuyerRoleReader(gatewayBaseUrl, java.time.Duration.ofSeconds(5))::onlineShopOf);
     }
 
     private ReturnLinkMailer returnLinkMailer() {
