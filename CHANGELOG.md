@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-06
+
 ### Added
 
 - **Gift business metrics** (business-metrics contract, 2026-11-05).
@@ -16,6 +18,19 @@
   purchase API token, idempotent, a final outcome never moves back). Migration V21 adds
   `gift_outcome`, `gift_remaining_minor`, `gift_outcome_at` and indexes on `delivery_kind` and
   `draft_id`. Value is major units of the face currency.
+
+## [0.28.1] - 2026-11-05
+
+### Fixed
+
+- **Email and shop-code gifts are discharged** (#316, imani-wallet#410 G14). These gifts have no
+  recipient key and no DM, so they were never registered, and gateway-core's verdict could never
+  say "fulfilled". The purchase stayed ISSUED and CardPaidNotIssued fired for ever. A locked gift is
+  now registered to pay R (the buyer's refund key). On an unpaid verdict, payment-adapter asks
+  gateway-core to record the row's OWN coupon as a locked gift, then asks for the verdict again and
+  runs every existing check. The issuer's word is never taken. Wallet purchases and handle gifts are
+  unchanged. A stuck gift discharges on the next re-check sweep. Needs imani-gateway-core 0.36.2;
+  against an older core, a gift stays unverifiable, not refused.
 
 ## [0.28.0] - 2026-11-05
 
