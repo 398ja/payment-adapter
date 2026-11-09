@@ -10,10 +10,12 @@ import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccount
 import xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseRepository;
 import xyz.tcheeric.payment.adapter.stripe.connect.model.PaymentReferenceVerification;
 
+import static xyz.tcheeric.payment.adapter.stripe.connect.model.PaymentReferenceVerification.DISPUTED;
 import static xyz.tcheeric.payment.adapter.stripe.connect.model.PaymentReferenceVerification.MISMATCH;
 import static xyz.tcheeric.payment.adapter.stripe.connect.model.PaymentReferenceVerification.NOT_CONNECTED;
 import static xyz.tcheeric.payment.adapter.stripe.connect.model.PaymentReferenceVerification.NOT_FOUND;
 import static xyz.tcheeric.payment.adapter.stripe.connect.model.PaymentReferenceVerification.NOT_SUCCEEDED;
+import static xyz.tcheeric.payment.adapter.stripe.connect.model.PaymentReferenceVerification.REFUNDED;
 import static xyz.tcheeric.payment.adapter.stripe.connect.model.PaymentReferenceVerification.VERIFIED;
 
 /**
@@ -33,9 +35,14 @@ import static xyz.tcheeric.payment.adapter.stripe.connect.model.PaymentReference
  * <p>No coupon id is matched. One purchase may be split into several coupons that all carry the
  * same {@code pi_}, so "this reference issued a different coupon" would be a false alarm.
  *
- * <p>Verdicts are cached. A succeeded PaymentIntent never changes its amount, currency or owner, and
- * a reference that is not on the account never will be. Refunds and disputes are a different
- * question (payment-adapter#265) and are not answered here.
+ * <p>Only Stripe's half is cached: whether the PaymentIntent is on the account, and its id,
+ * status, amount, currency and livemode. A succeeded PaymentIntent never changes those, and a
+ * reference that is not on the account never will be. Refund and dispute state lives on this
+ * adapter's own {@code stripe_purchase} row and is read on every request, so a refund or dispute
+ * recorded after a {@code verified} answer shows up on the next ask.
+ *
+ * <p>Precedence: {@code not_found}, {@code not_succeeded} and {@code mismatch} first, then
+ * {@code disputed}, then {@code refunded}, then {@code verified}.
  */
 public class PaymentReferenceVerifier {
 
@@ -45,7 +52,8 @@ public class PaymentReferenceVerifier {
     private final ConnectedStripeAccountRepository accounts;
     private final StripePurchaseRepository purchases;
     private final StripeConnectClient stripe;
-    private final Map<String, PaymentReferenceVerification> cache = new ConcurrentHashMap<>();
+    /** acct|pi to Stripe's answer; empty means "not on this account". Only stable answers. */
+    private final Map<String, Optional<PaymentIntentSnapshot>> stripeCache = new ConcurrentHashMap<>();
 
     public PaymentReferenceVerifier(ConnectedStripeAccountRepository accounts,
                                     StripePurchaseRepository purchases,
@@ -70,21 +78,28 @@ public class PaymentReferenceVerifier {
             return PaymentReferenceVerification.of(NOT_CONNECTED, reference, "no connected account");
         }
         String accountId = account.get().getStripeAccountId();
+        return decide(accountId, reference, stripeSide(accountId, reference));
+    }
+
+    private Optional<PaymentIntentSnapshot> stripeSide(String accountId, String reference) {
         String key = accountId + "|" + reference;
-        PaymentReferenceVerification cached = cache.get(key);
+        Optional<PaymentIntentSnapshot> cached = stripeCache.get(key);
         if (cached != null) {
             return cached;
         }
-        PaymentReferenceVerification answer = decide(accountId, reference);
-        if (answer.isFinal() && cache.size() < CACHE_LIMIT) {
-            cache.put(key, answer);
+        Optional<PaymentIntentSnapshot> found = stripe.retrievePaymentIntent(accountId, reference)
+                .filter(intent -> reference.equals(intent.id()));
+        // processing / requires_* may still succeed, so only absent or succeeded is stable.
+        boolean stable = found.isEmpty() || "succeeded".equals(found.get().status());
+        if (stable && stripeCache.size() < CACHE_LIMIT) {
+            stripeCache.put(key, found);
         }
-        return answer;
+        return found;
     }
 
-    private PaymentReferenceVerification decide(String accountId, String reference) {
-        Optional<PaymentIntentSnapshot> found = stripe.retrievePaymentIntent(accountId, reference);
-        if (found.isEmpty() || !reference.equals(found.get().id())) {
+    private PaymentReferenceVerification decide(String accountId, String reference,
+                                                Optional<PaymentIntentSnapshot> found) {
+        if (found.isEmpty()) {
             return PaymentReferenceVerification.of(NOT_FOUND, reference,
                     "no such payment on your Stripe account");
         }
@@ -107,8 +122,27 @@ public class PaymentReferenceVerifier {
         if (!lower(purchase.getCurrency()).equals(lower(intent.currency()))) {
             return PaymentReferenceVerification.of(MISMATCH, reference, "currency differs from the purchase");
         }
-        return new PaymentReferenceVerification(VERIFIED, reference, intent.amount(), lower(intent.currency()),
-                intent.livemode(), null);
+        if (purchase.isLivemode() != intent.livemode()) {
+            return PaymentReferenceVerification.of(MISMATCH, reference, intent.livemode()
+                    ? "a live payment, but the purchase was recorded in test mode"
+                    : "a test mode payment, but the purchase was recorded as live");
+        }
+        String currency = lower(intent.currency());
+        if (purchase.isDisputed()) {
+            return new PaymentReferenceVerification(DISPUTED, reference, intent.amount(), currency,
+                    intent.livemode(), refunded(purchase), "the payment is disputed on Stripe");
+        }
+        if (refunded(purchase) != null) {
+            return new PaymentReferenceVerification(REFUNDED, reference, intent.amount(), currency,
+                    intent.livemode(), refunded(purchase), "the payment was refunded on Stripe");
+        }
+        return new PaymentReferenceVerification(VERIFIED, reference, intent.amount(), currency,
+                intent.livemode(), null, null);
+    }
+
+    private static Long refunded(StripePurchase purchase) {
+        Long minor = purchase.getRefundedAmountMinor();
+        return minor != null && minor > 0 ? minor : null;
     }
 
     private static String lower(String s) {

@@ -43,13 +43,14 @@ class PaymentReferenceVerifierTest {
                 .thenReturn(Optional.of(new PaymentIntentSnapshot(PI, status, amount, currency, false)));
     }
 
-    private void purchaseRow(String account, long amount, String currency) {
+    private StripePurchase purchaseRow(String account, long amount, String currency) {
         StripePurchase row = new StripePurchase();
         row.setPaymentIntentId(PI);
         row.setConnectedAccountId(account);
         row.setAmountMinor(amount);
         row.setCurrency(currency);
         when(purchases.findByPaymentIntentId(PI)).thenReturn(Optional.of(row));
+        return row;
     }
 
     @Test
@@ -144,5 +145,52 @@ class PaymentReferenceVerifierTest {
         assertThatThrownBy(() -> verifier.verify(STALL, PI)).isInstanceOf(StripeConnectException.class);
         assertThatThrownBy(() -> verifier.verify(STALL, PI)).isInstanceOf(StripeConnectException.class);
         verify(stripe, times(2)).retrievePaymentIntent(ACCOUNT, PI);
+    }
+
+    @Test
+    void aRefundedPaymentIsRefundedNotVerified() {
+        stripeSays("succeeded", 1500, "usd");
+        purchaseRow(ACCOUNT, 1500, "usd").setRefundedAmountMinor(500L);
+        var answer = verifier.verify(STALL, PI);
+        assertThat(answer.result()).isEqualTo("refunded");
+        assertThat(answer.refundedMinor()).isEqualTo(500L);
+    }
+
+    @Test
+    void aDisputedPaymentIsDisputedEvenWhenAlsoRefunded() {
+        stripeSays("succeeded", 1500, "usd");
+        StripePurchase row = purchaseRow(ACCOUNT, 1500, "usd");
+        row.setDisputed(true);
+        row.setRefundedAmountMinor(1500L);
+        assertThat(verifier.verify(STALL, PI).result()).isEqualTo("disputed");
+    }
+
+    @Test
+    void aMismatchWinsOverARefund() {
+        stripeSays("succeeded", 1500, "usd");
+        purchaseRow(ACCOUNT, 9900, "usd").setRefundedAmountMinor(500L);
+        assertThat(verifier.verify(STALL, PI).result()).isEqualTo("mismatch");
+    }
+
+    @Test
+    void livemodeDifferentFromThePurchaseIsAMismatch() {
+        stripeSays("succeeded", 1500, "usd");
+        purchaseRow(ACCOUNT, 1500, "usd").setLivemode(true);
+        var answer = verifier.verify(STALL, PI);
+        assertThat(answer.result()).isEqualTo("mismatch");
+        assertThat(answer.detail()).contains("test mode");
+    }
+
+    @Test
+    void aCachedVerifiedDoesNotHideALaterRefundOrDispute() {
+        stripeSays("succeeded", 1500, "usd");
+        StripePurchase row = purchaseRow(ACCOUNT, 1500, "usd");
+        assertThat(verifier.verify(STALL, PI).result()).isEqualTo("verified");
+        row.setRefundedAmountMinor(1500L);
+        assertThat(verifier.verify(STALL, PI).result()).isEqualTo("refunded");
+        row.setDisputed(true);
+        assertThat(verifier.verify(STALL, PI).result()).isEqualTo("disputed");
+        verify(stripe, times(1)).retrievePaymentIntent(ACCOUNT, PI);
+        verify(purchases, times(3)).findByPaymentIntentId(PI);
     }
 }

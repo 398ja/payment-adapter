@@ -1,5 +1,7 @@
 package xyz.tcheeric.payment.adapter.stripe.connect;
 
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,6 +31,9 @@ public class PaymentReferenceController {
     public PaymentReferenceVerification verify(@PathVariable String merchantPubkey, @PathVariable String reference) {
         if (!connectProperties.isEnabled()) {
             throw StripeConnectException.connectDisabled();
+        }
+        if (merchantPubkey == null || !merchantPubkey.matches("[0-9a-f]{64}")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "merchant pubkey must be 64 lowercase hex");
         }
         return verifier.verify(merchantPubkey, reference);
     }

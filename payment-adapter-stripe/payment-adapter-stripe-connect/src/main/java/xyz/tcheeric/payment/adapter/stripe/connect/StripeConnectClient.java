@@ -19,8 +19,5 @@ public interface StripeConnectClient {
      * @throws xyz.tcheeric.payment.adapter.stripe.connect.exception.StripeConnectException when
      *         Stripe could not be asked
      */
-    default java.util.Optional<PaymentIntentSnapshot> retrievePaymentIntent(String stripeAccountId,
-                                                                           String paymentIntentId) {
-        throw new UnsupportedOperationException("retrievePaymentIntent");
-    }
+    java.util.Optional<PaymentIntentSnapshot> retrievePaymentIntent(String stripeAccountId, String paymentIntentId);
 }
