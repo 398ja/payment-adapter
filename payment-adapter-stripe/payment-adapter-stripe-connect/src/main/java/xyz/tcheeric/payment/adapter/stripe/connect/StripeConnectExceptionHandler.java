@@ -6,7 +6,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import xyz.tcheeric.payment.adapter.stripe.connect.exception.StripeConnectException;
 import xyz.tcheeric.payment.adapter.stripe.connect.model.StripeConnectErrorResponse;
 
-@RestControllerAdvice(assignableTypes = StripeConnectController.class)
+@RestControllerAdvice(assignableTypes = {StripeConnectController.class, PaymentReferenceController.class})
 public class StripeConnectExceptionHandler {
 
     @ExceptionHandler(StripeConnectException.class)
