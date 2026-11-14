@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A paid Checkout Session no payment-adapter created is parked, not owed** (staging 2026-11-12,
+  CardPaidNotIssued for 44 h). A Connect webhook reports every payment on a stall's connected
+  account, and an untagged session (no `imani_env`: a Stripe dashboard payment link, the Stripe CLI,
+  a deployment that does not stamp) was recorded `OWED` with none of the pre-charge checks having
+  run, the stall's card-sales readiness (#293) above all. One such session on a newly onboarded
+  stall with no enrolled issuer was refused by purchase-issuer every 15 s for 44 h. When
+  `STRIPE_ENVIRONMENT` is set, an untagged paid session is now recorded `NEEDS_ATTENTION` with the
+  new reason `unstamped_session`: never dropped, never claimed, counted by
+  `imani_payments_paid_unissued` and `imani_payments_card_needs_attention{reason="unstamped_session"}`
+  (pre-registered at 0). Refund it, then `retry` (it goes `REFUNDED`), or `retry` once the stall can
+  issue (it goes `OWED`). Applies to the reconciler's lost-purchase recording too, which goes
+  through the same listener. A deployment with `STRIPE_ENVIRONMENT` unset behaves as before. No
+  migration (`attention_reason` is `VARCHAR(32)`). **Consumers:** none must act. The
+  `CardPurchaseNeedsAttention` rules match reasons negatively, so they cover the new one;
+  imani-deploy's runbook lists it.
+
 ## [0.29.0] - 2026-11-06
 
 ### Added

@@ -102,7 +102,8 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
      * The deployment a paid session names, when it names one that is not this one. Null when the
      * session is ours, names none (created before stamping, or by a deployment that does not stamp),
      * or this deployment has no name. An unnamed session is still recorded: a missing tag must never
-     * drop a payment a real buyer made here.
+     * drop a payment a real buyer made here. It is recorded parked, though, not owed: see
+     * {@link #isUnstamped}.
      */
     String foreignEnvironment(PaidPurchase purchase) {
         return foreignEnvironment(environment, purchase.metadata());
@@ -122,6 +123,18 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
         }
         String normalised = named.trim().toLowerCase(java.util.Locale.ROOT);
         return normalised.equals(ours.trim().toLowerCase(java.util.Locale.ROOT)) ? null : normalised;
+    }
+
+    /**
+     * True when this deployment has a name and the session names none. A deployment with no name
+     * stamps nothing either, so for it every session is unstamped and nothing changes.
+     */
+    private boolean isUnstamped(PaidPurchase purchase) {
+        if (environment == null) {
+            return false;
+        }
+        String named = purchase.metadata() == null ? null : purchase.metadata().get(ENVIRONMENT);
+        return named == null || named.isBlank();
     }
 
     /**
@@ -245,10 +258,26 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
         row.setCreatedAt(Instant.now());
         row.setUpdatedAt(Instant.now());
 
+        // No payment-adapter stamped this session, so none of the checks before a charge ran on it,
+        // the stall's readiness to issue above all (staging 2026-11-12: a session made outside this
+        // service on a newly onboarded stall sat OWED for 44 h, refused every 15 s for no credential).
+        // Recorded, because a real payment must never be dropped for a missing tag, but parked for a
+        // person rather than listed as owed: refund it, or retry it once the stall can issue.
+        if (isUnstamped(purchase)) {
+            Instant now = Instant.now();
+            row.setStatus(StripePurchase.Status.NEEDS_ATTENTION);
+            row.setAttentionReason(StripePurchase.AttentionReason.UNSTAMPED_SESSION);
+            row.setAttentionDetail("checkout session carries no " + ENVIRONMENT + " tag; this deployment is '"
+                    + environment + "'. Not created by payment-adapter, so stall readiness was never checked");
+            row.setAttentionAt(now);
+            log.warn("purchase_unstamped_session event={} session={} account={}: recorded NEEDS_ATTENTION, not owed",
+                    purchase.eventId(), purchase.checkoutSessionId(), purchase.connectedAccountId());
+        }
+
         purchases.save(row);
 
-        log.info("Recorded purchase {} owed by account {} ({} {})",
-                purchase.eventId(), purchase.connectedAccountId(),
+        log.info("Recorded purchase {} {} by account {} ({} {})",
+                purchase.eventId(), row.getStatus(), purchase.connectedAccountId(),
                 purchase.amountMinor(), purchase.currency());
 
         // After commit, not inside the transaction (payment-adapter#260
