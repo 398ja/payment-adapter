@@ -66,7 +66,10 @@ public final class PaymentMetrics {
         NONE, CARD_DECLINED, WEBHOOK_SIGNATURE, CHARGES_DISABLED, CURRENCY_MISMATCH, AMOUNT_MISMATCH,
         CURRENCY_MISSING, NOT_FOUND, INVALID_REQUEST, BUYER_REQUIRED, NO_LISTENER, GATEWAY_ERROR,
         TIMEOUT, EXPIRED, CANCELLED_BY_CUSTOMER, CANCELLED_BY_MERCHANT, MINT_FAILED, DELIVERY_FAILED,
-        BLOCKED, UNVERIFIABLE, NOT_READY, READINESS_UNKNOWN, OTHER
+        BLOCKED, UNVERIFIABLE, NOT_READY, READINESS_UNKNOWN,
+        /** A Free plan stall without the sales allowance left for this sale (gateway-customer#317). */
+        SALES_LIMIT,
+        OTHER
     }
 
     /** Stripe Connect lifecycle events, counted on {@link #CONNECT}. */

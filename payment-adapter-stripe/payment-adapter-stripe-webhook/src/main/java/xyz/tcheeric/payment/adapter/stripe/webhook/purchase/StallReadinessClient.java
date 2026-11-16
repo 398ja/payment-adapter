@@ -40,6 +40,17 @@ public class StallReadinessClient {
     /** PA's own code for "not ready" with no code on the wire: not enrolled, or credential expired. */
     public static final String NOT_ENROLLED = "not_enrolled";
 
+    /** A Free plan stall that has used its lifetime sales allowance (gateway-customer#317). */
+    public static final String SALES_LIMIT_REACHED = "sales_limit_reached";
+
+    /** This amount would take a Free plan stall past its allowance. Asked with an amount only. */
+    public static final String SALES_LIMIT_EXCEEDED = "sales_limit_exceeded";
+
+    /** Is this a refusal the stall's plan explains, rather than its card-sales setup? */
+    public static boolean isSalesLimit(String reason) {
+        return SALES_LIMIT_REACHED.equals(reason) || SALES_LIMIT_EXCEEDED.equals(reason);
+    }
+
     /**
      * Strict on purpose (review of #294): a duplicated {@code ready} key, or a second JSON value after
      * the first, is ambiguous, and an ambiguous answer must not be read as whichever value wins.
@@ -69,6 +80,7 @@ public class StallReadinessClient {
     }
 
     private final String baseUrl;
+    private final String internalToken;
     private final Duration timeout;
     private final Duration ttl;
     private final Clock clock;
@@ -76,11 +88,22 @@ public class StallReadinessClient {
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
 
     public StallReadinessClient(String baseUrl, Duration timeout, Duration ttl, Clock clock) {
+        this(baseUrl, null, timeout, ttl, clock);
+    }
+
+    /**
+     * @param internalToken the token purchase-issuer shares with this service ({@code purchase.api.token}).
+     *                      Sent with {@link #checkSale} so purchase-issuer answers for the amount; it
+     *                      refuses to for anyone else, since that would tell a stranger how much a
+     *                      Free stall has left to sell. Blank: the amount is still sent and ignored.
+     */
+    public StallReadinessClient(String baseUrl, String internalToken, Duration timeout, Duration ttl, Clock clock) {
         String trimmed = baseUrl == null ? "" : baseUrl.trim();
         while (trimmed.endsWith("/")) {
             trimmed = trimmed.substring(0, trimmed.length() - 1);
         }
         this.baseUrl = trimmed;
+        this.internalToken = internalToken == null ? "" : internalToken.trim();
         this.timeout = timeout;
         this.ttl = ttl;
         this.clock = clock;
@@ -98,7 +121,7 @@ public class StallReadinessClient {
         if (hit != null && now.isBefore(hit.until())) {
             return hit.readiness();
         }
-        Readiness fresh = ask(stall);
+        Readiness fresh = ask(stall, "");
         if (fresh.state() != State.UNKNOWN) {
             cache.put(stall, new Cached(fresh, now.plus(ttl)));
         } else {
@@ -107,7 +130,27 @@ public class StallReadinessClient {
         return fresh;
     }
 
-    private Readiness ask(String stall) {
+    /**
+     * May THIS sale go ahead: {@code amountMinor} of {@code currency} for {@code stall}? The check a
+     * checkout makes, the last moment nothing has been charged (gateway-customer#317 follow-up).
+     *
+     * <p>Never cached. The answer depends on the amount and on what the stall sold a second ago,
+     * and caching per amount would let anyone fill this map from a public endpoint. purchase-issuer
+     * caches its gateway read for seconds, so a burst of checkouts is still cheap.
+     *
+     * @param stall       a lower-case 64-hex pubkey, already validated by the caller
+     * @param currency    the session's currency, as Stripe holds it (any case)
+     * @param amountMinor the face value in minor units, already validated as positive
+     */
+    public Readiness checkSale(String stall, String currency, long amountMinor) {
+        String unit = currency == null ? "" : currency.trim().toUpperCase(java.util.Locale.ROOT);
+        String query = unit.matches("^[A-Z]{3}$")
+                ? "?unit=" + unit + "&amount=" + amountMinor
+                : "?amount=" + amountMinor;
+        return ask(stall, query);
+    }
+
+    private Readiness ask(String stall, String query) {
         if (!isConfigured()) {
             log.warn("purchase.issuer.base-url is not set: card checkout refused (fail closed)");
             return Readiness.unknown();
@@ -117,13 +160,14 @@ public class StallReadinessClient {
             // The deadline covers the WHOLE answer (review of #294). HttpRequest.timeout stops at the
             // response headers, so a PI that sent 200 and then stalled mid-body held this checkout
             // thread with no bound at all.
-            pending = http.sendAsync(
-                    HttpRequest.newBuilder(URI.create(baseUrl + READY_PATH + stall))
-                            .timeout(timeout)
-                            .header("Accept", "application/json")
-                            .GET()
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString());
+            HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(baseUrl + READY_PATH + stall + query))
+                    .timeout(timeout)
+                    .header("Accept", "application/json")
+                    .GET();
+            if (!query.isEmpty() && !internalToken.isEmpty()) {
+                request.header("Authorization", "Bearer " + internalToken);
+            }
+            pending = http.sendAsync(request.build(), HttpResponse.BodyHandlers.ofString());
             HttpResponse<String> response = pending.get(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
             if (response.statusCode() != 200) {
                 log.warn("purchase-issuer readiness for stall {} answered HTTP {}", stall, response.statusCode());

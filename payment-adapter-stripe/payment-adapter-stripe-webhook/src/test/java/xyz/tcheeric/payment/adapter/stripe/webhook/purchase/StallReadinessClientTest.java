@@ -33,6 +33,8 @@ class StallReadinessClientTest {
     private HttpServer server;
     private final AtomicInteger calls = new AtomicInteger();
     private final AtomicReference<String> lastPath = new AtomicReference<>();
+    private final AtomicReference<String> lastQuery = new AtomicReference<>();
+    private final AtomicReference<String> lastAuth = new AtomicReference<>();
     private volatile int status = 200;
     private volatile String body = "{\"ready\":true}";
     private volatile long delayMs = 0;
@@ -44,6 +46,8 @@ class StallReadinessClientTest {
         server.createContext("/", exchange -> {
             calls.incrementAndGet();
             lastPath.set(exchange.getRequestURI().getPath());
+            lastQuery.set(exchange.getRequestURI().getQuery());
+            lastAuth.set(exchange.getRequestHeaders().getFirst("Authorization"));
             try {
                 Thread.sleep(delayMs);
             } catch (InterruptedException e) {
@@ -247,6 +251,50 @@ class StallReadinessClientTest {
 
         assertEquals(State.READY, c.check(STALL).state());
         assertEquals(2, calls.get());
+    }
+
+    // gateway-customer#317: a sale is asked with its unit and amount, and the shared token, so
+    // purchase-issuer answers for this amount. The bare check sends neither.
+    @Test
+    void aSaleIsAskedWithItsUnitAmountAndToken() {
+        StallReadinessClient c = new StallReadinessClient("http://127.0.0.1:" + server.getAddress().getPort(),
+                "shared-token", Duration.ofMillis(300), Duration.ofSeconds(30), clock);
+
+        assertEquals(State.READY, c.checkSale(STALL, "gbp", 2500L).state());
+        assertEquals("/api/v1/card-sales/ready/" + STALL, lastPath.get());
+        assertEquals("unit=GBP&amount=2500", lastQuery.get());
+        assertEquals("Bearer shared-token", lastAuth.get());
+
+        c.check(OTHER);
+        assertNull(lastQuery.get());
+        assertNull(lastAuth.get());
+    }
+
+    // A malformed currency is left out rather than sent; purchase-issuer then reads the record's.
+    @Test
+    void aSaleWithAnOddCurrencySendsTheAmountOnly() {
+        client().checkSale(STALL, "pounds", 100L);
+        assertEquals("amount=100", lastQuery.get());
+        // No token configured: no Authorization header, never "Bearer ".
+        assertNull(lastAuth.get());
+    }
+
+    // A sale's answer depends on its amount and the stall's last sale: never cached, either way.
+    @Test
+    void aSaleIsNeverCached() {
+        StallReadinessClient c = client();
+        body = "{\"ready\":false,\"reason\":\"sales_limit_exceeded\"}";
+        Readiness first = c.checkSale(STALL, "gbp", 9000L);
+        assertEquals(State.NOT_READY, first.state());
+        assertEquals(StallReadinessClient.SALES_LIMIT_EXCEEDED, first.reason());
+        assertTrue(StallReadinessClient.isSalesLimit(first.reason()));
+
+        body = "{\"ready\":true}";
+        assertEquals(State.READY, c.checkSale(STALL, "gbp", 100L).state());
+        assertEquals(2, calls.get());
+        // Nor does it fill the bare check's cache.
+        assertEquals(State.READY, c.check(STALL).state());
+        assertEquals(3, calls.get());
     }
 
     private static final class MutableClock extends Clock {

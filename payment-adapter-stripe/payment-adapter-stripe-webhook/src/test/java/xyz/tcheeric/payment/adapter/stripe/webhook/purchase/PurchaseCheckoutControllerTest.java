@@ -14,8 +14,10 @@ import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripeCheckoutSession;
 import xyz.tcheeric.payment.adapter.stripe.gateway.service.StripeCheckoutService;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -43,7 +45,7 @@ class PurchaseCheckoutControllerTest {
         accounts = mock(ConnectedStripeAccountRepository.class);
         checkout = mock(StripeCheckoutService.class);
         readiness = mock(StallReadinessClient.class);
-        when(readiness.check(STALL)).thenReturn(StallReadinessClient.Readiness.ready());
+        when(readiness.checkSale(eq(STALL), anyString(), anyLong())).thenReturn(StallReadinessClient.Readiness.ready());
         controller = new PurchaseCheckoutController(accounts, checkout, readiness);
         ReflectionTestUtils.setField(controller, "maxAmountMinor", 1_000_000L);
         ConnectedStripeAccount account = mock(ConnectedStripeAccount.class);
@@ -120,7 +122,37 @@ class PurchaseCheckoutControllerTest {
                 new PurchaseCheckoutController.PurchaseRequest(STALL, 2500L, BUYER));
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        verify(readiness).check(STALL);
+        // Asked for this sale: the account's currency and the amount (gateway-customer#317).
+        verify(readiness).checkSale(STALL, "gbp", 2500L);
+    }
+
+    // gateway-customer#317: a Free stall at its allowance, or one this amount would take past it, is
+    // a 409 with the buyer's words and the code, a sales-limit metric, and Stripe is never called.
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            StallReadinessClient.SALES_LIMIT_REACHED, StallReadinessClient.SALES_LIMIT_EXCEEDED})
+    void aStallOverItsFreeAllowanceIsA409AndNoSession(String reason) {
+        when(readiness.checkSale(eq(STALL), anyString(), anyLong()))
+                .thenReturn(StallReadinessClient.Readiness.notReady(reason));
+
+        ResponseEntity<?> response = controller.start(
+                new PurchaseCheckoutController.PurchaseRequest(STALL, 2500L, BUYER));
+
+        assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
+        assertEquals(Map.of("error", PurchaseCheckoutController.salesLimitMessage(reason), "reason", reason),
+                response.getBody());
+        verify(checkout, never()).createPurchaseSession(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    // The two codes read differently: "no sales left" is not "try a smaller amount".
+    @Test
+    void theSalesLimitMessagesSayWhatTheBuyerCanDo() {
+        assertTrue(PurchaseCheckoutController.salesLimitMessage(StallReadinessClient.SALES_LIMIT_REACHED)
+                .contains("reached its sales limit"));
+        assertTrue(PurchaseCheckoutController.salesLimitMessage(StallReadinessClient.SALES_LIMIT_EXCEEDED)
+                .contains("smaller amount"));
+        assertTrue(PurchaseCheckoutController.SALES_LIMIT_REACHED.endsWith("Nothing was charged."));
+        assertTrue(PurchaseCheckoutController.SALES_LIMIT_EXCEEDED.endsWith("Nothing was charged."));
     }
 
     // payment-adapter#293: every not-ready reason purchase-issuer reports is a 409 naming it,
@@ -130,7 +162,8 @@ class PurchaseCheckoutControllerTest {
             StallReadinessClient.NOT_ENROLLED,
             "validity_never_expires", "validity_outlives_delegation", "validity_unknown"})
     void aNotReadyStallIsA409WithItsReasonAndNoSession(String reason) {
-        when(readiness.check(STALL)).thenReturn(StallReadinessClient.Readiness.notReady(reason));
+        when(readiness.checkSale(eq(STALL), anyString(), anyLong()))
+                .thenReturn(StallReadinessClient.Readiness.notReady(reason));
 
         ResponseEntity<?> response = controller.start(
                 new PurchaseCheckoutController.PurchaseRequest(STALL, 2500L, BUYER));
@@ -144,7 +177,8 @@ class PurchaseCheckoutControllerTest {
     // fails CLOSED with a 503, and Stripe is never called.
     @Test
     void unknownReadinessIsA503AndNoSession() {
-        when(readiness.check(STALL)).thenReturn(StallReadinessClient.Readiness.unknown());
+        when(readiness.checkSale(eq(STALL), anyString(), anyLong()))
+                .thenReturn(StallReadinessClient.Readiness.unknown());
 
         ResponseEntity<?> response = controller.start(
                 new PurchaseCheckoutController.PurchaseRequest(STALL, 2500L, BUYER));
@@ -164,6 +198,7 @@ class PurchaseCheckoutControllerTest {
 
         controller.start(new PurchaseCheckoutController.PurchaseRequest(STALL, 2500L, BUYER));
 
+        verify(readiness, never()).checkSale(any(), any(), anyLong());
         verify(readiness, never()).check(any());
     }
 

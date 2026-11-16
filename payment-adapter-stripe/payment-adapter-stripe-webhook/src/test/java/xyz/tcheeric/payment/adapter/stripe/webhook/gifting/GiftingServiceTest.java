@@ -88,6 +88,8 @@ class GiftingServiceTest {
         when(accounts.findByMerchantPubkey(STALL)).thenReturn(Optional.of(account));
         readiness = mock(StallReadinessClient.class);
         when(readiness.check(STALL)).thenReturn(StallReadinessClient.Readiness.ready());
+        when(readiness.checkSale(eq(STALL), anyString(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(StallReadinessClient.Readiness.ready());
         checkout = mock(StripeCheckoutService.class);
         when(checkout.createPurchaseSession(anyString(), anyInt(), anyString(), anyString(), anyString(), any(), any(), any(), any()))
                 .thenReturn(StripeCheckoutSession.builder().sessionId("cs_1").sessionUrl("https://checkout.stripe.com/c/cs_1").build());
@@ -459,8 +461,36 @@ class GiftingServiceTest {
 
     @Test
     void readinessFailsClosed() {
-        when(readiness.check(STALL)).thenReturn(StallReadinessClient.Readiness.unknown());
+        when(readiness.checkSale(eq(STALL), anyString(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(StallReadinessClient.Readiness.unknown());
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, service.create(handle("bob@example.com"), null).status());
+    }
+
+    // gateway-customer#317: a Free stall without the allowance for this gift is refused at draft,
+    // asked for the stall's currency and the gift's amount, with the buyer's words.
+    @Test
+    void aStallOverItsFreeAllowanceIsRefusedAtDraft() {
+        when(readiness.checkSale(eq(STALL), anyString(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(StallReadinessClient.Readiness.notReady(StallReadinessClient.SALES_LIMIT_EXCEEDED));
+        GiftingService.Answer a = service.create(handle("bob@example.com"), null);
+        assertEquals(HttpStatus.CONFLICT, a.status());
+        assertEquals(xyz.tcheeric.payment.adapter.stripe.webhook.purchase.PurchaseCheckoutController.SALES_LIMIT_EXCEEDED,
+                error(a));
+        verify(readiness).checkSale(eq(STALL), eq("eur"), org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    // And again at pay: a stall that sold out between draft and pay is refused before Stripe.
+    @Test
+    void aStallThatReachesItsAllowanceAfterTheDraftIsRefusedAtPay() {
+        UUID id = created(service.create(handle("bob@example.com"), null));
+        when(readiness.checkSale(eq(STALL), anyString(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(StallReadinessClient.Readiness.notReady(StallReadinessClient.SALES_LIMIT_REACHED));
+        GiftingService.Answer a = service.pay(id, LINK);
+        assertEquals(HttpStatus.CONFLICT, a.status());
+        assertEquals(xyz.tcheeric.payment.adapter.stripe.webhook.purchase.PurchaseCheckoutController.SALES_LIMIT_REACHED,
+                error(a));
+        verify(checkout, never()).createPurchaseSession(anyString(), anyInt(), anyString(), anyString(), anyString(),
+                any(), any(), any(), any());
     }
 
     @Test
