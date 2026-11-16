@@ -22,6 +22,15 @@ public class StripeConnectConfig {
         return new StripeSdkConnectClient(gatewayProperties);
     }
 
+    @Bean
+    xyz.tcheeric.payment.adapter.stripe.connect.PaymentReferenceVerifier paymentReferenceVerifier(
+            xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccountRepository accounts,
+            xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseRepository purchases,
+            StripeConnectClient stripeConnectClient) {
+        return new xyz.tcheeric.payment.adapter.stripe.connect.PaymentReferenceVerifier(
+                accounts, purchases, stripeConnectClient);
+    }
+
     /**
      * Connect without the gateway is a stall that can be paid and cannot take
      * money. Refuse to start rather than ship it.

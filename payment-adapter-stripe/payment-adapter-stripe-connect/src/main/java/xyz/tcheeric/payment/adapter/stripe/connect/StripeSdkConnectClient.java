@@ -169,6 +169,34 @@ public class StripeSdkConnectClient implements StripeConnectClient {
         }
     }
 
+    @Override
+    public java.util.Optional<PaymentIntentSnapshot> retrievePaymentIntent(String stripeAccountId,
+                                                                          String paymentIntentId) {
+        try {
+            com.stripe.model.PaymentIntent intent = com.stripe.model.PaymentIntent.retrieve(
+                    paymentIntentId,
+                    gatewayProperties.requestOptions()
+                            .setApiKey(gatewayProperties.getSecretKey())
+                            .setStripeAccount(stripeAccountId)
+                            .setConnectTimeout(5_000)
+                            .setReadTimeout(10_000)
+                            .setMaxNetworkRetries(1)
+                            .build());
+            return java.util.Optional.of(new PaymentIntentSnapshot(
+                    intent.getId(),
+                    intent.getStatus(),
+                    intent.getAmount() == null ? 0L : intent.getAmount(),
+                    intent.getCurrency(),
+                    Boolean.TRUE.equals(intent.getLivemode())));
+        } catch (StripeException e) {
+            if (e.getStatusCode() != null && e.getStatusCode() == 404) {
+                return java.util.Optional.empty();
+            }
+            logStripeFailure("retrieve_payment_intent", e);
+            throw StripeConnectException.apiError("Failed to read PaymentIntent " + paymentIntentId, e);
+        }
+    }
+
     /**
      * The per-call options every Stripe request here is made with.
      *
