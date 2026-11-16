@@ -188,8 +188,16 @@ public class PurchaseCheckoutController {
         // can answer: can a coupon actually be issued for this stall? The wallet greys Buy out for a
         // not-ready stall, but this endpoint is public, so a direct call must be refused too. Unknown
         // fails CLOSED: a buyer who pays for a coupon that cannot be issued needs a manual refund.
-        StallReadinessClient.Readiness ready = readiness.check(request.stallPubkey().toLowerCase());
+        //
+        // Asked for THIS sale (gateway-customer#317 follow-up): a Free plan stall whose remaining
+        // allowance is below the amount would have its coupon refused at the mint, after the charge.
+        StallReadinessClient.Readiness ready =
+                readiness.checkSale(request.stallPubkey().toLowerCase(), currency, request.amountMinor());
         if (ready.state() == StallReadinessClient.State.NOT_READY) {
+            if (StallReadinessClient.isSalesLimit(ready.reason())) {
+                return refused(Reason.SALES_LIMIT, currency, ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.of("error", salesLimitMessage(ready.reason()), "reason", ready.reason())));
+            }
             return refused(Reason.NOT_READY, currency, ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("error", STALL_NOT_READY, "reason", ready.reason())));
         }
@@ -246,6 +254,19 @@ public class PurchaseCheckoutController {
 
     /** What a buyer sees when purchase-issuer says the stall cannot be issued for (#293). */
     static final String STALL_NOT_READY = "this stall cannot sell vouchers by card right now";
+
+    /** What a buyer sees when the stall's Free plan has no sales left (gateway-customer#317). */
+    public static final String SALES_LIMIT_REACHED =
+            "This stall has reached its sales limit on the Free plan and can't sell vouchers right now. Nothing was charged.";
+
+    /** What a buyer sees when this amount would take the stall past its Free plan allowance. */
+    public static final String SALES_LIMIT_EXCEEDED =
+            "This amount is more than this stall can sell on the Free plan. Try a smaller amount. Nothing was charged.";
+
+    /** The buyer's words for a sales-limit code; shared with the gifting site. */
+    public static String salesLimitMessage(String reason) {
+        return StallReadinessClient.SALES_LIMIT_EXCEEDED.equals(reason) ? SALES_LIMIT_EXCEEDED : SALES_LIMIT_REACHED;
+    }
 
     /** What a buyer sees when readiness could not be checked (#293). Fail closed. */
     static final String CARD_SALES_UNAVAILABLE = "card sales temporarily unavailable, try again shortly";

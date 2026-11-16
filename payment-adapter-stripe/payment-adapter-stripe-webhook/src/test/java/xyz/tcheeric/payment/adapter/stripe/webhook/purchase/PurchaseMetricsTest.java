@@ -178,6 +178,9 @@ class PurchaseMetricsTest {
         StallReadinessClient readiness = mock(StallReadinessClient.class);
         when(readiness.check(org.mockito.ArgumentMatchers.anyString()))
                 .thenReturn(StallReadinessClient.Readiness.ready());
+        when(readiness.checkSale(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(StallReadinessClient.Readiness.ready());
         return readiness;
     }
 }

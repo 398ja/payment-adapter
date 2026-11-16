@@ -120,7 +120,8 @@ public class PurchaseConfiguration {
      */
     @Bean
     public StallReadinessClient stallReadinessClient(org.springframework.core.env.Environment env) {
-        return new StallReadinessClient(issuerBaseUrl(env), Duration.ofMillis(issuerTimeoutMs),
+        // The issuer's own token, so it answers readiness for one amount (gateway-customer#317).
+        return new StallReadinessClient(issuerBaseUrl(env), apiToken, Duration.ofMillis(issuerTimeoutMs),
                 Duration.ofSeconds(issuerReadyCacheSeconds), java.time.Clock.systemUTC());
     }
 

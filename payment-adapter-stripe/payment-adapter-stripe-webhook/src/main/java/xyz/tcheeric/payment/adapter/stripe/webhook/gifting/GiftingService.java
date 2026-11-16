@@ -251,7 +251,7 @@ public class GiftingService {
         String buyerEmail = givenEmail.orElse(null);
 
         // Stall checks: the same refusals, in the same order, as a wallet card purchase.
-        Optional<Answer> refused = stallRefusal(stall, req.currency());
+        Optional<Answer> refused = stallRefusal(stall, req.currency(), req.amountMinor());
         if (refused.isPresent()) {
             return refused.get();
         }
@@ -419,7 +419,7 @@ public class GiftingService {
         if (d.isExpired(clock.instant())) {
             return Answer.error(HttpStatus.GONE, DRAFT_EXPIRED);
         }
-        Optional<Answer> refused = stallRefusal(d.getStallPubkey(), d.getCurrency());
+        Optional<Answer> refused = stallRefusal(d.getStallPubkey(), d.getCurrency(), d.getAmountMinor());
         if (refused.isPresent()) {
             return refused.get();
         }
@@ -574,8 +574,12 @@ public class GiftingService {
         }
     }
 
-    /** The checks every wallet card purchase makes, plus the draft's own currency against the stall's. */
-    private Optional<Answer> stallRefusal(String stall, String currency) {
+    /**
+     * The checks every wallet card purchase makes, plus the draft's own currency against the stall's.
+     * Readiness is asked for this amount, so a Free plan stall without the allowance left for it is
+     * refused before the buyer pays (gateway-customer#317 follow-up), at draft and again at pay.
+     */
+    private Optional<Answer> stallRefusal(String stall, String currency, long amountMinor) {
         Optional<ConnectedStripeAccount> found = accounts.findByMerchantPubkey(stall);
         if (found.isEmpty()) {
             return Optional.of(Answer.error(HttpStatus.NOT_FOUND, NOT_A_STALL_TAKING_CARDS));
@@ -591,8 +595,13 @@ public class GiftingService {
         if (!stallCurrency.trim().equalsIgnoreCase(currency.trim())) {
             return Optional.of(Answer.error(HttpStatus.CONFLICT, STALL_TERMS_CHANGED));
         }
-        StallReadinessClient.Readiness ready = readiness.check(stall);
+        StallReadinessClient.Readiness ready = readiness.checkSale(stall, stallCurrency, amountMinor);
         if (ready.state() == StallReadinessClient.State.NOT_READY) {
+            if (StallReadinessClient.isSalesLimit(ready.reason())) {
+                return Optional.of(Answer.error(HttpStatus.CONFLICT,
+                        xyz.tcheeric.payment.adapter.stripe.webhook.purchase.PurchaseCheckoutController
+                                .salesLimitMessage(ready.reason())));
+            }
             return Optional.of(Answer.error(HttpStatus.CONFLICT, STALL_NOT_READY));
         }
         if (ready.state() != StallReadinessClient.State.READY) {
