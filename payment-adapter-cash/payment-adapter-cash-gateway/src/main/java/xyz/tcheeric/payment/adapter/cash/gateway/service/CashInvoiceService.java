@@ -1,6 +1,5 @@
 package xyz.tcheeric.payment.adapter.cash.gateway.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import lombok.extern.slf4j.Slf4j;
 import nostr.base.PublicKey;
 import org.springframework.beans.factory.annotation.Value;
@@ -154,8 +153,11 @@ public class CashInvoiceService {
             String encrypted = encryptionService.encrypt(
                     payloadJson, keyPair.getPrivateKeyHex(), keyPair.getPublicKey());
             event.getEvent().setContent(encrypted);
-        } catch (JsonProcessingException e) {
-            log.warn("Failed to encrypt invoice payload, publishing unencrypted: {}", e.getMessage());
+        } catch (Exception e) {
+            // Fail closed (imani-gateway-customer#310): never publish a plaintext invoice to a relay.
+            log.warn("Failed to encrypt invoice payload for ref={}, not publishing ({})",
+                    ref, e.getClass().getSimpleName());
+            throw new IllegalStateException("Failed to encrypt cash invoice payload for ref=" + ref, e);
         }
 
         nostrClient.publish(event.getEvent(), relays);
@@ -238,8 +240,11 @@ public class CashInvoiceService {
             String encrypted = encryptionService.encrypt(
                     payloadJson, keyPair.getPrivateKeyHex(), recipientPubkey);
             receiptEvent.getEvent().setContent(encrypted);
-        } catch (JsonProcessingException e) {
-            log.warn("Failed to encrypt receipt payload: {}", e.getMessage());
+        } catch (Exception e) {
+            // Fail closed (imani-gateway-customer#310): never publish a plaintext receipt to a relay.
+            log.warn("Failed to encrypt receipt payload for ref={}, not publishing ({})",
+                    ref, e.getClass().getSimpleName());
+            throw new IllegalStateException("Failed to encrypt cash receipt payload for ref=" + ref, e);
         }
 
         List<String> relays = Arrays.asList(invoice.getRelayUrls().split(","));
