@@ -145,6 +145,15 @@ public class StripePurchase {
          * minted automatically: a dispute can still be lost (#265).
          */
         DISPUTED_BEFORE_ISSUE(true),
+        /**
+         * Paid on a stall's connected account through a Checkout Session that carries no
+         * {@code imani_env} tag, so no payment-adapter created it: a Stripe dashboard payment link,
+         * the Stripe CLI, or a deployment that does not stamp (staging 2026-11-12, CardPaidNotIssued
+         * for 44 h). None of this service's pre-charge checks ran, the stall's readiness for card
+         * sales above all, so issuing for it automatically would be a guess. Recorded, never dropped:
+         * a person refunds it or {@code retry}s it once the stall can issue. Nothing was minted.
+         */
+        UNSTAMPED_SESSION(true),
         /** Refunded after a coupon exists. Informational: refunds are not supported (#265). */
         REFUNDED_AFTER_ISSUE(false),
         /** Disputed. Informational: disputes are not supported, nothing is revoked (#265). */
