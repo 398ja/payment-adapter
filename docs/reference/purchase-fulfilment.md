@@ -262,6 +262,7 @@ never hold the issuer's power.
 |---|---|---|
 | `GET /api/v1/purchase-state/stall/{stallPubkey}` | the stall's wallet, its own sales (newest 200) | NIP-98 `Authorization: Nostr ...` signed by `stallPubkey`, `u` = one of `PURCHASE_STATE_PUBLIC_ORIGINS` + path, `method` GET, 60 s window |
 | `GET /api/v1/purchase-state/ref/{pi_...}` | gateway-customer's redeem guard | `Authorization: Bearer $PURCHASE_STATE_READ_TOKEN` (distinct from the issuer's and operator's, else 503) |
+| `GET /api/v1/purchase-state/holder/{pi_...}` | the voucher's holder (buyer wallet) | none: the `pi_` from the signed voucher is the capability; status and amounts only, rate limited |
 
 Each purchase: `voucher_id`, `ref` (the `pi_` a delegated warrant carries), `paid_minor`, `currency`,
 `refunded_amount_minor` (Stripe's cumulative total, capped at paid), `disputed`, `dispute_status`

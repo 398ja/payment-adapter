@@ -14,6 +14,9 @@
   (`PAID` | `PARTLY_REFUNDED` | `REFUNDED` | `DISPUTED`). Outside `/api/v1/purchases`, so
   `PURCHASE_API_TOKEN` reads neither, and a read token that is unset or equal to the issuer's or
   operator's token refuses every call (503). No Stripe account, session or buyer data in the answer.
+  Plus `GET /api/v1/purchase-state/holder/{pi_}` for a voucher's holder: status and amounts only
+  (no voucher id, stall or account), unauthenticated because the `pi_` inside the signed voucher is
+  the capability, rate limited per address (30 burst, 1 per 2 s), 404 alike for unknown and malformed.
 - **`charge.dispute.closed` is handled** for card purchases: `status=won` clears `disputed` (the
   voucher is spendable again), anything else records it as lost. Migration V22 adds
   `stripe_purchase.dispute_status` (OPEN | WON | LOST) and an index on `stall_pubkey`.

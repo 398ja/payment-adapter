@@ -181,4 +181,37 @@ class PurchaseStateControllerTest {
         assertEquals("DISPUTED", disputed.status());
         assertEquals(0L, disputed.backed_minor());
     }
+
+    @Test
+    void aHolderReadsOnlyStatusAndAmountsByRef() throws Exception {
+        when(purchases.findByPaymentIntentId("pi_3Abc")).thenReturn(Optional.of(purchase(1000, 300L, false)));
+
+        ResponseEntity<?> r = controller.forHolder("pi_3Abc", null);
+
+        assertEquals(200, r.getStatusCode().value());
+        PurchaseStateController.HolderState s = (PurchaseStateController.HolderState) r.getBody();
+        assertEquals("PARTLY_REFUNDED", s.status());
+        assertEquals(700L, s.backed_minor());
+        String json = MAPPER.findAndRegisterModules().writeValueAsString(s);
+        assertFalse(json.contains("8027e345") || json.contains("acct_") || json.contains("example.invalid"), json);
+    }
+
+    @Test
+    void aHolderGets404ForUnknownAndMalformedAlike() {
+        when(purchases.findByPaymentIntentId(any())).thenReturn(Optional.empty());
+        assertEquals(404, controller.forHolder("pi_nope", null).getStatusCode().value());
+        assertEquals(404, controller.forHolder("ch_nope", null).getStatusCode().value());
+    }
+
+    @Test
+    void theHolderReadIsRateLimited() {
+        when(purchases.findByPaymentIntentId(any())).thenReturn(Optional.empty());
+        int limited = 0;
+        for (int i = 0; i < 40; i++) {
+            if (controller.forHolder("pi_x", null).getStatusCode().value() == 429) {
+                limited++;
+            }
+        }
+        assertEquals(true, limited > 0);
+    }
 }

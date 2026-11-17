@@ -52,6 +52,8 @@ public class PurchaseStateController {
     private final Nip98Verifier nip98;
     private final List<String> publicOrigins;
     private final byte[] readToken;
+    private final xyz.tcheeric.payment.adapter.stripe.webhook.gifting.RateLimiter holderLimit =
+            new xyz.tcheeric.payment.adapter.stripe.webhook.gifting.RateLimiter(30, 0.5, java.time.Clock.systemUTC());
 
     @org.springframework.beans.factory.annotation.Autowired
     public PurchaseStateController(StripePurchaseRepository purchases,
@@ -136,6 +138,36 @@ public class PurchaseStateController {
         return purchases.findByPaymentIntentId(ref)
                 .<ResponseEntity<?>>map(p -> ResponseEntity.ok(PurchaseState.of(p)))
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * What a voucher's HOLDER may know about its own payment (imani-wallet#277): status and amounts,
+     * nothing else (no voucher id, no stall, no account). The {@code pi_} is the capability: it is
+     * carried only inside the signed voucher and on the stall's Stripe account, and is not guessable.
+     * Rate limited per client address. An unknown ref and a malformed one both answer 404, so the
+     * route cannot be used to tell the two apart.
+     */
+    @GetMapping("/holder/{ref}")
+    public ResponseEntity<?> forHolder(@PathVariable String ref, jakarta.servlet.http.HttpServletRequest http) {
+        String ip = http == null || http.getRemoteAddr() == null ? "unknown" : http.getRemoteAddr();
+        if (!holderLimit.tryAcquire(ip)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
+        }
+        if (ref == null || !PI.matcher(ref).matches()) {
+            return ResponseEntity.notFound().build();
+        }
+        return purchases.findByPaymentIntentId(ref)
+                .<ResponseEntity<?>>map(p -> ResponseEntity.ok(HolderState.of(PurchaseState.of(p))))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** The holder's view: no voucher id, ref, dispute detail or creation date. */
+    public record HolderState(Long paid_minor, String currency, long refunded_amount_minor, boolean disputed,
+                              long backed_minor, String status, Instant reversed_at) {
+        static HolderState of(PurchaseState s) {
+            return new HolderState(s.paid_minor(), s.currency(), s.refunded_amount_minor(), s.disputed(),
+                    s.backed_minor(), s.status(), s.reversed_at());
+        }
     }
 
     private Optional<String> signerFor(String authorization, String path) {
