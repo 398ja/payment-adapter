@@ -389,8 +389,11 @@ class PurchaseControllerTest {
     @Test
     void exposesNoPerStallReadBehindTheIssuerToken() {
         // Review of #278: a per-stall purchase listing behind PURCHASE_API_TOKEN would push the token
-        // that can claim, discharge and fail every purchase out to a gateway or wallet. Re-add with
-        // imani-wallet#277, behind stall-scoped auth, and change this test deliberately.
+        // that can claim, discharge and fail every purchase out to a gateway or wallet.
+        // imani-wallet#277 (changed deliberately): the per-stall and per-ref reads now exist, in
+        // PurchaseStateController, under /api/v1/purchase-state, outside the issuer token's prefix
+        // and behind their own credentials (NIP-98 as the stall, a separate read-only token). This
+        // controller still has no per-stall read.
         java.util.List<String> gets = java.util.Arrays.stream(PurchaseController.class.getDeclaredMethods())
                 .map(m -> m.getAnnotation(org.springframework.web.bind.annotation.GetMapping.class))
                 .filter(java.util.Objects::nonNull)
@@ -399,5 +402,10 @@ class PurchaseControllerTest {
         // #273 adds GET /attention: the issuer/operator's own cross-stall queue (same scope as
         // /owed, same token), not a per-stall read a wallet or gateway would need the token for.
         assertEquals(java.util.Set.of("/owed", "/attention"), new java.util.HashSet<>(gets));
+        String statePrefix = PurchaseStateController.class
+                .getAnnotation(org.springframework.web.bind.annotation.RequestMapping.class).value()[0];
+        assertEquals("/api/v1/purchase-state", statePrefix);
+        assertEquals(false, (statePrefix + "/").startsWith(PurchaseApiTokenFilter.PROTECTED_PREFIX + "/"),
+                "the refund-state read must not sit under the issuer token's prefix");
     }
 }

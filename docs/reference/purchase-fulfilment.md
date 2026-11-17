@@ -252,3 +252,22 @@ secret is logged.
 **Async payment methods.** A session that completes `unpaid` (Bacs, SEPA) and is
 paid days later is outside the overlap by then: if its `async_payment_succeeded`
 webhook is also lost, this reconciler does not find it (follow-up).
+
+## Refund and dispute state (imani-wallet#277)
+
+Read-only, and outside `/api/v1/purchases`, so the issuer's token never reads it and its readers
+never hold the issuer's power.
+
+| Route | Who | Credential |
+|---|---|---|
+| `GET /api/v1/purchase-state/stall/{stallPubkey}` | the stall's wallet, its own sales (newest 200) | NIP-98 `Authorization: Nostr ...` signed by `stallPubkey`, `u` = one of `PURCHASE_STATE_PUBLIC_ORIGINS` + path, `method` GET, 60 s window |
+| `GET /api/v1/purchase-state/ref/{pi_...}` | gateway-customer's redeem guard | `Authorization: Bearer $PURCHASE_STATE_READ_TOKEN` (distinct from the issuer's and operator's, else 503) |
+| `GET /api/v1/purchase-state/holder/{pi_...}` | the voucher's holder (buyer wallet) | none: the `pi_` from the signed voucher is the capability; status and amounts only, rate limited |
+
+Each purchase: `voucher_id`, `ref` (the `pi_` a delegated warrant carries), `paid_minor`, `currency`,
+`refunded_amount_minor` (Stripe's cumulative total, capped at paid), `disputed`, `dispute_status`
+(`OPEN` | `WON` | `LOST` | null), `reversed_at`, `backed_minor` (paid - refunded, 0 while disputed),
+`status` (`PAID` | `PARTLY_REFUNDED` | `REFUNDED` | `DISPUTED`), `created_at`.
+
+`charge.dispute.closed` with `status=won` clears `disputed`, so the voucher is backed again. A won
+dispute is final: a later "lost" for the same purchase changes nothing.

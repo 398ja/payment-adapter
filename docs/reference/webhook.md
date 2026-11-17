@@ -140,6 +140,7 @@ verification uses the `Stripe-Signature` header and the configured
 - `checkout.session.async_payment_succeeded`
 - `charge.refunded`
 - `charge.dispute.created`
+- `charge.dispute.closed` (card purchases: `won` clears the dispute, imani-wallet#277)
 
 ### Validation Rules
 

@@ -23,7 +23,9 @@ public enum StripePaymentEvent {
     /** Refund (#278): before issue the row is REFUNDED, after issue the facts are recorded. */
     CHARGE_REFUNDED("charge.refunded"),
     /** Dispute (#278). */
-    CHARGE_DISPUTE_CREATED("charge.dispute.created");
+    CHARGE_DISPUTE_CREATED("charge.dispute.created"),
+    /** A dispute ended (imani-wallet#277): won restores the voucher, anything else keeps it blocked. */
+    CHARGE_DISPUTE_CLOSED("charge.dispute.closed");
 
     private final String type;
 

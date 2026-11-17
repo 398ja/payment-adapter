@@ -166,7 +166,8 @@ public class GiftingController {
     }
 
     /** The edge puts the client first in X-Forwarded-For; without one, the socket's address. */
-    static String clientIp(HttpServletRequest http) {
+    /** The client behind the edge: the first X-Forwarded-For hop, else the remote address. */
+    public static String clientIp(HttpServletRequest http) {
         String xff = http.getHeader("X-Forwarded-For");
         if (xff != null && !xff.isBlank()) {
             return xff.split(",")[0].trim();

@@ -133,4 +133,25 @@ class StripePurchaseRefundWebhookTest {
 
         assertThrows(WebhookProcessingException.class, () -> handler.handle(reversal("charge.refunded")));
     }
+
+    @Test
+    void aWonDisputeClosingRestoresThePurchase() throws Exception {
+        // imani-wallet#277: charge.dispute.closed with status=won tells the listener "won".
+        handler.setPurchaseListener(purchaseListener);
+
+        WebhookResult result = handler.handle(reversal("charge.dispute.closed").toBuilder().status("won").build());
+
+        verify(purchaseListener).onPurchaseDisputeClosed("evt_charge.dispute.closed", "pi_purchase", true);
+        assertTrue(result.processed());
+    }
+
+    @Test
+    void aLostDisputeClosingIsRecordedAsLost() throws Exception {
+        handler.setPurchaseListener(purchaseListener);
+
+        handler.handle(reversal("charge.dispute.closed").toBuilder().status("lost").build());
+
+        verify(purchaseListener).onPurchaseDisputeClosed("evt_charge.dispute.closed", "pi_purchase", false);
+        verifyNoInteractions(paymentReferenceRepository);
+    }
 }

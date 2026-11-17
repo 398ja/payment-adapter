@@ -360,6 +360,28 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
     }
 
     /**
+     * A dispute ended (imani-wallet#277). Only a card purchase acts on it: {@code status=won}
+     * restores the voucher's backing, any other closing status (lost, warning_closed...) records it
+     * as lost. A mint-quote payment has nothing to restore, so its closing is acknowledged.
+     */
+    private WebhookResult handleDisputeClosed(StripeWebhookPayload payload,
+                                              ProcessedStripeWebhookEvent eventRecord) throws WebhookProcessingException {
+        if (!isPurchase(payload) || purchaseListener == null) {
+            return acknowledge(payload, eventRecord);
+        }
+        boolean won = "won".equalsIgnoreCase(payload.getStatus());
+        try {
+            purchaseListener.onPurchaseDisputeClosed(payload.getEventId(), payload.getPaymentIntentId(), won);
+        } catch (Exception e) {
+            throw new WebhookProcessingException(
+                    "Purchase listener could not record " + payload.getEventType() + " " + payload.getEventId(), e);
+        }
+        markProcessed(eventRecord);
+        return new WebhookResult(true, payload.getPaymentIntentId(), State.PAID,
+                Map.of("eventType", payload.getEventType(), "purchase", true, "won", won));
+    }
+
+    /**
      * Exhaustive over {@link StripePaymentEvent} (#286): a type acted on here is a type the webhook
      * subscription check asks Stripe for. Anything else is acknowledged and ignored.
      */
@@ -374,6 +396,7 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
                     handleSuccessfulCheckout(payload, eventRecord);
             case CHARGE_REFUNDED -> handleChargeRefunded(payload, eventRecord);
             case CHARGE_DISPUTE_CREATED -> handleChargeDisputed(payload, eventRecord);
+            case CHARGE_DISPUTE_CLOSED -> handleDisputeClosed(payload, eventRecord);
             // Not acted on, but the card's unhappy endings belong in the count.
             case CHECKOUT_SESSION_ASYNC_PAYMENT_FAILED, PAYMENT_INTENT_PAYMENT_FAILED -> {
                 recordFailed(payload, Reason.CARD_DECLINED);
@@ -692,7 +715,7 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
 
     private String resolveChargeId(String eventType, JsonNode eventObject) {
         return switch (eventType) {
-            case "charge.refunded", "charge.dispute.created" -> optionalText(eventObject.path("id"));
+            case "charge.refunded", "charge.dispute.created", "charge.dispute.closed" -> optionalText(eventObject.path("id"));
             default -> optionalText(eventObject.path("latest_charge"));
         };
     }

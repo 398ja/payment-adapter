@@ -130,4 +130,30 @@ class RecordingPurchaseReversalTest {
 
         verify(purchases, never()).save(any());
     }
+
+    @Test
+    void aDisputeIsOpenThenAWinRestoresTheBacking() {
+        // imani-wallet#277: open blocks, won clears the flag, and a late "lost" never undoes a win.
+        row.setVoucherId("v1");
+        row.setStatus(StripePurchase.Status.DISCHARGED);
+        listener.onPurchaseReversed(new ReversedPurchase("evt_d", "pi_1", "ch_1", "acct_1", null, 500L, true));
+        assertTrue(row.isDisputed());
+        assertEquals(StripePurchase.DisputeStatus.OPEN, row.getDisputeStatus());
+
+        listener.onPurchaseDisputeClosed("evt_c", "pi_1", true);
+        assertEquals(false, row.isDisputed());
+        assertEquals(StripePurchase.DisputeStatus.WON, row.getDisputeStatus());
+
+        listener.onPurchaseDisputeClosed("evt_c2", "pi_1", false);
+        assertEquals(false, row.isDisputed());
+        assertEquals(StripePurchase.DisputeStatus.WON, row.getDisputeStatus());
+    }
+
+    @Test
+    void aLostDisputeStaysBlocked() {
+        listener.onPurchaseReversed(new ReversedPurchase("evt_d", "pi_1", "ch_1", "acct_1", null, 500L, true));
+        listener.onPurchaseDisputeClosed("evt_c", "pi_1", false);
+        assertTrue(row.isDisputed());
+        assertEquals(StripePurchase.DisputeStatus.LOST, row.getDisputeStatus());
+    }
 }
