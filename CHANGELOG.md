@@ -4,7 +4,6 @@
 
 ### Added
 
-<<<<<<< HEAD
 - **Refund and dispute state is readable, with its own credentials** (imani-wallet#277,
   payment-adapter#265). New read-only `GET /api/v1/purchase-state/stall/{stallPubkey}` (NIP-98
   signed by that stall key for `GET <origin>/api/v1/purchase-state/stall/{stallPubkey}`, origins
@@ -23,7 +22,6 @@
   `stripe_purchase.dispute_status` (OPEN | WON | LOST) and an index on `stall_pubkey`.
   **Consumers:** the Connect payments endpoint must subscribe to `charge.dispute.closed`; the
   subscription check now requires it.
-=======
 - **Gift data retention (imani-wallet#570).** `POST /api/v1/purchases/{eventId}/scrub?all=true`
   now also nulls the purchase's Purchase Draft personal fields (`buyer_email`, `recipient_email`,
   `message`, `sender_name`, `sealed_secret`), and answers 503 on a concurrent write so the issuer
@@ -35,7 +33,6 @@
   drafts whose purchase was already scrubbed lose their copy (so the first run is the backfill of
   existing rows). Amount, currency, stall, timestamps and Stripe ids are kept. No migration.
   **Consumers:** purchase-issuer with imani-wallet#570 calls `scrub?all=true` when a gift is done.
->>>>>>> origin/master
 
 ### Fixed
 
