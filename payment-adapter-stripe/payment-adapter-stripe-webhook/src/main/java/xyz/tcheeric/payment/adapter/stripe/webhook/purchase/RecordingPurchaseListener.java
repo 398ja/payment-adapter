@@ -327,6 +327,7 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
         StripePurchase row = found.get();
         if (reversal.disputed()) {
             row.setDisputed(true);
+            row.setDisputeStatus(StripePurchase.DisputeStatus.OPEN);
         } else {
             // Stripe's amount_refunded is cumulative, so the larger figure is the truth whatever
             // order the events arrive in, and a redelivery changes nothing.
@@ -345,6 +346,35 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
         log.info("Purchase {} {}: status {}, refunded {} of {}, disputed {}",
                 row.getEventId(), reversal.disputed() ? "disputed" : "refunded", row.getStatus(),
                 row.getRefundedAmountMinor(), row.getAmountMinor(), row.isDisputed());
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Won: {@code disputed} goes false and the voucher is spendable again (imani-wallet#277).
+     * Lost: it stays true. A won dispute is final, so a late or replayed "lost" never overwrites it.
+     */
+    @Override
+    @Transactional
+    public void onPurchaseDisputeClosed(String eventId, String paymentIntentId, boolean won) {
+        var found = paymentIntentId == null
+                ? java.util.Optional.<StripePurchase>empty()
+                : purchases.findByPaymentIntentId(paymentIntentId);
+        if (found.isEmpty()) {
+            log.warn("Dispute closing {} for payment intent {} matches no recorded purchase; acknowledged",
+                    eventId, paymentIntentId);
+            return;
+        }
+        StripePurchase row = found.get();
+        if (row.getDisputeStatus() == StripePurchase.DisputeStatus.WON) {
+            return;
+        }
+        row.setDisputeStatus(won ? StripePurchase.DisputeStatus.WON : StripePurchase.DisputeStatus.LOST);
+        row.setDisputed(!won);
+        row.setReversedAt(Instant.now());
+        row.setUpdatedAt(Instant.now());
+        purchases.save(row);
+        log.info("Purchase {} dispute closed: {}", row.getEventId(), won ? "won" : "lost");
     }
 
     /**

@@ -328,10 +328,26 @@ public class StripePurchase {
     private Long refundedAmountMinor;
 
     /**
-     * The buyer opened a dispute. Recorded only: nothing acts on it (#265).
+     * The dispute currently removes the backing: true while a dispute is open or after it was lost,
+     * false again once the stall wins it (imani-wallet#277). The redeem guard reads this.
      */
     @Column(name = "disputed", nullable = false)
     private boolean disputed;
+
+    /** How the latest dispute stands, or null when never disputed (V22, imani-wallet#277). */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "dispute_status", length = 8)
+    private DisputeStatus disputeStatus;
+
+    /** A dispute's state as Stripe reports it, reduced to what changes the backing. */
+    public enum DisputeStatus {
+        /** {@code charge.dispute.created}: not spendable while open. */
+        OPEN,
+        /** {@code charge.dispute.closed} with {@code status=won}: the backing is restored. */
+        WON,
+        /** Closed any other way: the money is gone, as for a refund. */
+        LOST
+    }
 
     /** When the latest refund or dispute was recorded. */
     @Column(name = "reversed_at")

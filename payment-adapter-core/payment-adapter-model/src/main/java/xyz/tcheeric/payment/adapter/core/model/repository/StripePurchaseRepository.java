@@ -44,6 +44,12 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
      */
     Optional<StripePurchase> findByPaymentIntentId(String paymentIntentId);
 
+    /**
+     * One stall's most recent purchases, for its refund-state read (imani-wallet#277). Bounded: the
+     * wallet shows recent sales, and an older voucher is looked up by its own reference.
+     */
+    List<StripePurchase> findTop200ByStallPubkeyOrderByCreatedAtDesc(String stallPubkey);
+
     /** By the gift's Purchase Draft, which is the only id the issuer's gift tracker holds (V21). */
     Optional<StripePurchase> findFirstByDraftId(UUID draftId);
 

@@ -26,7 +26,13 @@ class PaymentsWebhookEndpointTest {
     /** An event the handler only acknowledges is not required: subscribing to it would change nothing. */
     @Test
     void anEventTheHandlerIgnoresIsNotRequired() {
-        assertThat(StripePaymentEvent.fromType("charge.dispute.closed")).isEmpty();
-        assertThat(StripePaymentEvent.types()).doesNotContain("charge.dispute.closed");
+        assertThat(StripePaymentEvent.fromType("charge.dispute.funds_withdrawn")).isEmpty();
+        assertThat(StripePaymentEvent.types()).doesNotContain("charge.dispute.funds_withdrawn");
+    }
+
+    /** imani-wallet#277: a won dispute restores the voucher, so its closing must be delivered. */
+    @Test
+    void theDisputeClosingIsRequired() {
+        assertThat(StripePaymentEvent.types()).contains("charge.dispute.closed");
     }
 }

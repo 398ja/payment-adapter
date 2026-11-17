@@ -64,6 +64,15 @@ public interface StripePurchaseListener {
     }
 
     /**
+     * A dispute on a purchase's charge ended (imani-wallet#277). {@code won} restores the backing;
+     * a loss keeps the purchase blocked. Idempotent. The default does nothing.
+     *
+     * @throws Exception to refuse the event so Stripe redelivers it
+     */
+    default void onPurchaseDisputeClosed(String eventId, String paymentIntentId, boolean won) throws Exception {
+    }
+
+    /**
      * A refund or a dispute on a purchase's charge.
      *
      * @param eventId             Stripe's event id

@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Refund and dispute state is readable, with its own credentials** (imani-wallet#277,
+  payment-adapter#265). New read-only `GET /api/v1/purchase-state/stall/{stallPubkey}` (NIP-98
+  signed by that stall key for `GET <origin>/api/v1/purchase-state/stall/{stallPubkey}`, origins
+  from `PURCHASE_STATE_PUBLIC_ORIGINS`, comma separated) and `GET /api/v1/purchase-state/ref/{pi_}`
+  (`Authorization: Bearer $PURCHASE_STATE_READ_TOKEN`, for the gateway's redeem guard). Each answers
+  `voucher_id`, `ref`, `paid_minor`, `currency`, `refunded_amount_minor`, `disputed`,
+  `dispute_status`, `reversed_at`, `backed_minor` (paid - refunded, 0 while disputed) and `status`
+  (`PAID` | `PARTLY_REFUNDED` | `REFUNDED` | `DISPUTED`). Outside `/api/v1/purchases`, so
+  `PURCHASE_API_TOKEN` reads neither, and a read token that is unset or equal to the issuer's or
+  operator's token refuses every call (503). No Stripe account, session or buyer data in the answer.
+- **`charge.dispute.closed` is handled** for card purchases: `status=won` clears `disputed` (the
+  voucher is spendable again), anything else records it as lost. Migration V22 adds
+  `stripe_purchase.dispute_status` (OPEN | WON | LOST) and an index on `stall_pubkey`.
+  **Consumers:** the Connect payments endpoint must subscribe to `charge.dispute.closed`; the
+  subscription check now requires it.
+
 ### Fixed
 
 - **A paid Checkout Session no payment-adapter created is parked, not owed** (staging 2026-11-12,
