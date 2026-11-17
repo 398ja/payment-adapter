@@ -81,7 +81,7 @@
         <mockito.version>5.24.0</mockito.version>
         <commons-lang3.version>3.17.0</commons-lang3.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
-        <commons-configuration2.version>2.11.0</commons-configuration2.version>
+        <commons-configuration2.version>2.15.1</commons-configuration2.version>
         <jackson-datatype-jsr310.version>2.17.2</jackson-datatype-jsr310.version>
 
         <!-- Maven plugin versions -->
