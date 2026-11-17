@@ -85,7 +85,7 @@
         <jackson-datatype-jsr310.version>2.17.2</jackson-datatype-jsr310.version>
 
         <!-- Maven plugin versions -->
-        <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
+        <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.5.4</maven-surefire-plugin.version>
         <maven-failsafe-plugin.version>3.5.4</maven-failsafe-plugin.version>
         <test.fork.exit.timeout.seconds>120</test.fork.exit.timeout.seconds>
