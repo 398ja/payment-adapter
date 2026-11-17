@@ -69,7 +69,7 @@
         <wiremock.version>3.9.1</wiremock.version>
         <stripe-java.version>31.4.1</stripe-java.version>
         <junit-jupiter.version>5.13.4</junit-jupiter.version>
-        <junit-platform.version>1.13.4</junit-platform.version>
+        <junit-platform.version>6.1.3</junit-platform.version>
         <jakarta-servlet-api.version>6.1.0</jakarta-servlet-api.version>
         <!-- 0.3.3: DecodeInvoiceResponse.paymentHash is read (0.3.0 @JsonIgnore'd it, so every
              RECEIVE quote lookup failed as phoenixd_lookup_failed against real phoenixd too). -->
