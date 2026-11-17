@@ -149,7 +149,11 @@ public class PurchaseStateController {
      */
     @GetMapping("/holder/{ref}")
     public ResponseEntity<?> forHolder(@PathVariable String ref, jakarta.servlet.http.HttpServletRequest http) {
-        String ip = http == null || http.getRemoteAddr() == null ? "unknown" : http.getRemoteAddr();
+        // Per client, not per edge: behind nginx the remote address is the proxy's, so the same
+        // rule as gifting (first X-Forwarded-For hop) keeps one abuser from locking everyone out.
+        String ip = http == null ? "unknown"
+                : java.util.Objects.requireNonNullElse(
+                        xyz.tcheeric.payment.adapter.stripe.webhook.gifting.GiftingController.clientIp(http), "unknown");
         if (!holderLimit.tryAcquire(ip)) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
         }

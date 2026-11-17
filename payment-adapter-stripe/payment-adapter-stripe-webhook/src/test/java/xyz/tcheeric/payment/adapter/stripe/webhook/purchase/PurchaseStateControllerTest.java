@@ -214,4 +214,24 @@ class PurchaseStateControllerTest {
         }
         assertEquals(true, limited > 0);
     }
+
+    @Test
+    void eachForwardedClientHasItsOwnBucket() {
+        // Behind the edge every request has nginx's remote address; X-Forwarded-For names the client.
+        when(purchases.findByPaymentIntentId(any())).thenReturn(Optional.empty());
+        org.springframework.mock.web.MockHttpServletRequest abuser = new org.springframework.mock.web.MockHttpServletRequest();
+        abuser.setRemoteAddr("10.0.0.2");
+        abuser.addHeader("X-Forwarded-For", "203.0.113.7, 10.0.0.2");
+        org.springframework.mock.web.MockHttpServletRequest other = new org.springframework.mock.web.MockHttpServletRequest();
+        other.setRemoteAddr("10.0.0.2");
+        other.addHeader("X-Forwarded-For", "198.51.100.9");
+        int limited = 0;
+        for (int i = 0; i < 40; i++) {
+            if (controller.forHolder("pi_x", abuser).getStatusCode().value() == 429) {
+                limited++;
+            }
+        }
+        assertEquals(true, limited > 0, "the abuser is limited");
+        assertEquals(404, controller.forHolder("pi_x", other).getStatusCode().value(), "another client is not");
+    }
 }
