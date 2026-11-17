@@ -59,6 +59,14 @@ public class PurchaseController {
     private final PurchaseDischargeService discharges;
     private final OperatorResolution resolutions;
 
+    /** imani-wallet#570: the gift's draft is scrubbed with its purchase. Absent when gifting is off. */
+    private xyz.tcheeric.payment.adapter.core.model.repository.PurchaseDraftRepository drafts;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setDrafts(xyz.tcheeric.payment.adapter.core.model.repository.PurchaseDraftRepository drafts) {
+        this.drafts = drafts;
+    }
+
     /**
      * What may be claimed, oldest first: owed rows, and rows whose claim lapsed
      * because the worker holding it died (imani-wallet#96). Listing is not
@@ -386,7 +394,8 @@ public class PurchaseController {
      * Forget a gift's secret and personal data once it is delivered (G4, #410 privacy). Idempotent.
      * {@code all=false} drops only the sealed secret (after the claim email is accepted);
      * {@code all=true} also drops the recipient's email, the message and the buyer's email
-     * (after the claim window, or a take-back).
+     * (after the claim window, or a take-back), and the same fields on the gift's Purchase Draft
+     * (imani-wallet#570), so no table keeps either address once the tracker is done.
      */
     @PostMapping("/{eventId}/scrub")
     public ResponseEntity<Void> scrub(@PathVariable String eventId,
@@ -398,14 +407,19 @@ public class PurchaseController {
         StripePurchase row = found.get();
         row.setSealedSecret(null);
         if (all) {
-            row.setRecipientEmail(null);
-            row.setGiftMessage(null);
-            row.setBuyerEmail(null);
-            row.setSenderName(null);
+            GiftDataRetention.clearPersonalFields(row);
         }
         row.setScrubbedAt(Instant.now());
         row.setUpdatedAt(Instant.now());
-        purchases.save(row);
+        try {
+            purchases.save(row);
+        } catch (OptimisticLockingFailureException e) {
+            // A concurrent writer won; the issuer retries (it keeps its row until this succeeds).
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+        if (all && drafts != null && row.getDraftId() != null) {
+            drafts.scrubPersonalFields(row.getDraftId());
+        }
         return ResponseEntity.noContent().build();
     }
 

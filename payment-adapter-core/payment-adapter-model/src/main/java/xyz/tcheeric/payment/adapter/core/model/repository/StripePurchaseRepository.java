@@ -44,6 +44,23 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
      */
     Optional<StripePurchase> findByPaymentIntentId(String paymentIntentId);
 
+    /**
+     * imani-wallet#570 backstop: gift purchases still holding personal fields long after the gift
+     * could matter. A voucher gift is judged by its purchase time ({@code voucherBefore} already
+     * allows for the claim window), a code gift by its own expiry ({@code codeBefore}, epoch
+     * seconds). Bounded per sweep, oldest first.
+     */
+    @Query("select p from StripePurchase p where p.deliveryKind is not null"
+            + " and (p.buyerEmail is not null or p.recipientEmail is not null or p.giftMessage is not null"
+            + " or p.senderName is not null or p.sealedSecret is not null)"
+            + " and ((p.giftKind = 'code' and p.codeExpiresAt < :codeBefore)"
+            + " or ((p.giftKind is null or p.giftKind <> 'code') and p.createdAt < :voucherBefore))"
+            + " order by p.createdAt asc")
+    List<StripePurchase> findPersonalDataPastBackstop(
+            @Param("voucherBefore") Instant voucherBefore,
+            @Param("codeBefore") long codeBefore,
+            org.springframework.data.domain.Pageable page);
+
     /** By the gift's Purchase Draft, which is the only id the issuer's gift tracker holds (V21). */
     Optional<StripePurchase> findFirstByDraftId(UUID draftId);
 

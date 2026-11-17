@@ -191,6 +191,16 @@ public class PurchaseConfiguration {
         return new NeedsAttentionGauge(purchases, registry.getIfAvailable());
     }
 
+    /** imani-wallet#570: abandoned drafts, the 400-day backstop and the backfill. */
+    @Bean
+    public GiftDataRetention giftDataRetention(StripePurchaseRepository purchases,
+            ObjectProvider<xyz.tcheeric.payment.adapter.core.model.repository.PurchaseDraftRepository> drafts,
+            @org.springframework.beans.factory.annotation.Value("${purchase.retention.abandoned-draft-days:30}") long abandonedDays,
+            @org.springframework.beans.factory.annotation.Value("${purchase.retention.backstop-days:400}") long backstopDays) {
+        return new GiftDataRetention(purchases, drafts.getIfAvailable(), Duration.ofDays(abandonedDays),
+                Duration.ofDays(backstopDays), java.time.Clock.systemUTC());
+    }
+
     /** Re-asks about ISSUED rows whose discharge could not be verified (PA-2). */
     @Bean
     public IssuedPurchaseRecheck issuedPurchaseRecheck(

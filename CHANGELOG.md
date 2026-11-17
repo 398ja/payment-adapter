@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Gift data retention (imani-wallet#570).** `POST /api/v1/purchases/{eventId}/scrub?all=true`
+  now also nulls the purchase's Purchase Draft personal fields (`buyer_email`, `recipient_email`,
+  `message`, `sender_name`, `sealed_secret`), and answers 503 on a concurrent write so the issuer
+  retries. A new hourly job (`GiftDataRetention`, `purchase.retention.interval-ms`) does three
+  things: drafts never paid for and past `expires_at` by `purchase.retention.abandoned-draft-days`
+  (default 30) lose their personal fields; gift purchases still holding them
+  `purchase.retention.backstop-days` (default 400) after the claim window (vouchers) or the code's
+  expiry (codes) are scrubbed with their draft and logged as a warning (event id only); and paid
+  drafts whose purchase was already scrubbed lose their copy (so the first run is the backfill of
+  existing rows). Amount, currency, stall, timestamps and Stripe ids are kept. No migration.
+  **Consumers:** purchase-issuer with imani-wallet#570 calls `scrub?all=true` when a gift is done.
+
 ### Fixed
 
 - **A paid Checkout Session no payment-adapter created is parked, not owed** (staging 2026-11-12,
