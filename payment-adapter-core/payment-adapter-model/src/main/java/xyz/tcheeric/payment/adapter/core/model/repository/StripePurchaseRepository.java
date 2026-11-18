@@ -51,6 +51,12 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
     List<StripePurchase> findTop200ByStallPubkeyOrderByCreatedAtDesc(String stallPubkey);
 
     /**
+     * One stall's most recent purchases that minted a coupon, newest first (imani-wallet#275, the
+     * pull on login). Bounded like the refund-state read.
+     */
+    List<StripePurchase> findTop200ByStallPubkeyAndVoucherIdIsNotNullOrderByCreatedAtDesc(String stallPubkey);
+
+    /**
      * imani-wallet#570 backstop: gift purchases still holding personal fields long after the gift
      * could matter. A voucher gift is judged by its purchase time ({@code voucherBefore} already
      * allows for the claim window), a code gift by its own expiry ({@code codeBefore}, epoch
