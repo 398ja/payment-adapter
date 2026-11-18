@@ -51,4 +51,19 @@ class StripePurchaseStallStateQueryTest {
         assertThat(rows).extracting(StripePurchase::getEventId).containsExactly("e3", "e1");
         assertThat(rows.get(0).getDisputeStatus()).isEqualTo(StripePurchase.DisputeStatus.WON);
     }
+
+    @Test
+    void theSalesListHasOnlyPurchasesThatMintedACoupon() {
+        String a = "c".repeat(64);
+        persist("m1", a, Instant.parse("2026-11-01T00:00:00Z"), null);
+        persist("m2", a, Instant.parse("2026-11-02T00:00:00Z"), null);
+        StripePurchase minted = purchases.findByEventId("m2").orElseThrow();
+        minted.setVoucherId("v-2");
+        purchases.save(minted);
+        entityManager.flush();
+
+        var rows = purchases.findTop200ByStallPubkeyAndVoucherIdIsNotNullOrderByCreatedAtDesc(a);
+
+        assertThat(rows).extracting(StripePurchase::getEventId).containsExactly("m2");
+    }
 }

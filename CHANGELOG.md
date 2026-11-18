@@ -4,6 +4,20 @@
 
 ### Added
 
+- **A stall can list its own card sales** (imani-wallet#275, card atomicity U9, the pull on
+  login). New read-only `GET /api/v1/purchases?stall=<pubkey>`: purchases for that stall that minted
+  a coupon, newest first, at most 200, each with `voucher_id`, `ref` (the `pi_`), `amount_minor`,
+  `currency`, `livemode`, `status` (the row's state), `payment` (`PAID` | `PARTLY_REFUNDED` |
+  `REFUNDED` | `DISPUTED`) and `paid_at` (when the webhook recorded the payment, the independent
+  sale time the wallet checks a sale record against). Two callers: the stall, NIP-98 signed by that
+  stall key for `GET <origin>/api/v1/purchases?stall=<pubkey>` (origins from
+  `PURCHASE_STATE_PUBLIC_ORIGINS`, another key 403), and the purchase issuer with
+  `PURCHASE_API_TOKEN`. `PurchaseApiTokenFilter` lets exactly that GET with a `Nostr` header
+  through without the token; every other route under the prefix still needs it. No account,
+  session, buyer, recipient or gift data. No migration.
+  **Consumers:** the edge must route `GET /api/v1/purchases` (that exact path, nothing under it) to
+  this service for the wallet origin; imani-wallet#275 calls it on login.
+
 - **Refund and dispute state is readable, with its own credentials** (imani-wallet#277,
   payment-adapter#265). New read-only `GET /api/v1/purchase-state/stall/{stallPubkey}` (NIP-98
   signed by that stall key for `GET <origin>/api/v1/purchase-state/stall/{stallPubkey}`, origins

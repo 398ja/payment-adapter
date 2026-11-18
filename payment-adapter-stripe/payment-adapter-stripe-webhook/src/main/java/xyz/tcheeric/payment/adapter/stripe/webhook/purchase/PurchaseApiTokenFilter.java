@@ -54,6 +54,13 @@ public class PurchaseApiTokenFilter implements Filter {
     /** Everything behind this prefix needs the token. */
     public static final String PROTECTED_PREFIX = "/api/v1/purchases";
 
+    /**
+     * Request attribute set once the issuer's token is admitted (imani-wallet#275). Server-side only,
+     * so a client cannot set it: {@link StallPurchasesController} reads it to tell the issuer from a
+     * stall's NIP-98 call.
+     */
+    public static final String ISSUER_ADMITTED = PurchaseApiTokenFilter.class.getName() + ".issuer";
+
     private final byte[] expected;
 
     /**
@@ -149,6 +156,19 @@ public class PurchaseApiTokenFilter implements Filter {
                 && (PROTECTED_PREFIX + "/attention").equals(path);
     }
 
+    /**
+     * {@code GET /api/v1/purchases} (exactly, query aside) with a NIP-98 {@code Nostr} header: a
+     * stall listing its own sales (imani-wallet#275). The one route under the prefix that does not
+     * need the token, because {@link StallPurchasesController} verifies the stall's signature itself
+     * and answers only that stall's rows. A {@code Bearer} header still goes through the token check.
+     */
+    private static boolean isStallSelfRead(HttpServletRequest http) {
+        String header = http.getHeader("Authorization");
+        return "GET".equals(http.getMethod())
+                && PROTECTED_PREFIX.equals(normalisedPath(http))
+                && header != null && header.startsWith("Nostr ");
+    }
+
     /** The decoded, slash-normalised path without the context path, or null when unclassifiable. */
     private static String normalisedPath(HttpServletRequest http) {
         String path = http.getRequestURI();
@@ -224,6 +244,11 @@ public class PurchaseApiTokenFilter implements Filter {
             return;
         }
 
+        if (isStallSelfRead(http)) {
+            chain.doFilter(request, response);
+            return;
+        }
+
         boolean operatorRoute = isOperatorRoute(http);
         byte[] wanted = operatorRoute ? operator : expected;
 
@@ -253,6 +278,9 @@ public class PurchaseApiTokenFilter implements Filter {
         if (!admitted) {
             ((HttpServletResponse) response).sendError(HttpServletResponse.SC_UNAUTHORIZED);
             return;
+        }
+        if (!operatorRoute && MessageDigest.isEqual(wanted, presented)) {
+            http.setAttribute(ISSUER_ADMITTED, Boolean.TRUE);
         }
 
         chain.doFilter(request, response);
