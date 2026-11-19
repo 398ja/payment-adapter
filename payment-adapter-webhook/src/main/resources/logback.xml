@@ -27,6 +27,8 @@
         <appender-ref ref="FILE"/>
     </root>
 
-    <logger name="xyz.tcheeric" level="DEBUG"/>
+    <!-- payment-adapter#287: INFO in every profile, prod included. DEBUG logs request and payload
+         detail, so it is opt-in per environment: LOGGING_LEVEL_XYZ_TCHEERIC=DEBUG. -->
+    <logger name="xyz.tcheeric" level="${LOGGING_LEVEL_XYZ_TCHEERIC:-INFO}"/>
 </configuration>
 
