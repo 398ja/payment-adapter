@@ -12,6 +12,7 @@
     </root>
 
     <!-- Payment gateway libraries -->
-    <logger name="xyz.tcheeric" level="DEBUG"/>
+    <!-- INFO by default, like the shipped configs (#287). DEBUG on demand: LOGGING_LEVEL_XYZ_TCHEERIC=DEBUG. -->
+    <logger name="xyz.tcheeric" level="INFO"/>
 </configuration>
 
