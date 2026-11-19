@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-11-19
+
 ### Security
 
 - **`xyz.tcheeric` logs at INFO by default in every profile** (#287). The shipped
