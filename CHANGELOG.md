@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-19
+
 ### Added
 
 - **A stall can list its own card sales** (imani-wallet#275, card atomicity U9, the pull on
