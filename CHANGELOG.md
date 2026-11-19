@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Security
+
+- **`xyz.tcheeric` logs at INFO by default in every profile** (#287). The shipped
+  `logback-spring.xml` (and the webhook and client `logback.xml`) set it to DEBUG, prod included,
+  which logs request and payload detail. DEBUG is now opt-in per environment with
+  `LOGGING_LEVEL_XYZ_TCHEERIC=DEBUG`. No test relies on DEBUG from these files (the one test that
+  needs DEBUG sets the level itself).
+
 ## [0.30.0] - 2026-11-19
 
 ### Added
