@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>xyz.tcheeric</groupId>
+        <artifactId>payment-adapter-core</artifactId>
+        <version>0.30.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <groupId>xyz.tcheeric</groupId>
+    <artifactId>payment-adapter-rest</artifactId>
+    <name>payment-adapter-rest</name>
+    <description>A simple JPA application to manage quotes and invoices</description>
+    <url/>
+    <licenses>
+        <license/>
+    </licenses>
+    <developers>
+        <developer/>
+    </developers>
+    <scm>
+        <connection/>
+        <developerConnection/>
+        <tag/>
+        <url/>
+    </scm>
+
+    <distributionManagement>
+        <repository>
+            <id>reposilite-releases</id>
+            <url>https://maven.398ja.xyz/releases</url>
+        </repository>
+        <snapshotRepository>
+            <id>reposilite-snapshots</id>
+            <url>https://maven.398ja.xyz/snapshots</url>
+        </snapshotRepository>
+    </distributionManagement>
+
+    <repositories>
+        <repository>
+            <id>reposilite-releases</id>
+            <url>https://maven.398ja.xyz/releases</url>
+        </repository>
+        <repository>
+            <id>reposilite-snapshots</id>
+            <url>https://maven.398ja.xyz/snapshots</url>
+        </repository>
+    </repositories>
+
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.release>21</maven.compiler.release>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-rest</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-model</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-stripe-gateway</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-stripe-connect</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!--
+            The Stripe webhook handler AND everything the coupon purchase flow
+            lives in.
+
+            Not here originally, which meant none of it shipped: this is the
+            only Spring Boot application and the only jib image, so a module it
+            does not depend on is compiled, tested, and then left on the floor.
+            Every purchase endpoint answered 404 in a deployment while passing
+            its tests in CI.
+        -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-stripe-webhook</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!--
+            Lightning support. PhoenixdGateway serves BOLT11/BOLT12/ON_CHAIN, which is
+            disjoint from StripeGateway's CREDIT_CARD, and Gateway.supports(method)
+            selects between them — so adding this does not contend with Stripe.
+
+            ln-webhook contributes PhoenixWebhookHandler, discovered by WebhookRegistry
+            through META-INF/services. It is what turns a phoenixd payment notification
+            into the call to MintWebhookForwarder that the mint needs in order to record
+            a funding row. Without it on the classpath the servlet has no handler for
+            "phoenixd" and payments are never reported to the mint, which fails issuance
+            with funding_required.
+        -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-ln-phoenixd</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-ln-webhook</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>com.google.cloud.tools</groupId>
+                <artifactId>jib-maven-plugin</artifactId>
+                
+                <configuration>
+                    <from>
+                        <image>eclipse-temurin:21-jre</image>
+                    </from>
+                    <to>
+                        <!-- Release pushes ONLY the version tag. Never :latest (staging pulls it). -->
+                        <image>docker.398ja.xyz/payment-adapter-rest:${project.version}</image>
+                    </to>
+                    <container>
+                        <ports>
+                            <port>8080</port>
+                        </ports>
+                    </container>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>deploy</phase>
+                        <goals>
+                            <goal>build</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Binds the managed failsafe executions so the *IT tests in this module
+                 (PaidUnforwardedEndToEndIT, PaymentControllerIT, GatewayRestCreateEntitiesIT)
+                 run in `mvn verify`. Without this, surefire skips them by name and failsafe
+                 is never declared, so they ran nowhere. They need only H2, no containers. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

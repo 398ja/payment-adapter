@@ -76,7 +76,7 @@ class FlywayMigrationIT extends BasePostgresIT {
 
         assertThat(columns).containsExactlyInAnyOrder(
                 "event_id", "event_type", "payload_hash", "livemode",
-                "received_at", "processing_status", "processed_at", "last_error");
+                "received_at", "processing_status", "processing_started_at", "processed_at", "last_error");
     }
 
     // Verifies that the connected Stripe account table stores the merchant-facing Connect status fields.
