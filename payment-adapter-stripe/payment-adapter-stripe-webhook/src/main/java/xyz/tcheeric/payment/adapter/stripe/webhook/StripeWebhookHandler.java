@@ -178,6 +178,8 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
                     .livemode(root.path("livemode").asBoolean(false))
                     .status(optionalText(eventObject.path("status")))
                     .paymentStatus(optionalText(eventObject.path("payment_status")))
+                    .declineCode(optionalText(eventObject.path("last_payment_error").path("decline_code")))
+                    .errorCode(optionalText(eventObject.path("last_payment_error").path("code")))
                     // Top-level, not inside data.object: Stripe puts the account
                     // on the event because it describes whose event it is.
                     .connectedAccountId(optionalText(root.path("account")))
@@ -258,6 +260,47 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         if (!Boolean.TRUE.equals(RETRY.get())) {
             metrics.record(Source.CARD, Status.FAILED, reason, payload.getCurrency());
         }
+    }
+
+    /**
+     * Stripe's failure detail as a fixed {@link Reason}: {@code decline_code} first, then
+     * {@code code}. Unknown codes are {@code OTHER}; no detail at all (an async session failure
+     * carries none) stays {@code CARD_DECLINED}. Never the raw code, so cardinality stays bounded.
+     */
+    static Reason failureReason(StripeWebhookPayload payload) {
+        String decline = payload.getDeclineCode();
+        String code = payload.getErrorCode();
+        if (StringUtils.isBlank(decline) && StringUtils.isBlank(code)) {
+            return Reason.CARD_DECLINED;
+        }
+        Reason fromDecline = mapStripeCode(decline);
+        if (fromDecline != null && fromDecline != Reason.CARD_DECLINED) {
+            return fromDecline;
+        }
+        Reason fromCode = mapStripeCode(code);
+        if (fromCode != null) {
+            return fromCode;
+        }
+        return fromDecline != null ? fromDecline : Reason.OTHER;
+    }
+
+    private static Reason mapStripeCode(String code) {
+        if (StringUtils.isBlank(code)) {
+            return null;
+        }
+        return switch (code.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "card_declined", "generic_decline", "do_not_honor", "call_issuer", "card_not_supported",
+                 "transaction_not_allowed", "not_permitted", "restricted_card" -> Reason.CARD_DECLINED;
+            case "insufficient_funds", "card_velocity_exceeded", "withdrawal_count_limit_exceeded" ->
+                    Reason.INSUFFICIENT_FUNDS;
+            case "expired_card" -> Reason.EXPIRED_CARD;
+            case "incorrect_cvc", "invalid_cvc" -> Reason.INCORRECT_CVC;
+            case "authentication_required", "payment_intent_authentication_failure" ->
+                    Reason.AUTHENTICATION_REQUIRED;
+            case "fraudulent", "stolen_card", "lost_card", "pickup_card", "merchant_blacklist" -> Reason.FRAUDULENT;
+            case "processing_error", "try_again_later", "issuer_not_available" -> Reason.PROCESSING_ERROR;
+            default -> Reason.OTHER;
+        };
     }
 
     /** The amount of an event, as a long, or null. */
@@ -399,7 +442,7 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
             case CHARGE_DISPUTE_CLOSED -> handleDisputeClosed(payload, eventRecord);
             // Not acted on, but the card's unhappy endings belong in the count.
             case CHECKOUT_SESSION_ASYNC_PAYMENT_FAILED, PAYMENT_INTENT_PAYMENT_FAILED -> {
-                recordFailed(payload, Reason.CARD_DECLINED);
+                recordFailed(payload, failureReason(payload));
                 yield acknowledge(payload, eventRecord);
             }
             case CHECKOUT_SESSION_EXPIRED -> {

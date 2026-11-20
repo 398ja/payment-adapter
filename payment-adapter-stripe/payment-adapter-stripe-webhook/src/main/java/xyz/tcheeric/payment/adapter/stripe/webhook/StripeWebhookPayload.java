@@ -28,6 +28,10 @@ public class StripeWebhookPayload implements WebhookPayload {
     private boolean livemode;
     private String status;
     private String paymentStatus;
+    /** {@code last_payment_error.decline_code} of a failed payment intent; mapped to a fixed reason, never a label as is. */
+    private String declineCode;
+    /** {@code last_payment_error.code} of a failed payment intent. */
+    private String errorCode;
 
     /**
      * The connected account this event happened on, from the event's top-level

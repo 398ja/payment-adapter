@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import xyz.tcheeric.payment.adapter.core.client.PaymentClient;
+import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.Reason;
 import xyz.tcheeric.payment.adapter.core.client.QuoteClient;
 import xyz.tcheeric.payment.adapter.core.model.entity.GatewayPayment;
 import xyz.tcheeric.payment.adapter.core.model.entity.GatewayQuote;
@@ -155,6 +156,47 @@ class StripeWebhookMetricsTest {
 
         assertEquals(1.0, payments("failed", "card_declined"));
     }
+
+    private StripeWebhookPayload intentFailed(String eventId, String json) throws Exception {
+        when(request.getInputStream()).thenReturn(new jakarta.servlet.ServletInputStream() {
+            private final java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(
+                    json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            @Override public int read() { return in.read(); }
+            @Override public boolean isFinished() { return in.available() == 0; }
+            @Override public boolean isReady() { return true; }
+            @Override public void setReadListener(jakarta.servlet.ReadListener l) { }
+        });
+        return handler.parsePayload(request);
+    }
+
+    @Test
+    void anIntentFailureCarriesItsDeclineCodeAsAFixedReason() throws Exception {
+        handler.handle(intentFailed("evt_if", "{\"id\":\"evt_if\",\"type\":\"payment_intent.payment_failed\","
+                + "\"data\":{\"object\":{\"id\":\"pi_9\",\"currency\":\"gbp\",\"last_payment_error\":"
+                + "{\"code\":\"card_declined\",\"decline_code\":\"insufficient_funds\"}}}}"));
+
+        assertEquals(1.0, payments("failed", "insufficient_funds"));
+        assertEquals(0.0, payments("failed", "card_declined"));
+        assertEquals(0, registry.find("imani.payments").tagKeys("source", "status", "reason", "currency")
+                .counters().stream().filter(c -> c.getId().getTags().stream()
+                        .anyMatch(t -> t.getValue().contains("pi_"))).count(), "no pi_ in any label");
+    }
+
+    @Test
+    void failureReasonsMapToTheFixedSet() {
+        assertEquals(Reason.EXPIRED_CARD, reason(null, "expired_card"));
+        assertEquals(Reason.AUTHENTICATION_REQUIRED, reason(null, "authentication_required"));
+        assertEquals(Reason.AUTHENTICATION_REQUIRED, reason("payment_intent_authentication_failure", null));
+        assertEquals(Reason.INCORRECT_CVC, reason("card_declined", "incorrect_cvc"));
+        assertEquals(Reason.CARD_DECLINED, reason("card_declined", "generic_decline"));
+        assertEquals(Reason.OTHER, reason("something_new_from_stripe", "brand_new"));
+        assertEquals(Reason.CARD_DECLINED, reason(null, null));
+    }
+
+    private static Reason reason(String code, String decline) {
+        return StripeWebhookHandler.failureReason(StripeWebhookPayload.builder().errorCode(code).declineCode(decline).build());
+    }
+
 
     private void failedBefore(String eventId) {
         ProcessedStripeWebhookEvent failed = new ProcessedStripeWebhookEvent();
