@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-11-20
+
 ### Added
 
 - **A failed card payment says why.** `payment_intent.payment_failed` now reads Stripe's
