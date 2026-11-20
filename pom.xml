@@ -86,7 +86,7 @@
 
         <!-- Maven plugin versions -->
         <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
-        <maven-surefire-plugin.version>3.5.4</maven-surefire-plugin.version>
+        <maven-surefire-plugin.version>3.6.1</maven-surefire-plugin.version>
         <maven-failsafe-plugin.version>3.5.4</maven-failsafe-plugin.version>
         <test.fork.exit.timeout.seconds>120</test.fork.exit.timeout.seconds>
         <skip.integration.tests>true</skip.integration.tests>
