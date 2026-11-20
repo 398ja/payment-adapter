@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- **A failed card payment says why.** `payment_intent.payment_failed` now reads Stripe's
+  `last_payment_error` (`decline_code`, else `code`) and maps it to a fixed `reason` on
+  `imani_payments_total{source="card",status="failed"}`: `card_declined`, `insufficient_funds`,
+  `expired_card`, `incorrect_cvc`, `authentication_required`, `fraudulent`, `processing_error`,
+  anything else `other`. Before, every failure was `card_declined`. A failure with no detail
+  (`checkout.session.async_payment_failed`) stays `card_declined`. The raw code, `pi_` and
+  customer never become labels. Still counted once per event, never on Stripe retries.
+
 ## [0.31.0] - 2026-11-19
 
 ### Security
