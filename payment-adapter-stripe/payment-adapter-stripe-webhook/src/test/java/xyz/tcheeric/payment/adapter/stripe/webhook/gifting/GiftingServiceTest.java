@@ -493,6 +493,20 @@ class GiftingServiceTest {
                 any(), any(), any(), any());
     }
 
+    // Card payments are Essentials and above: a gift from a Starter stall is refused before Stripe.
+    @Test
+    void aStallWithNoPaidPlanIsRefusedAtPay() {
+        UUID id = created(service.create(handle("bob@example.com"), null));
+        when(readiness.checkSale(eq(STALL), anyString(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(StallReadinessClient.Readiness.notReady(StallReadinessClient.NOT_IN_PLAN));
+        GiftingService.Answer a = service.pay(id, LINK);
+        assertEquals(HttpStatus.CONFLICT, a.status());
+        assertEquals(xyz.tcheeric.payment.adapter.stripe.webhook.purchase.PurchaseCheckoutController.NOT_IN_PLAN,
+                error(a));
+        verify(checkout, never()).createPurchaseSession(anyString(), anyInt(), anyString(), anyString(), anyString(),
+                any(), any(), any(), any());
+    }
+
     @Test
     void perRecipientServiceLimitOnEmailGifts() {
         for (int i = 0; i < 10; i++) {

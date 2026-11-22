@@ -198,6 +198,10 @@ public class PurchaseCheckoutController {
                 return refused(Reason.SALES_LIMIT, currency, ResponseEntity.status(HttpStatus.CONFLICT)
                         .body(Map.of("error", salesLimitMessage(ready.reason()), "reason", ready.reason())));
             }
+            if (StallReadinessClient.NOT_IN_PLAN.equals(ready.reason())) {
+                return refused(Reason.NOT_READY, currency, ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.of("error", NOT_IN_PLAN, "reason", ready.reason())));
+            }
             return refused(Reason.NOT_READY, currency, ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("error", STALL_NOT_READY, "reason", ready.reason())));
         }
@@ -262,6 +266,10 @@ public class PurchaseCheckoutController {
     /** What a buyer sees when this amount would take the stall past its Free plan allowance. */
     public static final String SALES_LIMIT_EXCEEDED =
             "This amount is more than this stall can sell on the Free plan. Try a smaller amount. Nothing was charged.";
+
+    /** What a buyer sees when the stall's plan has no card payments (Starter). */
+    public static final String NOT_IN_PLAN =
+            "This merchant doesn't take card payments on their current plan. Nothing was charged.";
 
     /** The buyer's words for a sales-limit code; shared with the gifting site. */
     public static String salesLimitMessage(String reason) {

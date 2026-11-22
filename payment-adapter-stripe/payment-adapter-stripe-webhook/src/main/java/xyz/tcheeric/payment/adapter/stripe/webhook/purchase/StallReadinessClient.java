@@ -46,6 +46,13 @@ public class StallReadinessClient {
     /** This amount would take a Free plan stall past its allowance. Asked with an amount only. */
     public static final String SALES_LIMIT_EXCEEDED = "sales_limit_exceeded";
 
+    /**
+     * The stall has no paid plan in force: card payments are Essentials and above, never Starter.
+     * purchase-issuer answers it from gateway-customer's licences. Refused like every NOT_READY;
+     * named so the buyer is told it is the merchant's plan.
+     */
+    public static final String NOT_IN_PLAN = "card_payments_not_in_plan";
+
     /** Is this a refusal the stall's plan explains, rather than its card-sales setup? */
     public static boolean isSalesLimit(String reason) {
         return SALES_LIMIT_REACHED.equals(reason) || SALES_LIMIT_EXCEEDED.equals(reason);

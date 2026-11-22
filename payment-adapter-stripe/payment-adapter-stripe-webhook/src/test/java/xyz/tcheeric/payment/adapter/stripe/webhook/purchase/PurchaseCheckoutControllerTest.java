@@ -144,6 +144,23 @@ class PurchaseCheckoutControllerTest {
         verify(checkout, never()).createPurchaseSession(any(), any(), any(), any(), any(), any(), any());
     }
 
+    // Card payments are Essentials and above: a Starter stall is a 409 naming its plan, and Stripe
+    // is never called, so a direct call to this public endpoint cannot sell by card either.
+    @Test
+    void aStallWithNoPaidPlanIsA409AndNoSession() {
+        when(readiness.checkSale(eq(STALL), anyString(), anyLong()))
+                .thenReturn(StallReadinessClient.Readiness.notReady(StallReadinessClient.NOT_IN_PLAN));
+
+        ResponseEntity<?> response = controller.start(
+                new PurchaseCheckoutController.PurchaseRequest(STALL, 2500L, BUYER));
+
+        assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
+        assertEquals(Map.of("error", PurchaseCheckoutController.NOT_IN_PLAN, "reason", StallReadinessClient.NOT_IN_PLAN),
+                response.getBody());
+        assertTrue(PurchaseCheckoutController.NOT_IN_PLAN.endsWith("Nothing was charged."));
+        verify(checkout, never()).createPurchaseSession(any(), any(), any(), any(), any(), any(), any());
+    }
+
     // The two codes read differently: "no sales left" is not "try a smaller amount".
     @Test
     void theSalesLimitMessagesSayWhatTheBuyerCanDo() {

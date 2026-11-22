@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Card payments are Essentials and above.** purchase-issuer's readiness now answers
+  `card_payments_not_in_plan` for a stall with no paid plan. The checkout
+  (`POST /api/v1/checkout/purchase`) and the gifting site's pay step already refused every
+  not-ready stall before Stripe; this names the reason for the buyer: 409 with "This merchant
+  doesn't take card payments on their current plan. Nothing was charged." and
+  `reason: card_payments_not_in_plan` (`StallReadinessClient.NOT_IN_PLAN`). No configuration change.
+
 ## [0.32.0] - 2026-11-20
 
 ### Added
