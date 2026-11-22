@@ -602,6 +602,10 @@ public class GiftingService {
                         xyz.tcheeric.payment.adapter.stripe.webhook.purchase.PurchaseCheckoutController
                                 .salesLimitMessage(ready.reason())));
             }
+            if (StallReadinessClient.NOT_IN_PLAN.equals(ready.reason())) {
+                return Optional.of(Answer.error(HttpStatus.CONFLICT,
+                        xyz.tcheeric.payment.adapter.stripe.webhook.purchase.PurchaseCheckoutController.NOT_IN_PLAN));
+            }
             return Optional.of(Answer.error(HttpStatus.CONFLICT, STALL_NOT_READY));
         }
         if (ready.state() != StallReadinessClient.State.READY) {

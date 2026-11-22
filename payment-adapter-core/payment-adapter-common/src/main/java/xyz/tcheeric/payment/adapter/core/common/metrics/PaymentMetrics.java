@@ -69,6 +69,8 @@ public final class PaymentMetrics {
         BLOCKED, UNVERIFIABLE, NOT_READY, READINESS_UNKNOWN,
         /** A Free plan stall without the sales allowance left for this sale (gateway-customer#317). */
         SALES_LIMIT,
+        /** The stall's plan has no card payments: Starter, or a plan that ended (Essentials and above only). */
+        NOT_IN_PLAN,
         /** Card failure detail from Stripe's {@code last_payment_error} (decline_code, else code). */
         INSUFFICIENT_FUNDS, EXPIRED_CARD, INCORRECT_CVC, AUTHENTICATION_REQUIRED, FRAUDULENT, PROCESSING_ERROR,
         OTHER
