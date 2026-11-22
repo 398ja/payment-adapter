@@ -38,7 +38,7 @@ class ParkedRows {
 
     /** @return parked rows on which the live read found a refund or dispute no webhook delivered */
     int sweep(ReconcileBudget budget) {
-        List<StripePurchase> page = purchases.findWithPaymentIntentCreatedAfter(
+        List<StripePurchase> page = purchases.findWithPaymentIntentCreatedAfter(StripePurchase.PROCESSOR_STRIPE,
                 Status.NEEDS_ATTENTION, after, PageRequest.of(0, batchSize));
         after = page.size() < batchSize ? Instant.EPOCH : page.get(page.size() - 1).getCreatedAt();
         int found = 0;

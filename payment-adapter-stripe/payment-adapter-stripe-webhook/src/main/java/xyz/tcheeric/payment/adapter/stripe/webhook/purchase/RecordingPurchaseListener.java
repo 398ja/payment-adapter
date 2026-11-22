@@ -234,6 +234,7 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
         }
 
         StripePurchase row = new StripePurchase();
+        row.setProcessor(purchase.processor() == null ? StripePurchase.PROCESSOR_STRIPE : purchase.processor());
         row.setEventId(purchase.eventId());
         row.setCheckoutSessionId(purchase.checkoutSessionId());
         row.setPaymentIntentId(purchase.paymentIntentId());
@@ -241,9 +242,13 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
         // Null when the account is unknown to us, which is a real possibility:
         // Connect delivers events for accounts we may have lost track of. The
         // debt is still recorded, and falls back to manual issuance.
-        row.setStallPubkey(accounts.findByStripeAccountId(purchase.connectedAccountId())
-                .map(account -> account.getMerchantPubkey())
-                .orElse(null));
+        // A PayPal purchase names its stall from this service's own checkout row (ADR 0002): a
+        // PayPal merchant id is not a Stripe account, and looking it up there would find nothing.
+        row.setStallPubkey(purchase.stallPubkey() != null ? purchase.stallPubkey()
+                : purchase.isPaypal() ? null
+                : accounts.findByStripeAccountId(purchase.connectedAccountId())
+                        .map(account -> account.getMerchantPubkey())
+                        .orElse(null));
         row.setRecipientPubkey(normalisePubkey(purchase.metadata().get(BUYER_PUBKEY)));
         applyDraft(row, purchase);
         row.setAmountMinor(purchase.amountMinor());
@@ -267,7 +272,8 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
             Instant now = Instant.now();
             row.setStatus(StripePurchase.Status.NEEDS_ATTENTION);
             row.setAttentionReason(StripePurchase.AttentionReason.UNSTAMPED_SESSION);
-            row.setAttentionDetail("checkout session carries no " + ENVIRONMENT + " tag; this deployment is '"
+            row.setAttentionDetail((purchase.isPaypal() ? "PayPal order carries no " : "checkout session carries no ")
+                    + ENVIRONMENT + " tag; this deployment is '"
                     + environment + "'. Not created by payment-adapter, so stall readiness was never checked");
             row.setAttentionAt(now);
             log.warn("purchase_unstamped_session event={} session={} account={}: recorded NEEDS_ATTENTION, not owed",

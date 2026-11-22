@@ -51,7 +51,7 @@ class StaleRows {
     int sweep(Instant now, ReconcileBudget budget) {
         Instant issuingCutoff = now.minus(issuingStaleAfter);
         Instant issuedCutoff = now.minus(issuedStaleAfter);
-        List<StripePurchase> stale = purchases.findStaleForAttention(Status.ISSUING, issuingCutoff,
+        List<StripePurchase> stale = purchases.findStaleForAttention(StripePurchase.PROCESSOR_STRIPE, Status.ISSUING, issuingCutoff,
                 Status.ISSUED, issuedCutoff, Status.BLOCKED, PageRequest.of(0, batchSize));
         int moved = 0;
         for (StripePurchase row : stale) {

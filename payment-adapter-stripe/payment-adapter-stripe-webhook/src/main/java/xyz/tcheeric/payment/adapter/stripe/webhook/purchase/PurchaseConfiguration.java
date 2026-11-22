@@ -157,14 +157,16 @@ public class PurchaseConfiguration {
     }
 
     /**
-     * {@code /resolve}, with the live Stripe read in front of a retry (#286). With Stripe off there is
-     * no {@link LivePaymentCheck} bean, and every retry of a parked row fails closed (503).
+     * {@code /resolve}, with the live read in front of a retry (#286), routed by the row's processor
+     * (ADR 0002): a PayPal row is read from PayPal, never Stripe. With Stripe off there is no
+     * {@link LivePaymentCheck} bean, and every retry of a Stripe row fails closed (503).
      */
     @Bean
     public OperatorResolution operatorResolution(StripePurchaseRepository purchases,
-            PurchaseDischargeService discharges, ObjectProvider<LivePaymentCheck> livePayments) {
-        return new OperatorResolution(purchases, discharges,
-                livePayments.getIfAvailable(LivePaymentCheck::unconfigured));
+            PurchaseDischargeService discharges, ObjectProvider<LivePaymentCheck> livePayments,
+            ObjectProvider<ProcessorLivePaymentCheck> otherProcessors) {
+        return new OperatorResolution(purchases, discharges, ProcessorLivePaymentCheck.routed(
+                livePayments.getIfAvailable(LivePaymentCheck::unconfigured), otherProcessors.orderedStream().toList()));
     }
 
     /** imani-deploy#210: paid card purchases with no coupon confirmed yet. */
