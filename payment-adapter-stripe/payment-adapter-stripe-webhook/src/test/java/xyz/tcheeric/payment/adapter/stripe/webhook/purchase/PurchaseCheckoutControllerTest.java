@@ -148,6 +148,8 @@ class PurchaseCheckoutControllerTest {
     // is never called, so a direct call to this public endpoint cannot sell by card either.
     @Test
     void aStallWithNoPaidPlanIsA409AndNoSession() {
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(controller, "setMeterRegistry", registry);
         when(readiness.checkSale(eq(STALL), anyString(), anyLong()))
                 .thenReturn(StallReadinessClient.Readiness.notReady(StallReadinessClient.NOT_IN_PLAN));
 
@@ -159,6 +161,10 @@ class PurchaseCheckoutControllerTest {
                 response.getBody());
         assertTrue(PurchaseCheckoutController.NOT_IN_PLAN.endsWith("Nothing was charged."));
         verify(checkout, never()).createPurchaseSession(any(), any(), any(), any(), any(), any(), any());
+        // Review regression: counted as a plan refusal, never as a stall that is not enrolled.
+        assertEquals(1.0, registry.find("imani.payments").tag("status", "refused").tag("reason", "not_in_plan")
+                .counter().count());
+        assertEquals(null, registry.find("imani.payments").tag("status", "refused").tag("reason", "not_ready").counter());
     }
 
     // The two codes read differently: "no sales left" is not "try a smaller amount".

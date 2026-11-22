@@ -9,7 +9,9 @@
   (`POST /api/v1/checkout/purchase`) and the gifting site's pay step already refused every
   not-ready stall before Stripe; this names the reason for the buyer: 409 with "This merchant
   doesn't take card payments on their current plan. Nothing was charged." and
-  `reason: card_payments_not_in_plan` (`StallReadinessClient.NOT_IN_PLAN`). No configuration change.
+  `reason: card_payments_not_in_plan` (`StallReadinessClient.NOT_IN_PLAN`), counted as
+  `imani_payments_total{status="refused",reason="not_in_plan"}` (new `Reason.NOT_IN_PLAN`), apart
+  from enrolment's `not_ready`. No configuration change.
 
 ## [0.32.0] - 2026-11-20
 

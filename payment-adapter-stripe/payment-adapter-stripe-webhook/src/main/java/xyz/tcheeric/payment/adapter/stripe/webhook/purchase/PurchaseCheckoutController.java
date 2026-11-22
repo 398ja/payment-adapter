@@ -199,7 +199,8 @@ public class PurchaseCheckoutController {
                         .body(Map.of("error", salesLimitMessage(ready.reason()), "reason", ready.reason())));
             }
             if (StallReadinessClient.NOT_IN_PLAN.equals(ready.reason())) {
-                return refused(Reason.NOT_READY, currency, ResponseEntity.status(HttpStatus.CONFLICT)
+                // Its own reason, so plan refusals are not read as enrolment failures (review).
+                return refused(Reason.NOT_IN_PLAN, currency, ResponseEntity.status(HttpStatus.CONFLICT)
                         .body(Map.of("error", NOT_IN_PLAN, "reason", ready.reason())));
             }
             return refused(Reason.NOT_READY, currency, ResponseEntity.status(HttpStatus.CONFLICT)
