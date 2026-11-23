@@ -157,10 +157,15 @@ public class PaypalGatewayProperties {
         return base.replaceAll("/+$", "");
     }
 
-    /** The URL PayPal sends an approving buyer back to: this service's capture route, or the success URL. */
+    /**
+     * The URL PayPal sends an approving buyer back to: this service's capture route, or the success URL.
+     * Straight to the success URL, {@code {ORDER_ID}} is dropped: the order does not exist yet when
+     * the URL is sent, and PayPal appends {@code token=<order id>} to it anyway.
+     */
     public String resolvedReturnUrl(String orderPlaceholderSuccessUrl) {
         if (returnBaseUrl == null || returnBaseUrl.isBlank()) {
-            return orderPlaceholderSuccessUrl;
+            return orderPlaceholderSuccessUrl == null ? null
+                    : orderPlaceholderSuccessUrl.replace(ORDER_ID_PLACEHOLDER, "");
         }
         return returnBaseUrl.trim().replaceAll("/+$", "") + RETURN_PATH;
     }

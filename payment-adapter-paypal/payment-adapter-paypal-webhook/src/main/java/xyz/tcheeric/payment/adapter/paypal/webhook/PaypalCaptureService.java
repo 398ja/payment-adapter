@@ -110,7 +110,11 @@ public class PaypalCaptureService {
                 try {
                     order = orders.getOrder(checkout.getPaypalMerchantId(), checkout.getOrderId());
                 } catch (PaypalApiException read) {
-                    return read.isUnavailable() ? Outcome.UNAVAILABLE : failedRead(checkout, read);
+                    // PayPal just said the money moved: never close this row on a failed read, or the
+                    // reconciler (which sweeps open rows only) would never record the debt.
+                    note(checkout, "captured elsewhere; order read failed: "
+                            + (read.issue() == null ? read.status() : read.issue()));
+                    return Outcome.UNAVAILABLE;
                 }
             } else if (e.hasIssue("ORDER_NOT_APPROVED") || e.hasIssue("PAYER_ACTION_REQUIRED")) {
                 return Outcome.NOT_APPROVED;

@@ -110,7 +110,7 @@ acts for every connected account through `Stripe-Account`. Every `paypal.*` prop
 | `paypal.client-id` (`PAYPAL_CLIENT_ID`) | *(required when enabled)* | The platform REST app's client id. |
 | `paypal.client-secret` (`PAYPAL_CLIENT_SECRET`) | *(required when enabled)* | Its secret. Never logged. |
 | `paypal.bn-code` (`PAYPAL_BN_CODE`) | *(empty)* | Partner attribution code, sent as `PayPal-Partner-Attribution-Id`. |
-| `paypal.success-url` (`PAYPAL_SUCCESS_URL`) | *(required when enabled)* | Where a buyer lands after paying; `{ORDER_ID}` is replaced with the order id. |
+| `paypal.success-url` (`PAYPAL_SUCCESS_URL`) | *(required when enabled)* | Where a buyer lands after paying; `{ORDER_ID}` is replaced with the order id (through the return route; without it PayPal appends `token=<order id>` instead). |
 | `paypal.cancel-url` (`PAYPAL_CANCEL_URL`) | *(required when enabled)* | Where a buyer lands after cancelling, or when PayPal declines. |
 | `paypal.return-base-url` (`PAYPAL_RETURN_BASE_URL`) | *(empty)* | This service's public origin. Set: PayPal returns the buyer to `/api/v1/checkout/paypal/return`, which captures at once, then redirects to the success URL. Empty: PayPal returns straight to the success URL and the capture happens on `CHECKOUT.ORDER.APPROVED` or by the reconciler. |
 | `paypal.webhook-id` (`PAYPAL_WEBHOOK_ID`) | *(empty)* | The payments webhook's PayPal id (served at `/webhook/paypal`). Empty: every delivery is refused. |
