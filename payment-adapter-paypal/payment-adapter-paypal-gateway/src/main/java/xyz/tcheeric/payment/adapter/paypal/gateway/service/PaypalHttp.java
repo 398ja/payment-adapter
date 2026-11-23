@@ -18,6 +18,7 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import xyz.tcheeric.payment.adapter.paypal.gateway.config.PaypalGatewayProperties;
 import xyz.tcheeric.payment.adapter.paypal.gateway.exception.PaypalApiException;
+import xyz.tcheeric.payment.adapter.paypal.gateway.exception.PaypalValidationException;
 
 /**
  * Every call to PayPal's REST API goes through here, as every Stripe call goes through
@@ -89,11 +90,16 @@ public class PaypalHttp {
             this.body = body;
         }
 
-        /** Act as this seller ({@code PayPal-Auth-Assertion}). */
+        /**
+         * Act as this seller ({@code PayPal-Auth-Assertion}). A blank id is refused, never sent as the
+         * platform: a call meant to be scoped to one seller must not quietly run with wider reach.
+         */
         public Call asSeller(String merchantId) {
-            if (merchantId != null && !merchantId.isBlank()) {
-                headers.put("PayPal-Auth-Assertion", authAssertion(properties.getClientId(), merchantId));
+            if (merchantId == null || merchantId.isBlank()) {
+                throw new PaypalValidationException("PayPal call " + method + " " + path
+                        + " must act as a seller, and no merchant id was given");
             }
+            headers.put("PayPal-Auth-Assertion", authAssertion(properties.getClientId(), merchantId.trim()));
             return this;
         }
 

@@ -213,6 +213,13 @@ class PaypalRestOrdersClientTest {
         assertThat(PaypalHttp.segment("a/../b")).doesNotContain("/");
     }
 
+    @Test
+    void aSellerCallWithoutASellerIsRefusedNotSentAsThePlatform() {
+        assertThatThrownBy(() -> client.getOrder(" ", "ORDER-1"))
+                .isInstanceOf(xyz.tcheeric.payment.adapter.paypal.gateway.exception.PaypalValidationException.class);
+        paypal.verify(0, getRequestedFor(urlEqualTo("/v2/checkout/orders/ORDER-1")));
+    }
+
     private static String order(String id, String status) {
         return """
                 {"id":"%s","status":"%s",
