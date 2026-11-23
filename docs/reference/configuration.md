@@ -96,6 +96,66 @@ Configuration is read from `cash.properties` on the classpath.
 | `stripe.connect.return-url` | *(empty)* | Return URL used during Connect onboarding. |
 | `stripe.connect.webhook-endpoint-id` (`STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID`) | *(empty)* | The Connect endpoint's `we_...` id, for the webhook subscription check (#286). |
 
+## PayPal Gateway module ([payment-adapter-paypal/payment-adapter-paypal-gateway](../../payment-adapter-paypal/payment-adapter-paypal-gateway))
+
+Card purchases on a stall's own PayPal account, mirroring Stripe ([ADR 0002](../adr/0002-paypal-card-purchases-mirror-stripe.md)).
+One platform REST app acts for every onboarded seller through `PayPal-Auth-Assertion`, as one Stripe key
+acts for every connected account through `Stripe-Account`. Every `paypal.*` property binds from its
+`PAYPAL_*` environment variable.
+
+| Property (`ENV`) | Default | Description |
+| --- | --- | --- |
+| `paypal.enabled` (`PAYPAL_ENABLED`) | `false` | Enables the PayPal gateway, checkout, webhook and reconciler beans. |
+| `paypal.mode` (`PAYPAL_MODE`) | `sandbox` | `sandbox` or `live`. Picks the API host and every row's `livemode`. |
+| `paypal.client-id` (`PAYPAL_CLIENT_ID`) | *(required when enabled)* | The platform REST app's client id. |
+| `paypal.client-secret` (`PAYPAL_CLIENT_SECRET`) | *(required when enabled)* | Its secret. Never logged. |
+| `paypal.bn-code` (`PAYPAL_BN_CODE`) | *(empty)* | Partner attribution code, sent as `PayPal-Partner-Attribution-Id`. |
+| `paypal.success-url` (`PAYPAL_SUCCESS_URL`) | *(required when enabled)* | Where a buyer lands after paying; `{ORDER_ID}` is replaced with the order id. |
+| `paypal.cancel-url` (`PAYPAL_CANCEL_URL`) | *(required when enabled)* | Where a buyer lands after cancelling, or when PayPal declines. |
+| `paypal.return-base-url` (`PAYPAL_RETURN_BASE_URL`) | *(empty)* | This service's public origin. Set: PayPal returns the buyer to `/api/v1/checkout/paypal/return`, which captures at once, then redirects to the success URL. Empty: PayPal returns straight to the success URL and the capture happens on `CHECKOUT.ORDER.APPROVED` or by the reconciler. |
+| `paypal.webhook-id` (`PAYPAL_WEBHOOK_ID`) | *(empty)* | The payments webhook's PayPal id (served at `/webhook/paypal`). Empty: every delivery is refused. |
+| `paypal.environment` (`PAYPAL_ENVIRONMENT`) | `STRIPE_ENVIRONMENT` | Stamped on every order's `custom_id` as `<env>:<quote>`. **Must equal `stripe.environment`**; the PayPal webhook module refuses to start otherwise, because the ledger drops orders naming another deployment. |
+| `paypal.brand-name` (`PAYPAL_BRAND_NAME`) | *(empty)* | Shown on PayPal's page; empty shows the seller's own name. |
+| `paypal.default-currency` / `paypal.allowed-currencies` | `usd` / `usd` | As Stripe's. |
+| `paypal.min-amount-minor` / `paypal.max-amount-minor` | `1` / `2147483647` | As Stripe's. The public ceiling is still `purchase.max-amount-minor`. |
+| `paypal.connect-timeout-ms` / `paypal.read-timeout-ms` | `5000` / `10000` | Bounds on every PayPal call. |
+| `paypal.max-network-retries` (`PAYPAL_MAX_NETWORK_RETRIES`) | `1` | Retries of a call PayPal could not answer (no answer, 5xx, 429). Safe: every write carries a `PayPal-Request-Id`. |
+| `paypal.webhook-tolerance-seconds` (`PAYPAL_WEBHOOK_TOLERANCE_SECONDS`) | `0` | Maximum age of `PAYPAL-TRANSMISSION-TIME`; 0 is no bound (the event-id table already makes a replay a duplicate). |
+| `paypal.api-base` (`PAYPAL_API_BASE`) | *(empty)* | Local mock only (`localhost`, `127.0.0.1`, `host.docker.internal`, `paypal-mock`); refused at startup otherwise, as `stripe.api-base`. |
+
+Webhook signatures are verified locally against PayPal's certificate (fetched only over HTTPS from a
+`paypal.com` host, chain-validated against the JDK trust store, and cached), never through PayPal's
+`verify-webhook-signature` call.
+
+## PayPal Connect module ([payment-adapter-paypal/payment-adapter-paypal-connect](../../payment-adapter-paypal/payment-adapter-paypal-connect))
+
+Seller onboarding through Partner Referrals, at `/api/v1/paypal/connect` with the same routes and
+bodies as `/api/v1/stripe/connect`.
+
+| Property (`ENV`) | Default | Description |
+| --- | --- | --- |
+| `paypal.connect.enabled` (`PAYPAL_CONNECT_ENABLED`) | `false` | Enables onboarding. Requires `paypal.enabled=true` (refused at startup otherwise). |
+| `paypal.connect.partner-merchant-id` (`PAYPAL_CONNECT_PARTNER_MERCHANT_ID`) | *(required when enabled)* | The platform's own PayPal merchant id, the `partner_id` of every seller-status read. |
+| `paypal.connect.return-url` (`PAYPAL_CONNECT_RETURN_URL`) | *(empty)* | Where PayPal returns a seller after onboarding, when the request names none. |
+| `paypal.connect.webhook-id` (`PAYPAL_CONNECT_WEBHOOK_ID`) | *(empty)* | The onboarding webhook's PayPal id (served at `/api/v1/paypal/connect/webhooks`). |
+| `paypal.connect.products` | `EXPRESS_CHECKOUT` | Partner Referrals `products`. |
+| `paypal.connect.features` | `PAYMENT,REFUND` | Permissions the seller grants. Must include `PAYMENT`. |
+
+A stall takes PayPal cards (`charges_enabled`) only when PayPal reports `payments_receivable`,
+`primary_email_confirmed`, and the `PAYMENT` permission granted to this platform's app.
+
+### PayPal purchase reconciler
+
+Exists only when `paypal.enabled=true`. Shares `purchase.reconcile.enabled`, `interval`,
+`initial-delay`, `grace`, `max-stripe-calls-per-run` and the stale/parked settings with Stripe's;
+its stale and parked sweeps read only `processor='paypal'` rows, from PayPal.
+
+| Property (`ENV`) | Default | Description |
+| --- | --- | --- |
+| `paypal.reconcile.lookback` (`PAYPAL_RECONCILE_LOOKBACK`) | `P30D` | Open orders older than this are no longer looked at. |
+| `paypal.reconcile.abandon-after` (`PAYPAL_RECONCILE_ABANDON_AFTER`) | `PT6H` | An order never approved this long is closed: nothing was paid. |
+| `paypal.reconcile.batch-size` (`PAYPAL_RECONCILE_BATCH_SIZE`) | `50` | Open orders read per run. |
+
 ## Webhook module ([payment-adapter-webhook](../../payment-adapter-webhook))
 
 | Property | Default | Description |

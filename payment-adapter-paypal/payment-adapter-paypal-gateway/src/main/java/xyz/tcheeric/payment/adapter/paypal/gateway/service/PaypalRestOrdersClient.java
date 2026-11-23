@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalCapture;
+import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalDispute;
 import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalMoney;
 import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalOrder;
 import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalOrderRequest;
@@ -85,18 +86,18 @@ public class PaypalRestOrdersClient implements PaypalOrdersClient {
     }
 
     @Override
-    public List<String> disputesFor(String merchantId, String captureId) {
+    public List<PaypalDispute> disputesFor(String merchantId, String captureId) {
         JsonNode answer = http.get("/v1/customer/disputes")
                 .asSeller(merchantId)
                 .query("disputed_transaction_id", captureId)
                 .send();
-        List<String> ids = new ArrayList<>();
+        List<PaypalDispute> disputes = new ArrayList<>();
         for (JsonNode item : answer.path("items")) {
             String id = item.path("dispute_id").asText(null);
             if (id != null) {
-                ids.add(id);
+                disputes.add(new PaypalDispute(id, item.path("status").asText(null)));
             }
         }
-        return List.copyOf(ids);
+        return List.copyOf(disputes);
     }
 }

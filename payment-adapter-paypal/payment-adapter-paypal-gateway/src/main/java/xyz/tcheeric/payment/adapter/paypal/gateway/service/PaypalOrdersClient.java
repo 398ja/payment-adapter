@@ -2,6 +2,7 @@ package xyz.tcheeric.payment.adapter.paypal.gateway.service;
 
 import java.util.List;
 import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalCapture;
+import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalDispute;
 import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalOrder;
 import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalOrderRequest;
 
@@ -27,6 +28,6 @@ public interface PaypalOrdersClient {
 
     PaypalCapture getCapture(String merchantId, String captureId);
 
-    /** Ids of every dispute PayPal holds against this capture, open or closed. */
-    List<String> disputesFor(String merchantId, String captureId);
+    /** Every dispute PayPal holds against this capture, open or closed. */
+    List<PaypalDispute> disputesFor(String merchantId, String captureId);
 }
