@@ -75,3 +75,22 @@ PayPal is off unless `paypal.enabled=true`. Connect-style onboarding needs
 for the same reason Stripe does. Two webhooks are registered on the platform
 app: payments to `/webhook/paypal` (`paypal.webhook-id`) and onboarding to
 `/api/v1/paypal/connect/webhooks` (`paypal.connect.webhook-id`).
+
+`paypal.environment` defaults to `STRIPE_ENVIRONMENT` and the PayPal webhook
+module refuses to start when the two differ: the ledger knows one deployment
+name, and an order stamped with any other would be read as foreign and dropped.
+
+`paypal.return-base-url`, when set, sends the approving buyer back to
+`GET /api/v1/checkout/paypal/return?token=<order>` here. That route captures at
+once and then answers 303 to `paypal.success-url` (or to `paypal.cancel-url`
+when PayPal declined). It never shows the buyer an error: whatever fails there,
+`CHECKOUT.ORDER.APPROVED` and the reconciler capture the same order with the
+same request id. Unset, PayPal returns the buyer straight to the success URL
+and capture waits for the webhook.
+
+With PayPal off, `/webhook/paypal` has no handler at all (unlike Stripe's
+ServiceLoader stub): nothing could verify a delivery without the webhook id.
+
+The reconciler never closes an order PayPal says was captured, even when the
+follow-up read fails; only an order PayPal no longer knows, or one never
+approved for `paypal.reconcile.abandon-after`, is closed.

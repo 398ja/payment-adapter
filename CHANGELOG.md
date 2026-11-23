@@ -4,6 +4,19 @@
 
 ### Added
 
+- **PayPal card payments, mirroring Stripe** ([ADR 0002](docs/adr/0002-paypal-card-purchases-mirror-stripe.md)).
+  A stall onboards its own PayPal seller account (`/api/v1/paypal/connect/accounts`, Partner
+  Referrals) and a buyer pays it on PayPal's card form (`POST /api/v1/checkout/paypal/purchase`,
+  Stripe's body, refusals and response). Orders are created as the seller with the stall as payee,
+  captured on `CHECKOUT.ORDER.APPROVED`, on the buyer's return
+  (`GET /api/v1/checkout/paypal/return`) or by the new PayPal reconciler, always with one
+  `PayPal-Request-Id`. Paid purchases, refunds and disputes land in the same `stripe_purchase`
+  ledger (new `processor` column, V23) through the same listener, so the Purchase Issuer serves
+  them unchanged. Webhooks at `/webhook/paypal` and `/api/v1/paypal/connect/webhooks` are verified
+  locally against PayPal's certificate. Reference verification at
+  `/api/v1/paypal/connect/accounts/{pk}/payments/{capture}/verification`. Off unless
+  `PAYPAL_ENABLED=true`; see [configuration](docs/reference/configuration.md). Stripe's stale and
+  parked sweeps now read only Stripe rows, and the operator's live check is routed by processor.
 - **Card payments are Essentials and above.** purchase-issuer's readiness now answers
   `card_payments_not_in_plan` for a stall with no paid plan. The checkout
   (`POST /api/v1/checkout/purchase`) and the gifting site's pay step already refused every

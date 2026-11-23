@@ -39,3 +39,16 @@
 2026-11-23T00:55:31.314Z WARN  x.t.p.a.p.w.PaypalPurchaseCheckoutController - PayPal unavailable starting a purchase for stall aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: Failed to create PayPal order for quoteId=q, currency=usd
 2026-11-23T00:55:31.316Z WARN  x.t.p.a.p.w.PaypalPurchaseCheckoutController - Could not start a PayPal purchase for stall aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: Failed to create PayPal order for quoteId=q, currency=usd
 2026-11-23T00:55:31.327Z WARN  x.t.p.a.p.w.PaypalPurchaseCheckoutController - PayPal order 5O190127TN364715T not recorded on the buyer's return; the webhook or reconciler will: db
+2026-11-23T00:56:22.797Z INFO  x.t.p.a.p.w.PaypalCaptureService - PayPal order 5O190127TN364715T closed: capture refused: PAYEE_ACCOUNT_RESTRICTED
+2026-11-23T00:56:22.849Z INFO  x.t.p.a.p.w.PaypalCaptureService - PayPal order 5O190127TN364715T closed: never approved
+2026-11-23T00:56:22.889Z WARN  x.t.p.a.p.w.PaypalCaptureService - [alert] PayPal capture 3C679366HH908993F for order 5O190127TN364715T has no checkout row here; recording it for a person
+2026-11-23T00:56:23.322Z WARN  x.t.p.a.p.w.PaypalWebhookHandler - purchase_foreign_environment PayPal capture 3C679366HH908993F names environment 'prod', this is 'test': not recorded
+2026-11-23T00:56:23.343Z INFO  x.t.p.a.p.w.PaypalWebhookHandler - PayPal order OTHER approved but not created here; acknowledged
+2026-11-23T00:56:23.358Z WARN  x.t.p.a.p.w.PaypalWebhookHandler - PayPal webhook WH-12 was left PROCESSING since 2026-11-23T00:51:23.357421011Z; taking it over
+2026-11-23T00:56:23.471Z WARN  x.t.p.a.p.w.r.PaypalPurchaseReconciler - [alert] paypal_reconcile recorded 1 paid purchase(s) no webhook delivered
+2026-11-23T00:56:23.491Z WARN  x.t.p.a.p.w.r.PaypalPurchaseReconciler - paypal_reconcile order O1 left for the next run: down
+2026-11-23T00:56:23.496Z WARN  x.t.p.a.p.w.r.PaypalPurchaseReconciler - paypal_reconcile budget spent; remaining orders continue next run
+2026-11-23T00:56:23.513Z WARN  x.t.p.a.p.w.r.PaypalPurchaseReconciler - paypal_reconcile rate limited; stopping this run
+2026-11-23T00:56:23.655Z WARN  x.t.p.a.p.w.PaypalPurchaseCheckoutController - PayPal unavailable starting a purchase for stall aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: Failed to create PayPal order for quoteId=q, currency=usd
+2026-11-23T00:56:23.658Z WARN  x.t.p.a.p.w.PaypalPurchaseCheckoutController - Could not start a PayPal purchase for stall aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: Failed to create PayPal order for quoteId=q, currency=usd
+2026-11-23T00:56:23.671Z WARN  x.t.p.a.p.w.PaypalPurchaseCheckoutController - PayPal order 5O190127TN364715T not recorded on the buyer's return; the webhook or reconciler will: db

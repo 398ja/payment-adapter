@@ -231,6 +231,27 @@ A pass that does
 not finish keeps its window (`pass_until`) and position (`resume_after`), and the
 next run continues it. A Stripe error leaves the cursor where it was.
 
+## PayPal reconciler (ADR 0002)
+
+`PaypalPurchaseReconciler` is the Stripe reconciler's counterpart for `processor='paypal'` rows,
+on the same `purchase.reconcile.interval`. PayPal cannot list a seller's orders, so its worklist
+is this service's own `paypal_checkout`: every order created and not yet settled. Configuration:
+[reference](configuration.md#paypal-purchase-reconciler).
+
+1. **Open orders.** CREATED rows between `paypal.reconcile.lookback` (30 d) and
+   `purchase.reconcile.grace` (10 min) old, oldest first, up to `paypal.reconcile.batch-size`, each
+   read from PayPal as the seller:
+   * approved and uncaptured: captured, with the same `PayPal-Request-Id` the webhook and the
+     buyer's return use, so PayPal moves the money once;
+   * captured (a lost `PAYMENT.CAPTURE.COMPLETED`): recorded as `paypal:<capture>`, and the live
+     refund and dispute state applied in the same pass, exactly as the Stripe reconciler does;
+   * not found on PayPal, or never approved for `paypal.reconcile.abandon-after` (6 h): closed,
+     nothing owed. A capture PayPal reported is never closed, whatever the follow-up read says.
+2. **Stale rows** and 3. **Parked rows**: the same sweeps as above, scoped to PayPal rows and
+   reading PayPal (capture, the order's refunds, open disputes).
+
+Bounded by `max-stripe-calls-per-run` order reads; a 429 ends the run before the sweeps.
+
 ## Webhook subscription check (#286)
 
 Stripe sends only the events an endpoint subscribes to, and says nothing about the rest. When the

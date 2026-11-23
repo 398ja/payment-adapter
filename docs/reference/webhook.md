@@ -84,8 +84,11 @@ The webhook module uses a Service Provider Interface (SPI) pattern for extensibi
 | `PhoenixWebhookHandler` | `phoenixd` | `/webhook/phoenixd` | `payment-adapter-ln-webhook` |
 | `CashWebhookHandler` | `cash` | `/webhook/cash` | `payment-adapter-cash-webhook` |
 | `StripeWebhookHandler` | `stripe` | `/webhook/stripe` | `payment-adapter-stripe-webhook` |
+| `PaypalWebhookHandler` | `paypal` | `/webhook/paypal` | `payment-adapter-paypal-webhook` |
 
-Handlers are discovered via `META-INF/services/xyz.tcheeric.payment.adapter.webhook.spi.WebhookHandler`.
+Handlers are discovered via `META-INF/services/xyz.tcheeric.payment.adapter.webhook.spi.WebhookHandler`,
+except `PaypalWebhookHandler`, which exists only when `paypal.enabled=true` and registers itself
+with the `WebhookRegistry` from its Spring configuration.
 
 ## Mint Webhook Forwarder
 
@@ -149,3 +152,34 @@ verification uses the `Stripe-Signature` header and the configured
 3. Event IDs are deduplicated using persisted `ProcessedStripeWebhookEvent` records.
 4. Successful Checkout events must match the stored quote amount, currency, and Checkout Session ID.
 5. Refund and dispute events update Stripe-native state only and do not roll the generic quote or payment state backward.
+
+## PayPal Webhook
+
+`POST /webhook/paypal` processes PayPal's payments events for coupon purchases
+([ADR 0002](../adr/0002-paypal-card-purchases-mirror-stripe.md)). Present only when `paypal.enabled=true`.
+
+### Request Body
+
+The raw JSON event PayPal sends. The `PAYPAL-TRANSMISSION-ID`, `PAYPAL-TRANSMISSION-TIME`,
+`PAYPAL-TRANSMISSION-SIG`, `PAYPAL-CERT-URL` and `PAYPAL-AUTH-ALGO` headers are verified locally:
+the signed message is `<transmission id>|<time>|<paypal.webhook-id>|<CRC32 of the body>`, checked
+with the certificate at the cert URL (HTTPS, a `paypal.com` host, a chain the JDK trusts, cached).
+
+### Supported Events
+
+- `CHECKOUT.ORDER.APPROVED`: the order is captured now (`PayPal-Request-Id: paypal:capture:<order>`)
+- `PAYMENT.CAPTURE.COMPLETED`: paid means owed, recorded as `paypal:<capture id>`
+- `PAYMENT.CAPTURE.DECLINED`
+- `PAYMENT.CAPTURE.REFUNDED`, `PAYMENT.CAPTURE.REVERSED` (a reversal counts as a full refund)
+- `CUSTOMER.DISPUTE.CREATED`, `CUSTOMER.DISPUTE.RESOLVED` (`RESOLVED_SELLER_FAVOUR` or
+  `CANCELED_BY_BUYER` is Stripe's `won`)
+
+### Validation Rules
+
+1. The raw body must be present and parse as JSON with an `id` and an `event_type`.
+2. The signature must verify against `paypal.webhook-id`; without it every delivery is refused.
+3. Event IDs are deduplicated in `processed_paypal_webhook_event`, with Stripe's PROCESSING,
+   PROCESSED and FAILED lifecycle.
+4. A purchase's terms (buyer, stall, amount, deployment) come from this service's own
+   `paypal_checkout` row, never from the event. A capture whose `custom_id` names another
+   deployment is acknowledged and not recorded.
