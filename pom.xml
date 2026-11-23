@@ -16,6 +16,7 @@
         <module>payment-adapter-ln</module>
         <module>payment-adapter-cash</module>
         <module>payment-adapter-stripe</module>
+        <module>payment-adapter-paypal</module>
         <module>payment-adapter-test</module>
     </modules>
 

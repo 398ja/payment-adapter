@@ -1,0 +1,23 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>xyz.tcheeric</groupId>
+        <artifactId>payment-adapter</artifactId>
+        <version>0.32.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>payment-adapter-paypal</artifactId>
+    <packaging>pom</packaging>
+
+    <name>Payment Adapter - PayPal</name>
+    <description>PayPal card payment modules, mirroring the Stripe ones (ADR 0002)</description>
+
+    <modules>
+        <module>payment-adapter-paypal-gateway</module>
+        <module>payment-adapter-paypal-connect</module>
+        <module>payment-adapter-paypal-webhook</module>
+    </modules>
+</project>

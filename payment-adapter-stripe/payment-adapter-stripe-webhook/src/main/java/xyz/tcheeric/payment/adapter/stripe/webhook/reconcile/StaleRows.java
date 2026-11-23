@@ -3,7 +3,6 @@ package xyz.tcheeric.payment.adapter.stripe.webhook.reconcile;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -31,27 +30,47 @@ import xyz.tcheeric.payment.adapter.stripe.webhook.spi.StripePurchaseListener;
  * <p>The live PaymentIntent is read before every move, so the facts on the row are Stripe's.
  */
 @Slf4j
-@RequiredArgsConstructor
-class StaleRows {
+public class StaleRows {
 
-    private final StripeReconcileSource stripe;
+    private final PaymentStateReader stripe;
     private final StripePurchaseRepository purchases;
     private final StripePurchaseListener listener;
     private final TransactionOperations transactions;
     private final Duration issuingStaleAfter;
     private final Duration issuedStaleAfter;
     private final int batchSize;
+    /** Whose rows this sweep reads (ADR 0002): a row is only ever read from its own processor. */
+    private final String processor;
+
+    StaleRows(PaymentStateReader stripe, StripePurchaseRepository purchases, StripePurchaseListener listener,
+            TransactionOperations transactions, Duration issuingStaleAfter, Duration issuedStaleAfter, int batchSize) {
+        this(stripe, purchases, listener, transactions, issuingStaleAfter, issuedStaleAfter, batchSize,
+                StripePurchase.PROCESSOR_STRIPE);
+    }
+
+    public StaleRows(PaymentStateReader reader, StripePurchaseRepository purchases, StripePurchaseListener listener,
+            TransactionOperations transactions, Duration issuingStaleAfter, Duration issuedStaleAfter, int batchSize,
+            String processor) {
+        this.stripe = reader;
+        this.purchases = purchases;
+        this.listener = listener;
+        this.transactions = transactions;
+        this.issuingStaleAfter = issuingStaleAfter;
+        this.issuedStaleAfter = issuedStaleAfter;
+        this.batchSize = batchSize;
+        this.processor = processor;
+    }
 
     /** A fresh budget for one sweep: at most one PaymentIntent read per row looked at. */
-    ReconcileBudget newBudget() {
+    public ReconcileBudget newBudget() {
         return new ReconcileBudget(batchSize);
     }
 
     /** @return rows moved */
-    int sweep(Instant now, ReconcileBudget budget) {
+    public int sweep(Instant now, ReconcileBudget budget) {
         Instant issuingCutoff = now.minus(issuingStaleAfter);
         Instant issuedCutoff = now.minus(issuedStaleAfter);
-        List<StripePurchase> stale = purchases.findStaleForAttention(StripePurchase.PROCESSOR_STRIPE, Status.ISSUING, issuingCutoff,
+        List<StripePurchase> stale = purchases.findStaleForAttention(processor, Status.ISSUING, issuingCutoff,
                 Status.ISSUED, issuedCutoff, Status.BLOCKED, PageRequest.of(0, batchSize));
         int moved = 0;
         for (StripePurchase row : stale) {
@@ -67,7 +86,7 @@ class StaleRows {
                 } catch (StripeReconcileException e) {
                     if (e.isRateLimited()) {
                         budget.rateLimited();
-                        log.warn("stripe_reconcile stale row {} left for the next run: {}", row.getEventId(),
+                        log.warn("{}_reconcile stale row {} left for the next run: {}", processor, row.getEventId(),
                                 e.getMessage());
                         continue;
                     }
@@ -85,7 +104,7 @@ class StaleRows {
                     moved++;
                 }
             } catch (OptimisticLockingFailureException e) {
-                log.info("stripe_reconcile stale row {} changed meanwhile; next run", row.getEventId());
+                log.info("{}_reconcile stale row {} changed meanwhile; next run", processor, row.getEventId());
             }
         }
         return moved;
@@ -114,7 +133,7 @@ class StaleRows {
         }
         park(row, reason, detailFor(row, live, readError), now);
         purchases.save(row);
-        log.warn("[alert] stripe_reconcile parked purchase {} ({}): {}", eventId, reason.wire(),
+        log.warn("[alert] {}_reconcile parked purchase {} ({}): {}", processor, eventId, reason.wire(),
                 row.getAttentionDetail());
         return true;
     }
@@ -140,8 +159,9 @@ class StaleRows {
     }
 
     private static String detailFor(StripePurchase row, PaymentState live, String readError) {
-        String stripeFacts = readError != null ? "live check FAILED (" + readError + "): check Stripe by hand"
-                : live == null ? "no payment intent to check"
+        String by = row.isPaypal() ? "PayPal" : "Stripe";
+        String stripeFacts = readError != null ? "live check FAILED (" + readError + "): check " + by + " by hand"
+                : live == null ? "no payment reference to check"
                 : "live: refunded " + live.refundedMinor() + " of " + live.amountMinor() + ", disputed " + live.disputed();
         String last = row.getLastFailure() == null ? "" : "; last failure: " + row.getLastFailure();
         return "reconciler: " + row.getStatus().name().toLowerCase(java.util.Locale.ROOT) + " too long; "
@@ -149,7 +169,7 @@ class StaleRows {
     }
 
     /** Same fields {@code PurchaseDischargeService} sets when it parks (#273). */
-    static void park(StripePurchase row, AttentionReason reason, String detail, Instant now) {
+    public static void park(StripePurchase row, AttentionReason reason, String detail, Instant now) {
         row.setStatus(Status.NEEDS_ATTENTION);
         row.setAttentionReason(reason);
         row.setAttentionDetail(detail == null ? null : detail.substring(0, Math.min(500, detail.length())));
