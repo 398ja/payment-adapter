@@ -1,3 +1,0 @@
-2026-11-23T00:50:36.465Z INFO  x.t.p.a.p.c.PaypalConnectService - PayPal seller event for unknown merchant SELLER123 / tracking null; ignored
-2026-11-23T00:52:48.644Z INFO  x.t.p.a.p.c.PaypalConnectService - PayPal seller event for unknown merchant STRANGER / tracking null; ignored
-2026-11-23T00:56:19.092Z INFO  x.t.p.a.p.c.PaypalConnectService - PayPal seller event for unknown merchant STRANGER / tracking null; ignored

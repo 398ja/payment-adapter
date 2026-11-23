@@ -56,6 +56,9 @@ build/
 /payment-adapter-stripe/payment-adapter-stripe-connect/logs/
 /specs/
 /payment-adapter-ln/payment-adapter-ln-webhook/logs/
+/payment-adapter-paypal/payment-adapter-paypal-gateway/logs/
+/payment-adapter-paypal/payment-adapter-paypal-connect/logs/
+/payment-adapter-paypal/payment-adapter-paypal-webhook/logs/
 
 # versions-maven-plugin backups (versions:set)
 *.versionsBackup
