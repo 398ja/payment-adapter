@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Upgraded nostr-java from 1.2.1 to 2.4.4 (major). Migrated to the 2.x module layout:
+  `nostr-java-api` dropped, `nostr-java-crypto`/`nostr-java-encryption` replaced by
+  `nostr-java-core`, `nostr-java-id` replaced by `nostr-java-identity`.
+- Replaced removed `ElementAttribute` tag API with `GenericTag.of(...)` / `GenericTag#getParams()`
+  in `CashInvoiceEvent` and `CashEventSubscriber`.
+
 ### Added
 
 - **PayPal card payments, mirroring Stripe** ([ADR 0002](docs/adr/0002-paypal-card-purchases-mirror-stripe.md)).
