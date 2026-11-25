@@ -253,12 +253,12 @@ public class PurchaseCheckoutController {
     }
 
     /** What a buyer sees when Stripe is unavailable. */
-    static final String CARD_PAYMENTS_UNAVAILABLE = "card payments are briefly unavailable, try again";
+    public static final String CARD_PAYMENTS_UNAVAILABLE = "card payments are briefly unavailable, try again";
 
-    static final String RETRY_AFTER_SECONDS = "5";
+    public static final String RETRY_AFTER_SECONDS = "5";
 
     /** What a buyer sees when purchase-issuer says the stall cannot be issued for (#293). */
-    static final String STALL_NOT_READY = "this stall cannot sell vouchers by card right now";
+    public static final String STALL_NOT_READY = "this stall cannot sell vouchers by card right now";
 
     /** What a buyer sees when the stall's Free plan has no sales left (gateway-customer#317). */
     public static final String SALES_LIMIT_REACHED =
@@ -278,7 +278,7 @@ public class PurchaseCheckoutController {
     }
 
     /** What a buyer sees when readiness could not be checked (#293). Fail closed. */
-    static final String CARD_SALES_UNAVAILABLE = "card sales temporarily unavailable, try again shortly";
+    public static final String CARD_SALES_UNAVAILABLE = "card sales temporarily unavailable, try again shortly";
 
     /** Refusals from the gateway are the customer's to see now, rather than at the card form. */
     private ResponseEntity<?> gatewayRefused(PurchaseRequest request, String currency, RuntimeException e) {
@@ -287,7 +287,7 @@ public class PurchaseCheckoutController {
     }
 
     /** The words a guest sees. Shared with the wallet's Buy page. */
-    static final String GUEST_REFUSED = "Create a wallet first to buy a voucher by card";
+    public static final String GUEST_REFUSED = "Create a wallet first to buy a voucher by card";
 
     /**
      * The buyer's key, lower-cased, or null when there is no valid one.

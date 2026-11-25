@@ -109,6 +109,11 @@ public interface StripePurchaseListener {
      *                         pubkey. Validated before the card was charged
      * @param livemode         false for test-mode traffic, so a consequence can
      *                         refuse to mint real value from a test payment
+     * @param processor        whose payment this is, {@code stripe} or {@code paypal}
+     *                         (V23, ADR 0002); a PayPal purchase rides the same ledger
+     * @param stallPubkey      the stall, when the caller already knows it from its
+     *                         own record (a PayPal checkout row). Null for Stripe,
+     *                         where the listener resolves it from the account id
      */
     record PaidPurchase(
             String eventId,
@@ -118,6 +123,20 @@ public interface StripePurchaseListener {
             Long amountMinor,
             String currency,
             Map<String, String> metadata,
-            boolean livemode) {
+            boolean livemode,
+            String processor,
+            String stallPubkey) {
+
+        /** A Stripe purchase: the stall is resolved from its connected account. */
+        public PaidPurchase(String eventId, String checkoutSessionId, String paymentIntentId,
+                String connectedAccountId, Long amountMinor, String currency, Map<String, String> metadata,
+                boolean livemode) {
+            this(eventId, checkoutSessionId, paymentIntentId, connectedAccountId, amountMinor, currency, metadata,
+                    livemode, "stripe", null);
+        }
+
+        public boolean isPaypal() {
+            return "paypal".equals(processor);
+        }
     }
 }

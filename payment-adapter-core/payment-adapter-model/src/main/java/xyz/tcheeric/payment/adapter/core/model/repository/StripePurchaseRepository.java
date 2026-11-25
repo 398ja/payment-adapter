@@ -196,13 +196,16 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
     /**
      * Rows nothing automatic will move on, for the Stripe reconciler to park (#272): ISSUING whose
      * claim lapsed before {@code issuingLapsedBefore}, ISSUED created before
-     * {@code issuedCreatedBefore}, and every BLOCKED row. Oldest first, one page per run.
+     * {@code issuedCreatedBefore}, and every BLOCKED row. Oldest first, one page per run. Scoped to
+     * one {@code processor} (V23): each processor's reconciler reads only its own live payments.
      */
-    @Query("select p from StripePurchase p where (p.status = :issuing and p.claimedUntil < :issuingLapsedBefore)"
+    @Query("select p from StripePurchase p where p.processor = :processor and ("
+            + "(p.status = :issuing and p.claimedUntil < :issuingLapsedBefore)"
             + " or (p.status = :issued and p.createdAt < :issuedCreatedBefore)"
-            + " or p.status = :blocked"
+            + " or p.status = :blocked)"
             + " order by p.createdAt asc")
     List<StripePurchase> findStaleForAttention(
+            @Param("processor") String processor,
             @Param("issuing") StripePurchase.Status issuing,
             @Param("issuingLapsedBefore") Instant issuingLapsedBefore,
             @Param("issued") StripePurchase.Status issued,
@@ -218,10 +221,13 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
      * Parked rows with a PaymentIntent to read, created after {@code createdAfter}, oldest first: one
      * page of the reconciler's rotating live check of NEEDS_ATTENTION rows (#286). The caller keeps the
      * last {@code createdAt} it saw and starts again from the beginning when a page comes back short.
+     * Scoped to one {@code processor} (V23), like {@link #findStaleForAttention}.
      */
-    @Query("select p from StripePurchase p where p.status = :status and p.paymentIntentId is not null"
+    @Query("select p from StripePurchase p where p.processor = :processor and p.status = :status"
+            + " and p.paymentIntentId is not null"
             + " and p.createdAt > :createdAfter order by p.createdAt asc")
     List<StripePurchase> findWithPaymentIntentCreatedAfter(
+            @Param("processor") String processor,
             @Param("status") StripePurchase.Status status,
             @Param("createdAfter") Instant createdAfter,
             org.springframework.data.domain.Pageable page);

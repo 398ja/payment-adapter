@@ -105,6 +105,27 @@
             <version>${project.version}</version>
         </dependency>
         <!--
+            PayPal card purchases (ADR 0002), for the same reason as the Stripe
+            webhook module above: a module this application does not depend on
+            never ships. Every bean in them is conditional on paypal.enabled /
+            paypal.connect.enabled, so with PayPal off nothing changes.
+        -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-paypal-gateway</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-paypal-connect</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>payment-adapter-paypal-webhook</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!--
             Lightning support. PhoenixdGateway serves BOLT11/BOLT12/ON_CHAIN, which is
             disjoint from StripeGateway's CREDIT_CARD, and Gateway.supports(method)
             selects between them — so adding this does not contend with Stripe.

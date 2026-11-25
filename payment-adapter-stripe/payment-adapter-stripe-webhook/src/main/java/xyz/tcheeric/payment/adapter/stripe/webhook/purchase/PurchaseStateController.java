@@ -33,7 +33,8 @@ import xyz.tcheeric.payment.adapter.stripe.webhook.gifting.Nip98Verifier;
  *       {@code GET}, within 60 s. Another key, a stale event or a different URL is 401/403. The
  *       signed {@code u} must be one of {@code purchase.state.public-origins} plus the path, so a
  *       proof made for another service is not replayable here.</li>
- *   <li><b>The gateway's redeem guard</b>, by the Stripe {@code pi_} a delegated warrant carries:
+ *   <li><b>The gateway's redeem guard</b>, by the processor reference a delegated warrant carries
+ *       (a Stripe {@code pi_} or a PayPal capture id, {@link ProcessorReference}):
  *       {@code GET /ref/{pi}} with {@code Authorization: Bearer <purchase.state.read-token>}. A
  *       separate, read-only credential. Unset, or equal to the issuer's or operator's token, refuses
  *       every call (503): a gateway must never end up holding the issuer's power.</li>
@@ -46,7 +47,6 @@ public class PurchaseStateController {
 
     public static final String PREFIX = "/api/v1/purchase-state";
     private static final Pattern HEX64 = Pattern.compile("^[0-9a-f]{64}$");
-    private static final Pattern PI = Pattern.compile("^pi_[A-Za-z0-9_]{1,250}$");
 
     private final StripePurchaseRepository purchases;
     private final Nip98Verifier nip98;
@@ -118,7 +118,7 @@ public class PurchaseStateController {
     /**
      * One purchase by its Stripe payment intent, for the gateway's redeem guard.
      *
-     * @return 200 state, 400 not a pi_ ref, 401 wrong or no token, 404 unknown ref, 503 unconfigured
+     * @return 200 state, 400 not a processor ref, 401 wrong or no token, 404 unknown ref, 503 unconfigured
      */
     @GetMapping("/ref/{ref}")
     public ResponseEntity<?> byRef(@PathVariable String ref,
@@ -132,8 +132,9 @@ public class PurchaseStateController {
                         authorization.substring("Bearer ".length()).getBytes(StandardCharsets.UTF_8))) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
-        if (ref == null || !PI.matcher(ref).matches()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "ref must be a Stripe payment intent (pi_...)"));
+        if (!ProcessorReference.isWellFormed(ref)) {
+            return ResponseEntity.badRequest().body(Map.of("error",
+                    "ref must be a Stripe payment intent (pi_...) or a PayPal capture id"));
         }
         return purchases.findByPaymentIntentId(ref)
                 .<ResponseEntity<?>>map(p -> ResponseEntity.ok(PurchaseState.of(p)))
@@ -157,7 +158,7 @@ public class PurchaseStateController {
         if (!holderLimit.tryAcquire(ip)) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
         }
-        if (ref == null || !PI.matcher(ref).matches()) {
+        if (!ProcessorReference.isWellFormed(ref)) {
             return ResponseEntity.notFound().build();
         }
         return purchases.findByPaymentIntentId(ref)

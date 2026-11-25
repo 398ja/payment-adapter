@@ -2,7 +2,6 @@ package xyz.tcheeric.payment.adapter.stripe.webhook.reconcile;
 
 import java.time.Instant;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripePurchase;
@@ -24,21 +23,34 @@ import xyz.tcheeric.payment.adapter.stripe.webhook.purchase.LivePaymentUnavailab
  * The position is per replica and in memory; a restart starts again from the oldest, which is harmless.
  */
 @Slf4j
-@RequiredArgsConstructor
-class ParkedRows {
+public class ParkedRows {
 
     private final StripeLivePaymentCheck livePayments;
     private final StripePurchaseRepository purchases;
     private final int batchSize;
+    /** Whose rows this sweep reads (ADR 0002): a row is only ever read from its own processor. */
+    private final String processor;
     private Instant after = Instant.EPOCH;
 
-    ReconcileBudget newBudget() {
+    ParkedRows(StripeLivePaymentCheck livePayments, StripePurchaseRepository purchases, int batchSize) {
+        this(livePayments, purchases, batchSize, StripePurchase.PROCESSOR_STRIPE);
+    }
+
+    public ParkedRows(StripeLivePaymentCheck livePayments, StripePurchaseRepository purchases, int batchSize,
+            String processor) {
+        this.livePayments = livePayments;
+        this.purchases = purchases;
+        this.batchSize = batchSize;
+        this.processor = processor;
+    }
+
+    public ReconcileBudget newBudget() {
         return new ReconcileBudget(batchSize);
     }
 
     /** @return parked rows on which the live read found a refund or dispute no webhook delivered */
-    int sweep(ReconcileBudget budget) {
-        List<StripePurchase> page = purchases.findWithPaymentIntentCreatedAfter(
+    public int sweep(ReconcileBudget budget) {
+        List<StripePurchase> page = purchases.findWithPaymentIntentCreatedAfter(processor,
                 Status.NEEDS_ATTENTION, after, PageRequest.of(0, batchSize));
         after = page.size() < batchSize ? Instant.EPOCH : page.get(page.size() - 1).getCreatedAt();
         int found = 0;
@@ -54,7 +66,7 @@ class ParkedRows {
                     budget.rateLimited();
                     break;
                 }
-                log.info("stripe_reconcile parked row {} not read: {}", row.getEventId(), e.getMessage());
+                log.info("{}_reconcile parked row {} not read: {}", processor, row.getEventId(), e.getMessage());
             }
         }
         return found;

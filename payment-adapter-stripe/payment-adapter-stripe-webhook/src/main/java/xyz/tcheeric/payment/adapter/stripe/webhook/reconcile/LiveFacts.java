@@ -9,12 +9,12 @@ import xyz.tcheeric.payment.adapter.stripe.webhook.spi.StripePurchaseListener.Re
  * reconciler and the webhook cannot disagree on what a refund does to a row: before issue it is
  * REFUNDED, after issue the facts are recorded and nothing else changes (#265).
  */
-final class LiveFacts {
+public final class LiveFacts {
 
     private LiveFacts() {
     }
 
-    static void record(StripePurchaseListener listener, String eventId, String accountId, String paymentIntentId,
+    public static void record(StripePurchaseListener listener, String eventId, String accountId, String paymentIntentId,
             PaymentState live) {
         if (live.refunded()) {
             LostPurchaseRecorder.call(() -> listener.onPurchaseReversed(new ReversedPurchase(

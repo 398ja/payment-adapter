@@ -271,6 +271,23 @@ public class StripePurchase {
     @Column(name = "livemode", nullable = false)
     private boolean livemode;
 
+    /** Stripe's rows say {@code stripe}; PayPal's (V23, ADR 0002) say {@code paypal}. */
+    public static final String PROCESSOR_STRIPE = "stripe";
+    public static final String PROCESSOR_PAYPAL = "paypal";
+
+    /**
+     * Whose payment this is (V23). The ledger is shared because its meaning is not Stripe's; this is
+     * what keeps a Stripe-only reader (the Stripe reconciler, the live check) off a PayPal row. For a
+     * PayPal row {@link #checkoutSessionId} is the order id, {@link #paymentIntentId} the capture id
+     * and {@link #connectedAccountId} the PayPal merchant id.
+     */
+    @Column(name = "processor", nullable = false, length = 16)
+    private String processor = PROCESSOR_STRIPE;
+
+    public boolean isPaypal() {
+        return PROCESSOR_PAYPAL.equals(processor);
+    }
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     private Status status;

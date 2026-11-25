@@ -22,7 +22,7 @@ import xyz.tcheeric.payment.adapter.stripe.webhook.spi.StripePurchaseListener;
 @RequiredArgsConstructor
 public class StripeLivePaymentCheck implements LivePaymentCheck {
 
-    private final StripeReconcileSource stripe;
+    private final PaymentStateReader stripe;
     private final StripePurchaseListener listener;
 
     @Override
@@ -30,9 +30,10 @@ public class StripeLivePaymentCheck implements LivePaymentCheck {
         PaymentState live = read(purchase);
         boolean news = isNews(purchase, live);
         if (news) {
-            log.warn("[alert] Live check of purchase {} found what no webhook delivered: refunded {} of {},"
+            log.warn("[alert] Live check of {} purchase {} found what no webhook delivered: refunded {} of {},"
                             + " disputed {}. Recorded; check the endpoint's enabled_events",
-                    purchase.getEventId(), live.refundedMinor(), live.amountMinor(), live.disputed());
+                    purchase.getProcessor(), purchase.getEventId(), live.refundedMinor(), live.amountMinor(),
+                    live.disputed());
             LiveFacts.record(listener, purchase.getEventId(), purchase.getConnectedAccountId(),
                     purchase.getPaymentIntentId(), live);
         }

@@ -8,7 +8,7 @@ import java.util.Map;
  * What the Stripe reconciler reads from Stripe (payment-adapter#272). Two reads, both on the
  * connected account ({@code Stripe-Account}), because a purchase is a direct charge on the stall.
  */
-public interface StripeReconcileSource {
+public interface StripeReconcileSource extends PaymentStateReader {
 
     /**
      * One page of the account's {@code status=complete} Checkout Sessions created in
@@ -25,6 +25,7 @@ public interface StripeReconcileSource {
      *
      * @throws StripeReconcileException when Stripe cannot be read
      */
+    @Override
     PaymentState paymentState(String accountId, String paymentIntentId);
 
     /** A complete Checkout Session, in the terms the webhook's {@code PaidPurchase} needs. */
