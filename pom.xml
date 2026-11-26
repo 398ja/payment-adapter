@@ -83,7 +83,7 @@
         <commons-lang3.version>3.17.0</commons-lang3.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <commons-configuration2.version>2.15.1</commons-configuration2.version>
-        <jackson-datatype-jsr310.version>2.17.2</jackson-datatype-jsr310.version>
+        <jackson-datatype-jsr310.version>2.23.0</jackson-datatype-jsr310.version>
 
         <!-- Maven plugin versions -->
         <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
