@@ -30,19 +30,11 @@
         <!-- Nostr Java modules -->
         <dependency>
             <groupId>xyz.tcheeric</groupId>
-            <artifactId>nostr-java-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>xyz.tcheeric</groupId>
             <artifactId>nostr-java-client</artifactId>
         </dependency>
         <dependency>
             <groupId>xyz.tcheeric</groupId>
-            <artifactId>nostr-java-crypto</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>xyz.tcheeric</groupId>
-            <artifactId>nostr-java-encryption</artifactId>
+            <artifactId>nostr-java-core</artifactId>
         </dependency>
         <dependency>
             <groupId>xyz.tcheeric</groupId>
@@ -50,7 +42,7 @@
         </dependency>
         <dependency>
             <groupId>xyz.tcheeric</groupId>
-            <artifactId>nostr-java-id</artifactId>
+            <artifactId>nostr-java-identity</artifactId>
         </dependency>
 
         <!-- JSON processing -->

@@ -51,7 +51,7 @@
         -->
         <dependency>
             <groupId>xyz.tcheeric</groupId>
-            <artifactId>nostr-java-id</artifactId>
+            <artifactId>nostr-java-identity</artifactId>
         </dependency>
         <!-- NAP login for the gifting site's signed-in buyers (imani-wallet#410). -->
         <dependency>

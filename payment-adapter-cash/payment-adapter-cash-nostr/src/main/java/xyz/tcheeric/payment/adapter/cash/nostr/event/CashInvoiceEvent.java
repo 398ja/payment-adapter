@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import nostr.base.PublicKey;
-import nostr.base.ElementAttribute;
 import nostr.event.BaseTag;
 import nostr.event.impl.GenericEvent;
 import nostr.event.tag.GenericTag;
@@ -149,8 +148,8 @@ public class CashInvoiceEvent {
                 tags.add(BaseTag.create("h", locationHash));
             }
 
-            // Version tag (use GenericTag directly to avoid VoteTag parseInt)
-            tags.add(new GenericTag("v", new ElementAttribute("param0", "0.2")));
+            // Version tag
+            tags.add(GenericTag.of("v", "0.2"));
 
             // Build the payload
             CashInvoicePayload payload = CashInvoicePayload.builder()

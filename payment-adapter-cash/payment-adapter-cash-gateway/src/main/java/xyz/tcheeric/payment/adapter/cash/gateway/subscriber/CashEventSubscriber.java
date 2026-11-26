@@ -3,7 +3,6 @@ package xyz.tcheeric.payment.adapter.cash.gateway.subscriber;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
-import nostr.base.ElementAttribute;
 import nostr.event.impl.GenericEvent;
 import nostr.event.tag.GenericTag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -232,9 +231,9 @@ public class CashEventSubscriber {
         if (event.getTags() != null) {
             for (var tag : event.getTags()) {
                 if (tag instanceof GenericTag genericTag && "ref".equals(genericTag.getCode())) {
-                    var attrs = genericTag.getAttributes();
-                    if (attrs != null && !attrs.isEmpty()) {
-                        return attrs.get(0).value().toString();
+                    var params = genericTag.getParams();
+                    if (!params.isEmpty()) {
+                        return params.get(0);
                     }
                 }
             }
