@@ -4,6 +4,9 @@
 
 ### Changed
 
+- `payment-adapter-client` no longer ships a `logback.xml`. As a library jar it was taking over
+  the logging config of every consumer (older releases forced `xyz.tcheeric` to DEBUG). Consumers
+  now keep their own configuration.
 - Upgraded nostr-java from 1.2.1 to 2.4.4 (major). Migrated to the 2.x module layout:
   `nostr-java-api` dropped, `nostr-java-crypto`/`nostr-java-encryption` replaced by
   `nostr-java-core`, `nostr-java-id` replaced by `nostr-java-identity`.
