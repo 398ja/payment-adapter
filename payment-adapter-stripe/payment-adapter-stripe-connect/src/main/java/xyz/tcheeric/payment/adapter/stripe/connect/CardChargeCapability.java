@@ -8,15 +8,23 @@ import com.stripe.model.Account;
  * <h2>Why this is its own class</h2>
  *
  * <p>Not the same question as Stripe's {@code charges_enabled}, and the
- * difference shipped a bug. Express grants {@code transfers} by default, and
- * transfers alone are enough to set that flag — so an account with
- * {@code card_payments: unrequested} reported:
+ * difference shipped a bug. It was found on Express accounts, which grant
+ * {@code transfers} by default, and transfers alone were enough to set that
+ * flag — so an account with {@code card_payments: unrequested} reported (as
+ * observed then):
  *
  * <pre>
  * charges_enabled: true   payouts_enabled: true   details_submitted: true
  * requirements.currently_due: []      disabled_reason: null
  * capabilities: {transfers: active}
  * </pre>
+ *
+ * <p>The adapter now creates Standard accounts and no longer requests
+ * {@code transfers} (ADR 0001, "Express accounts: reversed"), so that exact
+ * path is closed. The rule stays regardless of account type: Stripe grants no
+ * capability that was not requested, and an account connected through OAuth is
+ * the stall's own, so it may never have had {@code card_payments} requested.
+ * Reading {@code charges_enabled} alone would still be wrong there.
  *
  * <p>Nothing looked wrong anywhere. Every consumer of this field treats it as
  * "can sell today": the wallet's Payments screen renders it, the merchant
