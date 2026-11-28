@@ -284,6 +284,16 @@ public class StripeSdkConnectClient implements StripeConnectClient {
         }
     }
 
+    @Override
+    public void deauthorize(String clientId, String stripeAccountId) {
+        try {
+            OAuth.deauthorize(Map.of("client_id", clientId, "stripe_user_id", stripeAccountId), requestOptions());
+        } catch (StripeException e) {
+            logStripeFailure("oauth_deauthorize", e);
+            throw StripeConnectException.apiError("Failed to remove Imani from the Stripe account", e);
+        }
+    }
+
     /**
      * Zero network retries, on purpose. The SDK retries a failed call by default, and the token endpoint is not
      * idempotent: Stripe revokes the connection when an authorization code is consumed twice. A timeout that

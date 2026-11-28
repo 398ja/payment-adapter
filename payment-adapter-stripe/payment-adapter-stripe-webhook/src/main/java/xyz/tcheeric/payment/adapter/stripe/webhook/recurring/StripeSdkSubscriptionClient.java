@@ -3,9 +3,11 @@ package xyz.tcheeric.payment.adapter.stripe.webhook.recurring;
 import com.stripe.exception.StripeException;
 import com.stripe.model.InvoicePayment;
 import com.stripe.model.Subscription;
+import com.stripe.model.checkout.Session;
 import com.stripe.net.RequestOptions;
 import com.stripe.param.InvoicePaymentListParams;
 import com.stripe.param.SubscriptionUpdateParams;
+import com.stripe.param.checkout.SessionExpireParams;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import xyz.tcheeric.payment.adapter.stripe.gateway.config.StripeGatewayProperties;
@@ -48,6 +50,22 @@ public class StripeSdkSubscriptionClient implements StripeSubscriptionClient {
             log.warn("stripe_subscription_cancel_failed account={} subscription={} code={} status={}",
                     connectedAccountId, subscriptionId, e.getCode(), e.getStatusCode());
             throw new RecurringPlanException("could not end subscription " + subscriptionId, e);
+        }
+    }
+
+    @Override
+    public void expireCheckoutSession(String connectedAccountId, String checkoutSessionId) {
+        try {
+            Session session = Session.retrieve(checkoutSessionId, options(connectedAccountId));
+            if ("open".equals(session.getStatus())) {
+                session.expire(SessionExpireParams.builder().build(), options(connectedAccountId));
+            } else if ("complete".equals(session.getStatus())) {
+                throw new RecurringPlanException("checkout session " + checkoutSessionId + " has already completed");
+            }
+        } catch (StripeException e) {
+            log.warn("stripe_checkout_expire_failed account={} session={} code={} status={}",
+                    connectedAccountId, checkoutSessionId, e.getCode(), e.getStatusCode());
+            throw new RecurringPlanException("could not expire checkout session " + checkoutSessionId, e);
         }
     }
 

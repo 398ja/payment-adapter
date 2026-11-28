@@ -499,8 +499,9 @@ design above, and what is still open:
    plan has none, and the plan-start endpoint is public, so counting it would let anyone stop a stall from ever
    disconnecting. On a Stripe-side disconnect every live plan, `PENDING` included, is marked `ORPHANED`.
 5. **No caller-supplied return URL.** A plan always returns the buyer to the deployment's own purchase pages.
-6. **Cancel is token-protected, not public.** There is no buyer authentication in this service, so cancel and read live
-   under `/api/v1/purchases/plans` (the purchase API token), and the wallet's backend must authenticate the buyer.
+6. **Cancel is a signed request from the buyer.** Read, list and cancel live under `/api/v1/checkout/plans` and are
+   authenticated by NIP-98 (the buyer is whoever signed), as `StallPurchasesController` does for a stall. They replace
+   the earlier bearer-token routes under `/api/v1/purchases/plans`, which no browser could call.
 
 ### Not built (open)
 
@@ -512,7 +513,7 @@ design above, and what is still open:
   issued even if the stall has since passed a limit (paid means owed).
 * **No payment-method update link for the buyer,** and no wallet screen. Both need verification of the customer portal on
   a connected account (unverified item 3) and work in `imani-wallet`.
-* **Plan status is not exposed to the stall** (no stall-side list of its plans).
+* **Plans are exposed to the stall only as a count and monthly total** (`GET /api/v1/checkout/plans/summary`), not a list.
 
 ### Still unverified against Stripe
 

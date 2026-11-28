@@ -18,4 +18,13 @@ public interface StripeSubscriptionClient {
      * @throws RuntimeException when Stripe could not be asked
      */
     void cancelAtPeriodEnd(String connectedAccountId, String subscriptionId);
+
+    /**
+     * Expires a plan's still-open Checkout Session, so a buyer who stopped a plan they never finished cannot complete
+     * Stripe's page afterwards and start a subscription on a plan Imani already closed. Idempotent: a session that
+     * has already expired is not an error.
+     *
+     * @throws RuntimeException when Stripe could not be asked, or the session has already completed
+     */
+    void expireCheckoutSession(String connectedAccountId, String checkoutSessionId);
 }

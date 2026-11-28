@@ -398,4 +398,89 @@ class StripeConnectOAuthServiceTest {
                         e -> assertThat(e.getCode()).isEqualTo(StripeConnectExceptionCode.OAUTH_DISABLED));
         verify(states, never()).consume(anyString(), any());
     }
+
+    // ---- Stop on an OAuth account removes Imani from its connected apps ----
+
+    /** The stall's own account: Stop must also revoke Imani's access, or Imani's platform key could still act on it. */
+    @Test
+    void stoppingAnOAuthAccountDeauthorizesImani() {
+        ConnectedStripeAccount mine = connected();
+        mine.setConnectionType(StripeConnectionType.OAUTH);
+        when(accounts.findByMerchantPubkey(MERCHANT)).thenReturn(Optional.of(mine));
+
+        service.disconnect(MERCHANT);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(accounts, client);
+        order.verify(accounts).deleteByMerchantPubkey(MERCHANT);
+        order.verify(client).deauthorize("ca_test", ACCOUNT);
+    }
+
+    /** An account Imani created is not deauthorized: it has no OAuth grant to revoke. */
+    @Test
+    void stoppingACreatedAccountDoesNotDeauthorize() {
+        when(accounts.findByMerchantPubkey(MERCHANT)).thenReturn(Optional.of(connected()));
+
+        service.disconnect(MERCHANT);
+
+        verify(client, never()).deauthorize(anyString(), anyString());
+    }
+
+    /** A refused Stop (plans running) changes nothing, Stripe included. */
+    @Test
+    void aRefusedStopDoesNotDeauthorize() {
+        ConnectedStripeAccount mine = connected();
+        mine.setConnectionType(StripeConnectionType.OAUTH);
+        when(accounts.findByMerchantPubkey(MERCHANT)).thenReturn(Optional.of(mine));
+        when(recurringPlans.existsByConnectedAccountIdAndStatusIn(eq(ACCOUNT), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.disconnect(MERCHANT)).isInstanceOf(StripeConnectException.class);
+
+        verify(client, never()).deauthorize(anyString(), anyString());
+    }
+
+    /** Stripe failing to deauthorize does not undo the Stop: the row is gone, and an operator is alerted. */
+    @Test
+    void aDeauthorizeFailureDoesNotFailTheStop() {
+        ConnectedStripeAccount mine = connected();
+        mine.setConnectionType(StripeConnectionType.OAUTH);
+        when(accounts.findByMerchantPubkey(MERCHANT)).thenReturn(Optional.of(mine));
+        org.mockito.Mockito.doThrow(StripeConnectException.apiError("down", null))
+                .when(client).deauthorize(anyString(), anyString());
+
+        service.disconnect(MERCHANT);
+
+        verify(accounts).deleteByMerchantPubkey(MERCHANT);
+    }
+
+    // ---- status fields for the wallet ----
+
+    /** The status tells the wallet how the account was connected, whether plans may run, and whether any are. */
+    @Test
+    void statusCarriesConnectionTypeEligibilityAndRunningPlans() {
+        ConnectedStripeAccount mine = connected();
+        mine.setConnectionType(StripeConnectionType.OAUTH);
+        when(accounts.findByMerchantPubkey(MERCHANT)).thenReturn(Optional.of(mine));
+        lenient().when(client.retrieveAccount(ACCOUNT)).thenReturn(snapshot(ACCOUNT, MERCHANT, true));
+        when(recurringPlans.existsByConnectedAccountIdAndStatusIn(eq(ACCOUNT), any())).thenReturn(true);
+
+        var status = service.getStatus(MERCHANT);
+
+        assertThat(status.connectionType()).isEqualTo("OAUTH");
+        assertThat(status.feePayer()).isEqualTo("account");
+        assertThat(status.lossesPayer()).isEqualTo("stripe");
+        assertThat(status.instalmentsEligible()).isTrue();
+        assertThat(status.activePlans()).isTrue();
+    }
+
+    /** Nothing connected: not eligible, nothing running. Unknown is never eligible. */
+    @Test
+    void statusWithNoAccountIsNotEligible() {
+        when(accounts.findByMerchantPubkey(MERCHANT)).thenReturn(Optional.empty());
+
+        var status = service.getStatus(MERCHANT);
+
+        assertThat(status.instalmentsEligible()).isFalse();
+        assertThat(status.activePlans()).isFalse();
+        assertThat(status.connectionType()).isNull();
+    }
 }

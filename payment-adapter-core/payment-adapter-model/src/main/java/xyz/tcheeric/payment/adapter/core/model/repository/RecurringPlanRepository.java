@@ -17,6 +17,12 @@ public interface RecurringPlanRepository extends CrudRepository<RecurringPlan, U
 
     Optional<RecurringPlan> findBySubscriptionId(String subscriptionId);
 
+    /** A buyer's plans, newest first, capped: the wallet's Monthly payments list. */
+    List<RecurringPlan> findTop100ByBuyerPubkeyOrderByCreatedAtDesc(String buyerPubkey);
+
+    /** A stall's plans in the given statuses: its "N people pay you monthly" summary. */
+    List<RecurringPlan> findByStallPubkeyAndStatusIn(String stallPubkey, Collection<RecurringPlan.Status> statuses);
+
     /** True while any plan on the account may still be charging a buyer. Blocks disconnecting (spec R8). */
     boolean existsByConnectedAccountIdAndStatusIn(String connectedAccountId, Collection<RecurringPlan.Status> statuses);
 

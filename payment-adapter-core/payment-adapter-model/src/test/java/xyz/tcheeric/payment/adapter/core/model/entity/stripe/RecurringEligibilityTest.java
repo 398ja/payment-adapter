@@ -1,9 +1,8 @@
-package xyz.tcheeric.payment.adapter.stripe.webhook.recurring;
+package xyz.tcheeric.payment.adapter.core.model.entity.stripe;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
-import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAccount;
 
 /** Plans run only where the stall pays Stripe's fees and Stripe bears a negative balance (spec R4). */
 class RecurringEligibilityTest {
@@ -46,6 +45,21 @@ class RecurringEligibilityTest {
     @Test
     void anUnreportedAccountIsAllowedOnlyWhenTheOperatorRelaxesTheRule() {
         assertThat(RecurringEligibility.refusal(account(null, null), false)).isEmpty();
+    }
+
+    // The status screen's flag is always strict: unreported is not eligible, and a missing account never is.
+    @Test
+    void theStallsEligibilityFlagIsStrictAndNeedsAnAccount() {
+        ConnectedStripeAccount ok = account("account", "stripe");
+        ok.setStripeAccountId("acct_1");
+        assertThat(RecurringEligibility.eligible(ok)).isTrue();
+
+        ConnectedStripeAccount unreported = account(null, null);
+        unreported.setStripeAccountId("acct_2");
+        assertThat(RecurringEligibility.eligible(unreported)).isFalse();
+
+        assertThat(RecurringEligibility.eligible(account("account", "stripe"))).isFalse();
+        assertThat(RecurringEligibility.eligible(null)).isFalse();
     }
 
     // Relaxing the rule never allows an account that DID report Imani as the payer.

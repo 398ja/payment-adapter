@@ -26,6 +26,15 @@ public interface StripeConnectClient {
      */
     String exchangeOAuthCode(String code);
 
+    /**
+     * Removes Imani from an OAuth-connected account's connected apps, so Imani's platform key can no longer act on
+     * it. Used on Stop for accounts the stall owned before connecting.
+     *
+     * @throws xyz.tcheeric.payment.adapter.stripe.connect.exception.StripeConnectException when Stripe refuses or
+     *         cannot be reached
+     */
+    void deauthorize(String clientId, String stripeAccountId);
+
     Event constructWebhookEvent(String payload, String signatureHeader, String webhookSecret);
 
     /**

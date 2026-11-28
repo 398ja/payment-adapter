@@ -115,8 +115,33 @@ class PlanCheckoutControllerTest {
     // Instalments below the minimum are refused, because the 20p per payment makes them expensive for the stall.
     @Test
     void anInstalmentBelowTheMinimumIsRefused() {
-        assertThat(controller.start(request(1999, 6)).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        ResponseEntity<?> refused = controller.start(request(1999, 6));
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        // The wallet names the minimum from the answer, not from a number it guessed.
+        assertThat((java.util.Map<String, Object>) refused.getBody())
+                .containsEntry("code", "BELOW_MINIMUM").containsEntry("minAmountMinor", 2000L);
         assertThat(controller.start(request(2000, 6)).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    // The start answer is camelCase on the wire, as a one-off purchase answers, so the wallet reads both alike.
+    @Test
+    void theStartAnswerIsCamelCaseOnTheWire() throws Exception {
+        String json = new com.fasterxml.jackson.databind.ObjectMapper()
+                .writeValueAsString(new PlanCheckoutController.PlanResponse("https://checkout.stripe.com/x", "p1"));
+
+        assertThat(json).isEqualTo("{\"checkoutUrl\":\"https://checkout.stripe.com/x\",\"planId\":\"p1\"}");
+    }
+
+    // An ineligible account and an unconnected stall carry a code, so the wallet can show its own words.
+    @Test
+    void refusalsCarryACodeTheWalletCanBranchOn() {
+        account.setFeePayer("application_express");
+        assertThat((java.util.Map<String, Object>) controller.start(request(5000, 6)).getBody())
+                .containsEntry("code", "ACCOUNT_NOT_ELIGIBLE");
+
+        when(accounts.findByMerchantPubkey(STALL)).thenReturn(Optional.empty());
+        assertThat((java.util.Map<String, Object>) controller.start(request(5000, 6)).getBody())
+                .containsEntry("code", "NOT_CONNECTED");
     }
 
     // A fixed term is 2 to the maximum instalments; an open-ended plan leaves it out.

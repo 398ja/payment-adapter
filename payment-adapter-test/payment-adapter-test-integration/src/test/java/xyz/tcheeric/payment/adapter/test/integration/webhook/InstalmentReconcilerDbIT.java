@@ -63,6 +63,7 @@ class InstalmentReconcilerDbIT extends BasePostgresIT {
         }
         @Override public String paymentIntentForInvoice(String accountId, String invoiceId) { return "pi_" + invoiceId; }
         @Override public void cancelAtPeriodEnd(String accountId, String subscriptionId) { cancelled.add(subscriptionId); }
+        @Override public void expireCheckoutSession(String accountId, String checkoutSessionId) { }
     }
 
     @BeforeEach

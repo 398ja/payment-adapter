@@ -234,4 +234,7 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
 
     /** How many instalments of a plan have been recorded: the count that decides a fixed-term plan is complete. */
     long countByRecurringPlanId(UUID recurringPlanId);
+
+    /** A plan's instalments that minted a voucher, oldest first: what the buyer's detail screen links to. */
+    List<StripePurchase> findByRecurringPlanIdAndVoucherIdIsNotNullOrderByCreatedAtAsc(UUID recurringPlanId);
 }
