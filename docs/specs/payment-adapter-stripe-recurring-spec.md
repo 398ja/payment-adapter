@@ -504,10 +504,8 @@ design above, and what is still open:
 
 ### Not built (open)
 
-* **No reconciler for missed instalments.** One-off purchases have a reconciler that recovers a paid Checkout Session
-  whose webhook was lost. Instalments have none, so a lost `invoice.paid` is recovered only by Stripe's own retries
-  (up to three days). **This is the largest gap for a feature that moves money.** The next piece is a job that lists a
-  live plan's paid invoices and records any the ledger lacks.
+* ~~**No reconciler for missed instalments.**~~ **Built** (branch `feat/stripe-instalment-reconciler`). See
+  "Instalment reconciler" below.
 * **A refund or dispute on an instalment does not mark its plan `ATTENTION`.** The existing refund and dispute handling
   still applies to the purchase row, but the plan is not flagged.
 * **Stall readiness and sales limits are checked once, when the plan starts,** not per instalment. A later instalment is
@@ -525,3 +523,35 @@ design above, and what is still open:
 * That a subscription's metadata appears on every renewal invoice as the parser expects.
 * Whether an account the stall opened itself reports `controller.fees.payer` and `controller.losses.payments`. If not,
   plans are refused on it while `stripe.recurring.require-controls` is true.
+
+### Instalment reconciler (2026-11-28)
+
+`reconcile/InstalmentReconciler`, scheduled every 10 minutes by default. For each running plan (and one that ended in
+the last 7 days, for a late instalment) it lists the subscription's paid invoices on the stall's account and records any
+the ledger lacks.
+
+* **Same path as the webhook, no second implementation.** The purchase is built by `RecurringPlanService.prepare` (the
+  buyer is the plan's, the invoice id is the ledger key) and recorded by the one-off reconciler's own
+  `LostPurchaseRecorder`, which reads the live payment first and records through the same listener. A refunded
+  instalment is recorded REFUNDED and a disputed one parked, never owed. `LostPurchaseRecorder` was refactored to share
+  that body; its 34 existing tests pass unchanged.
+* **Repairs the over-billing case.** After reading a plan's invoices, `RecurringPlanService.settle` ends a fixed-term
+  plan that has every instalment but was never ended. This runs whether or not any invoice was missing, because the
+  webhook that records the last instalment and the one that ends the subscription are the same webhook. An integration
+  test covers the no-missing-invoice path and fails when `settle` is removed.
+* **PENDING plans.** One whose Checkout Session completed (its webhook lost) is linked to its subscription; one whose
+  session expired is closed; one still open is left alone.
+* **Two replicas never work one plan.** `V26` adds `recurring_plan.reconciled_at`; a plan is claimed with one conditional
+  `UPDATE` (a Postgres test with eight racing callers shows one winner). The claim is also the rotation order and the
+  recheck window, so a bounded run reaches every plan and an idle system makes no Stripe calls.
+* **Bounded.** A per-run Stripe call budget, shared with checkout's rate limit; a 429 ends the run; one plan's failure
+  does not stop the next.
+
+Limits worth knowing:
+
+* An invoice is read from the newest 100 of a subscription. A fixed term is capped at 24, so this only matters for a
+  long-running open-ended plan; a warning is logged when there are more.
+* An invoice paid within `grace` is left to its webhook, so a lost webhook is recovered after about
+  `grace + interval` (20 minutes by default), not instantly.
+* It does not reconcile a plan whose account Imani can no longer see (`ORPHANED`).
+* Tested with a faked Stripe. The real `Invoice.list` and `Session.retrieve` calls are not exercised against Stripe.

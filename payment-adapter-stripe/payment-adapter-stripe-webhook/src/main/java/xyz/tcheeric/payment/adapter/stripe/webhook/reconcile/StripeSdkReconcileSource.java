@@ -3,10 +3,13 @@ package xyz.tcheeric.payment.adapter.stripe.webhook.reconcile;
 import com.stripe.exception.RateLimitException;
 import com.stripe.exception.StripeException;
 import com.stripe.model.Charge;
+import com.stripe.model.Invoice;
+import com.stripe.model.InvoiceCollection;
 import com.stripe.model.PaymentIntent;
 import com.stripe.model.checkout.Session;
 import com.stripe.model.checkout.SessionCollection;
 import com.stripe.net.RequestOptions;
+import com.stripe.param.InvoiceListParams;
 import com.stripe.param.PaymentIntentRetrieveParams;
 import com.stripe.param.checkout.SessionListParams;
 import java.time.Instant;
@@ -20,8 +23,9 @@ import xyz.tcheeric.payment.adapter.stripe.gateway.config.StripeGatewayPropertie
  * {@link StripeGatewayProperties#requestOptions()} (the api-base guard) and names the connected
  * account. Bounded timeouts: nobody waits on this, but a hung read must not hold the run's lease.
  */
+@lombok.extern.slf4j.Slf4j
 @RequiredArgsConstructor
-public class StripeSdkReconcileSource implements StripeReconcileSource {
+public class StripeSdkReconcileSource implements StripeReconcileSource, InstalmentSource {
 
     private static final int CONNECT_TIMEOUT_MS = 5_000;
     private static final int READ_TIMEOUT_MS = 20_000;
@@ -68,6 +72,43 @@ public class StripeSdkReconcileSource implements StripeReconcileSource {
         } catch (StripeException e) {
             throw failure("read PaymentIntent " + paymentIntentId + " on " + accountId, e);
         }
+    }
+
+    @Override
+    public List<PaidInvoice> paidInvoices(String accountId, String subscriptionId, int limit) {
+        try {
+            InvoiceCollection page = Invoice.list(InvoiceListParams.builder()
+                    .setSubscription(subscriptionId)
+                    .setStatus(InvoiceListParams.Status.PAID)
+                    .setLimit((long) limit)
+                    .build(), options(accountId));
+            if (Boolean.TRUE.equals(page.getHasMore())) {
+                // A plan has far fewer than 100 instalments (the term is capped at 24); more means an open-ended plan
+                // running for years. The newest are read first, which is where a missed one would be.
+                log.warn("stripe_reconcile subscription {} has more than {} paid invoices; reading the newest",
+                        subscriptionId, limit);
+            }
+            return page.getData().stream().map(StripeSdkReconcileSource::toPaidInvoice).toList();
+        } catch (StripeException e) {
+            throw failure("list paid invoices of " + subscriptionId + " on " + accountId, e);
+        }
+    }
+
+    @Override
+    public PlanSession planSession(String accountId, String sessionId) {
+        try {
+            Session session = Session.retrieve(sessionId, options(accountId));
+            return new PlanSession(session.getStatus(), session.getSubscription());
+        } catch (StripeException e) {
+            throw failure("read plan session " + sessionId + " on " + accountId, e);
+        }
+    }
+
+    private static PaidInvoice toPaidInvoice(Invoice invoice) {
+        Long paidAt = invoice.getStatusTransitions() == null ? null : invoice.getStatusTransitions().getPaidAt();
+        long when = paidAt != null ? paidAt : orZero(invoice.getCreated());
+        return new PaidInvoice(invoice.getId(), null, orZero(invoice.getAmountPaid()), invoice.getCurrency(),
+                Instant.ofEpochSecond(when), Boolean.TRUE.equals(invoice.getLivemode()));
     }
 
     private RequestOptions options(String accountId) {

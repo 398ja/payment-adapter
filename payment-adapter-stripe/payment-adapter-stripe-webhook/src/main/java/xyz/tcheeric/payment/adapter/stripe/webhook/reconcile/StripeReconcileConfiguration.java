@@ -71,4 +71,34 @@ public class StripeReconcileConfiguration {
                 new ReconcilerSettings(enabled, overlap, grace, initialLookback, lease, pageSize, maxCalls),
                 "reconciler-" + UUID.randomUUID());
     }
+
+    /**
+     * Recovers instalments whose webhook was lost. Exists only with {@code stripe.recurring.enabled}, and runs unless
+     * {@code stripe.recurring.reconcile.enabled=false}. The source is the same SDK object the one-off reconciler reads
+     * through, so there is one place that talks to Stripe for reconciliation.
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "stripe.recurring", name = "enabled", havingValue = "true")
+    InstalmentReconciler instalmentReconciler(
+            xyz.tcheeric.payment.adapter.core.model.repository.RecurringPlanRepository plans,
+            StripePurchaseRepository purchases, StripePurchaseListener listener, StripeReconcileSource stripe,
+            xyz.tcheeric.payment.adapter.stripe.webhook.recurring.RecurringPlanService service,
+            StripeGatewayProperties properties, PlatformTransactionManager transactionManager,
+            ObjectProvider<MeterRegistry> registry,
+            @Value("${stripe.recurring.reconcile.enabled:true}") boolean enabled,
+            @Value("${stripe.recurring.reconcile.grace:PT10M}") Duration grace,
+            @Value("${stripe.recurring.reconcile.recheck:PT1H}") Duration recheck,
+            @Value("${stripe.recurring.reconcile.ended-lookback:P7D}") Duration endedLookback,
+            @Value("${stripe.recurring.reconcile.batch-size:20}") int batchSize,
+            @Value("${stripe.recurring.reconcile.max-stripe-calls-per-run:40}") int maxCalls) {
+        if (!(stripe instanceof InstalmentSource instalments)) {
+            throw new IllegalStateException("the Stripe reconcile source cannot read instalments: "
+                    + stripe.getClass().getName());
+        }
+        TransactionTemplate transactions = new TransactionTemplate(transactionManager);
+        PaymentMetrics metrics = new PaymentMetrics(registry.getIfAvailable()).preRegisterReconciled(Source.CARD);
+        return InstalmentReconciler.create(plans, purchases, instalments, stripe, service, listener, transactions, metrics,
+                new InstalmentReconciler.Settings(enabled, grace, recheck, endedLookback, batchSize, maxCalls),
+                properties.resolvedEnvironment());
+    }
 }

@@ -177,6 +177,37 @@ public class RecurringPlanService {
         });
     }
 
+    /**
+     * Repairs a plan whose last instalment was recorded but whose subscription was never ended (the webhook that would
+     * have ended it was refused or lost). This is the over-billing case: the buyer is charged once more at the next
+     * period unless the subscription ends first, so the reconciler runs it for every running plan.
+     *
+     * <p>Reloads the plan, so a status the webhook changed meanwhile is respected. Only touches a plan that is still
+     * running; an ended or orphaned plan is left alone.
+     *
+     * @throws RecurringPlanException when Stripe cannot be asked, so the caller can retry next run
+     */
+    public void settle(UUID planId) {
+        plans.findById(planId).ifPresent(plan -> {
+            if (plan.getStatus() != Status.ACTIVE && plan.getStatus() != Status.PAST_DUE) {
+                return;
+            }
+            Integer total = plan.getTotalInstalments();
+            if (total == null || plan.getCancelRequestedAt() != null || plan.getSubscriptionId() == null) {
+                return;
+            }
+            if (purchases.countByRecurringPlanId(plan.getId()) < total) {
+                return;
+            }
+            log.warn("[alert] recurring_plan_final_cancel_repaired plan={} subscription={}",
+                    plan.getId(), plan.getSubscriptionId());
+            subscriptions.cancelAtPeriodEnd(plan.getConnectedAccountId(), plan.getSubscriptionId());
+            plan.setCancelRequestedAt(Instant.now());
+            plan.setStatus(Status.COMPLETED);
+            save(plan);
+        });
+    }
+
     /** An instalment failed. Stripe retries; nothing is issued meanwhile, and the buyer can be told. */
     public void paymentFailed(StripeWebhookPayload payload) {
         planFor(payload.getMetadata(), false).ifPresent(plan -> {
