@@ -27,6 +27,12 @@ public class StripePlanCheckoutRequest {
 
     String description;
 
+    /**
+     * How often an instalment is taken, as Stripe names it: {@code week}, {@code month} or {@code year}. Null means
+     * {@code month}, the only interval before stalls could choose.
+     */
+    String interval;
+
     /** Carried on the session AND on the subscription, so every invoice can name the plan. */
     Map<String, String> metadata;
 

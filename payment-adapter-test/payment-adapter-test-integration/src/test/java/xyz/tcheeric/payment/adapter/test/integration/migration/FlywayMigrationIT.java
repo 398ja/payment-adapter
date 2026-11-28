@@ -114,6 +114,24 @@ class FlywayMigrationIT extends BasePostgresIT {
         assertThat(indexExists("idx_stripe_purchase_recurring_plan")).isTrue();
     }
 
+    // Verifies a stall's instalment opt-in (V27): keyed by the stall, off unless a row says on, monthly by default.
+    @Test
+    void stallInstalmentSettingsTable_isKeyedByStallAndDefaultsToMonthly() {
+        assertThat(getColumnNames("stall_instalment_settings")).containsExactlyInAnyOrder(
+                "stall_pubkey", "enabled", "intervals", "created_at", "updated_at");
+        String key = jdbcTemplate.queryForObject(
+                "SELECT kcu.column_name FROM information_schema.table_constraints tc"
+                        + " JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name"
+                        + " WHERE tc.table_name = 'stall_instalment_settings' AND tc.constraint_type = 'PRIMARY KEY'",
+                String.class);
+        assertThat(key).isEqualTo("stall_pubkey");
+        String defaultValue = jdbcTemplate.queryForObject(
+                "SELECT column_default FROM information_schema.columns"
+                        + " WHERE table_name = 'stall_instalment_settings' AND column_name = 'intervals'",
+                String.class);
+        assertThat(defaultValue).contains("month");
+    }
+
     // Verifies the OAuth state table: one single-use row per flow, keyed by the opaque state.
     @Test
     void stripeOAuthStateTable_hasExpectedColumnsAndKey() {

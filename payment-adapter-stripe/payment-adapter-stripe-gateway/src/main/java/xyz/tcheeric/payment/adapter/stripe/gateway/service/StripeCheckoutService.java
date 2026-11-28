@@ -153,6 +153,31 @@ public class StripeCheckoutService {
             java.util.Map<String, String> metadata,
             String successUrl,
             String cancelUrl) {
+        return createPlanSession(planId, amountMinor, "month", description, currency, connectedAccountId, metadata,
+                successUrl, cancelUrl);
+    }
+
+    /** Stripe's {@code recurring.interval} values a plan may use. Day is left out: no stall asked for it. */
+    private static final java.util.Set<String> PLAN_INTERVALS = java.util.Set.of("week", "month", "year");
+
+    /**
+     * As above, at a chosen interval.
+     *
+     * @param interval {@code week}, {@code month} or {@code year} (Stripe's {@code recurring.interval})
+     */
+    public StripeCheckoutSession createPlanSession(
+            String planId,
+            long amountMinor,
+            String interval,
+            String description,
+            String currency,
+            String connectedAccountId,
+            java.util.Map<String, String> metadata,
+            String successUrl,
+            String cancelUrl) {
+        if (interval == null || !PLAN_INTERVALS.contains(interval)) {
+            throw new StripeValidationException("Stripe plan interval must be week, month or year");
+        }
         if (StringUtils.isBlank(planId)) {
             throw new StripeValidationException("Stripe planId must not be blank");
         }
@@ -179,6 +204,7 @@ public class StripeCheckoutService {
                 .connectedAccountId(connectedAccountId)
                 .planId(planId)
                 .amountMinor(amountMinor)
+                .interval(interval)
                 .currency(normalizedCurrency)
                 .description(sanitizeDescription(description))
                 .metadata(carried)

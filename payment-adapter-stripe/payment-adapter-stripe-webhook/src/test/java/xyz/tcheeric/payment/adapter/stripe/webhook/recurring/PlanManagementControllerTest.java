@@ -311,4 +311,36 @@ class PlanManagementControllerTest {
         assertThat(status(controller.summary(stall, nip98(BUYER_SK, url, "GET")))).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(status(controller.summary("nope", nip98(STALL_SK, url, "GET")))).isEqualTo(HttpStatus.BAD_REQUEST);
     }
+
+    // A weekly plan is counted but not folded into the monthly total: £10 a week is not £10 a month.
+    @Test
+    void aSummaryKeepsIntervalsApart() throws Exception {
+        RecurringPlan weekly = new RecurringPlan();
+        weekly.setAmountMinor(2500);
+        weekly.setCurrency("gbp");
+        weekly.setIntervalUnit("week");
+        when(plans.findByStallPubkeyAndStatusIn(stall, List.of(Status.ACTIVE))).thenReturn(List.of(plan, weekly));
+        String url = ORIGIN + PlanManagementController.PATH + "/summary?stall=" + stall;
+
+        PlanManagementController.StallSummary summary = (PlanManagementController.StallSummary)
+                controller.summary(stall, nip98(STALL_SK, url, "GET")).getBody();
+
+        assertThat(summary.activePlans()).isEqualTo(2);
+        assertThat(summary.monthlyTotals()).containsExactly(new PlanManagementController.CurrencyTotal("gbp", 4000));
+        assertThat(summary.totals()).containsExactly(
+                new PlanManagementController.IntervalTotal("gbp", "month", 4000),
+                new PlanManagementController.IntervalTotal("gbp", "week", 2500));
+    }
+
+    // Each plan says how often it is paid.
+    @Test
+    void aPlanNamesItsInterval() throws Exception {
+        plan.setIntervalUnit("year");
+        when(plans.findTop100ByBuyerPubkeyOrderByCreatedAtDesc(buyer)).thenReturn(List.of(plan));
+
+        String json = MAPPER.findAndRegisterModules().writeValueAsString(
+                controller.mine(nip98(BUYER_SK, ORIGIN + PlanManagementController.PATH, "GET")).getBody());
+
+        assertThat(json).contains("\"interval\":\"year\"");
+    }
 }

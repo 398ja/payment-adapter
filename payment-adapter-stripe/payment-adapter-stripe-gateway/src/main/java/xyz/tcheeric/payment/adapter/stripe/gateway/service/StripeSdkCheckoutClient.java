@@ -136,6 +136,19 @@ public class StripeSdkCheckoutClient implements StripeCheckoutClient {
         }
     }
 
+    /** Stripe's interval for a plan; null (a request built before intervals existed) is monthly. */
+    static SessionCreateParams.LineItem.PriceData.Recurring.Interval planInterval(String interval) {
+        if (interval == null) {
+            return SessionCreateParams.LineItem.PriceData.Recurring.Interval.MONTH;
+        }
+        return switch (interval) {
+            case "week" -> SessionCreateParams.LineItem.PriceData.Recurring.Interval.WEEK;
+            case "month" -> SessionCreateParams.LineItem.PriceData.Recurring.Interval.MONTH;
+            case "year" -> SessionCreateParams.LineItem.PriceData.Recurring.Interval.YEAR;
+            default -> throw new IllegalArgumentException("unsupported plan interval: " + interval);
+        };
+    }
+
     /** The plan session we ask Stripe for. Separate so a test can pin it without a live Stripe. */
     SessionCreateParams planCheckoutParams(StripePlanCheckoutRequest request) {
         SessionCreateParams.SubscriptionData.Builder subscription = SessionCreateParams.SubscriptionData.builder();
@@ -151,7 +164,7 @@ public class StripeSdkCheckoutClient implements StripeCheckoutClient {
                                 .setCurrency(request.getCurrency())
                                 .setUnitAmount(request.getAmountMinor())
                                 .setRecurring(SessionCreateParams.LineItem.PriceData.Recurring.builder()
-                                        .setInterval(SessionCreateParams.LineItem.PriceData.Recurring.Interval.MONTH)
+                                        .setInterval(planInterval(request.getInterval()))
                                         .build())
                                 .setProductData(SessionCreateParams.LineItem.PriceData.ProductData.builder()
                                         .setName(request.getDescription())

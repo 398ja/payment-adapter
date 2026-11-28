@@ -417,8 +417,13 @@ STALL's own account; Imani issues vouchers for each instalment when, and only wh
 `POST /api/v1/checkout/plan`
 
 ```json
-{ "stall_pubkey": "<64 hex>", "buyer_pubkey": "<64 hex>", "amount_minor": 5000, "instalments": 6 }
+{ "stall_pubkey": "<64 hex>", "buyer_pubkey": "<64 hex>", "amount_minor": 5000, "instalments": 6, "interval": "month" }
 ```
+
+`interval` is `week`, `month` or `year`, and defaults to `month` when left out. The stall must have switched plans on
+for that interval (see [A stall's offer](#a-stalls-offer-signed-by-the-stall)); otherwise `409` with `code`
+`NOT_OFFERED`, or `INTERVAL_NOT_OFFERED` with the stall's `intervals`. The longest fixed term depends on the interval
+(`max-instalments`, `-weekly`, `-yearly` in [configuration](configuration.md)).
 
 `instalments` is 2 to `stripe.recurring.max-instalments`, or omitted for an open-ended plan. Returns
 `{ "checkout_url": "https://checkout.stripe.com/...", "plan_id": "..." }`: send the buyer to `checkout_url`. The buyer
@@ -454,7 +459,25 @@ against one of `purchase.state.public-origins`. The buyer is whoever signed; no 
 
 The plan start (`POST /api/v1/checkout/plan`) answers `{checkoutUrl, planId}`. Its refusals carry a `code` beside
 `error` where the wallet words them itself: `BELOW_MINIMUM` (with `minAmountMinor`), `NOT_CONNECTED`,
-`ACCOUNT_NOT_ELIGIBLE`.
+`ACCOUNT_NOT_ELIGIBLE`, `NOT_OFFERED`, `INTERVAL_NOT_OFFERED` (with `intervals`).
+
+Each plan in a list or read also carries `interval`. The stall summary keeps `monthlyTotals` for monthly plans only,
+and adds `totals: [{currency, interval, amountMinor}]` across every interval, since a weekly and a monthly amount
+cannot be summed.
+
+### A stall's offer (signed by the stall)
+
+Whether a stall offers instalment plans, and how often a buyer may pay, is decided HERE, not by the stall's public
+profile: plan start is public, so a flag only the wallet reads could be bypassed by calling it directly.
+
+* `GET /api/v1/checkout/plans/settings?stall=<pubkey>` (public): `{enabled, intervals}`. A stall that never saved one
+  answers `{enabled: false, intervals: []}`.
+* `POST /api/v1/checkout/plans/settings`, a **signed request** BY the stall, whose NIP-98 event also carries the
+  `payload` tag (sha256 of the exact body), so a captured signature cannot be replayed with other settings. Body
+  `{enabled: true|false, intervals: ["week"|"month"|"year", ...]}`. Leaving `intervals` out keeps the stall's
+  current ones (`["month"]` for a new stall), so a client that only knows monthly cannot erase other intervals. The stall
+  is whoever signed; a body that names another `stallPubkey` is `403`. Switching off stops new plans; plans already
+  running carry on. `400` for anything else, `401` unsigned, `503` with no public origin configured.
 
 The Connect status (`GET /api/v1/stripe/connect/accounts/{merchantPubkey}`) also carries `connection_type`
 (`CREATED` | `OAUTH`), `fee_payer`, `losses_payer`, `instalments_eligible` (strict: unknown is false) and

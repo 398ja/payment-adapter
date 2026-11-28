@@ -28,8 +28,16 @@ final class SignedCaller {
 
     /** The signer's lower-case hex key, or empty when the header is missing, stale, or for another URL or verb. */
     Optional<String> of(String authorization, String pathAndQuery, String method) {
+        return of(authorization, pathAndQuery, method, null);
+    }
+
+    /**
+     * As {@link #of(String, String, String)}, and the signature must also carry the sha256 of {@code body} in its
+     * {@code payload} tag, so a captured signature cannot be replayed with a different body.
+     */
+    Optional<String> of(String authorization, String pathAndQuery, String method, byte[] body) {
         for (String origin : publicOrigins) {
-            Optional<String> signer = verifier.verify(authorization, origin + pathAndQuery, method, null);
+            Optional<String> signer = verifier.verify(authorization, origin + pathAndQuery, method, body);
             if (signer.isPresent()) {
                 return signer.map(String::toLowerCase);
             }

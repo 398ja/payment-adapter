@@ -96,7 +96,9 @@ Off by default. Nothing about plans exists until `stripe.recurring.enabled=true`
 |---|---|---|
 | `stripe.recurring.enabled` (`STRIPE_RECURRING_ENABLED`) | `false` | Turns on plan creation, the plan endpoints and the invoice event handlers. |
 | `stripe.recurring.min-instalment-minor` (`STRIPE_RECURRING_MIN_INSTALMENT_MINOR`) | `2000` | Smallest instalment accepted, in minor units. Small instalments cost the stall more: Stripe's 20p per payment plus the 0.7% Billing fee (spec, Appendix A). |
-| `stripe.recurring.max-instalments` (`STRIPE_RECURRING_MAX_INSTALMENTS`) | `24` | Longest fixed term. A plan may also be open-ended. |
+| `stripe.recurring.max-instalments` (`STRIPE_RECURRING_MAX_INSTALMENTS`) | `24` | Longest fixed term of a monthly plan. A plan may also be open-ended. |
+| `stripe.recurring.max-instalments-weekly` (`STRIPE_RECURRING_MAX_INSTALMENTS_WEEKLY`) | `52` | Longest fixed term of a weekly plan. |
+| `stripe.recurring.max-instalments-yearly` (`STRIPE_RECURRING_MAX_INSTALMENTS_YEARLY`) | `5` | Longest fixed term of a yearly plan. |
 | `stripe.recurring.require-controls` (`STRIPE_RECURRING_REQUIRE_CONTROLS`) | `true` | Refuse a plan on an account whose fee payer or loss collector Stripe has not reported. Relax only after confirming Stripe reports them for the accounts you connect. A reported "Imani pays" is refused either way. |
 
 ### Instalment reconciler

@@ -14,8 +14,23 @@ public class StripeRecurringProperties {
     /** The smallest instalment accepted, in minor units. Small instalments cost the stall more (spec, Appendix A). */
     private long minInstalmentMinor = 2000;
 
-    /** The longest fixed term, in instalments. */
+    /** The longest fixed term, in instalments, for a monthly plan. */
     private int maxInstalments = 24;
+
+    /** The longest fixed term, in instalments, for a weekly plan (52: a year of weeks). */
+    private int maxInstalmentsWeekly = 52;
+
+    /** The longest fixed term, in instalments, for a yearly plan. */
+    private int maxInstalmentsYearly = 5;
+
+    /** The longest fixed term for an interval ({@code week}, {@code month} or {@code year}). */
+    public int maxInstalmentsFor(String interval) {
+        return switch (interval) {
+            case "week" -> maxInstalmentsWeekly;
+            case "year" -> maxInstalmentsYearly;
+            default -> maxInstalments;
+        };
+    }
 
     /**
      * Refuse a plan on an account whose fee payer or loss collector Stripe has not reported. Unknown is not "fine":

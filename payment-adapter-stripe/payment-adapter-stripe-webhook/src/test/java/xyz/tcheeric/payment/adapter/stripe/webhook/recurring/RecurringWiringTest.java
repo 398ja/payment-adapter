@@ -34,7 +34,10 @@ class RecurringWiringTest {
             .withBean(ConnectedStripeAccountRepository.class, () -> mock(ConnectedStripeAccountRepository.class))
             .withBean(StripeCheckoutService.class, () -> mock(StripeCheckoutService.class))
             .withBean(StallReadinessClient.class, () -> mock(StallReadinessClient.class))
-            .withUserConfiguration(RecurringConfiguration.class, PlanCheckoutController.class, PlanManagementController.class);
+            .withBean(xyz.tcheeric.payment.adapter.core.model.repository.StallInstalmentSettingsRepository.class,
+                    () -> mock(xyz.tcheeric.payment.adapter.core.model.repository.StallInstalmentSettingsRepository.class))
+            .withUserConfiguration(RecurringConfiguration.class, PlanCheckoutController.class, PlanManagementController.class,
+                    StallInstalmentSettingsController.class);
 
     // With the property off (the default), nothing about plans exists: no service, no client, no endpoint.
     @Test
@@ -44,6 +47,7 @@ class RecurringWiringTest {
             assertThat(context).doesNotHaveBean(StripeSubscriptionClient.class);
             assertThat(context).doesNotHaveBean(PlanCheckoutController.class);
             assertThat(context).doesNotHaveBean(PlanManagementController.class);
+            assertThat(context).doesNotHaveBean(StallInstalmentSettingsController.class);
         });
     }
 
@@ -56,6 +60,7 @@ class RecurringWiringTest {
             assertThat(context).hasSingleBean(StripeSubscriptionClient.class);
             assertThat(context).hasSingleBean(PlanCheckoutController.class);
             assertThat(context).hasSingleBean(PlanManagementController.class);
+            assertThat(context).hasSingleBean(StallInstalmentSettingsController.class);
             assertThat(context.getBean(StripeRecurringProperties.class).getMinInstalmentMinor()).isEqualTo(2000L);
         });
     }
