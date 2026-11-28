@@ -10,6 +10,22 @@ public interface StripeConnectClient {
 
     String createOnboardingLink(String stripeAccountId, String returnUrl, String refreshUrl);
 
+    /**
+     * The Stripe page a farm opens to connect its own account. {@code scope} is always {@code read_write}:
+     * Stripe refuses anything else for a platform.
+     */
+    String oauthAuthorizeUrl(String clientId, String redirectUri, String state);
+
+    /**
+     * Turns the one-time authorization code into the connected account's id. <b>Makes exactly one attempt</b>:
+     * Stripe revokes the connection if a code is used twice, so a retry after a timeout would undo the very
+     * connection it was trying to make.
+     *
+     * @throws xyz.tcheeric.payment.adapter.stripe.connect.exception.StripeConnectException
+     *         {@code OAUTH_CODE_REJECTED} when Stripe refuses the code, {@code STRIPE_API_ERROR} otherwise
+     */
+    String exchangeOAuthCode(String code);
+
     Event constructWebhookEvent(String payload, String signatureHeader, String webhookSecret);
 
     /**

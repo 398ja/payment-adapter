@@ -6,12 +6,15 @@ import org.slf4j.LoggerFactory;
 import com.stripe.model.Account;
 import com.stripe.model.AccountLink;
 import com.stripe.model.Event;
+import com.stripe.net.OAuth;
 import com.stripe.net.RequestOptions;
 import com.stripe.net.Webhook;
 import com.stripe.param.AccountCreateParams;
 import com.stripe.param.AccountLinkCreateParams;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import xyz.tcheeric.payment.adapter.stripe.connect.exception.StripeConnectException;
 import xyz.tcheeric.payment.adapter.stripe.connect.exception.StripeConnectExceptionCode;
@@ -239,6 +242,60 @@ public class StripeSdkConnectClient implements StripeConnectClient {
                 e.getMessage());
     }
 
+    @Override
+    public String oauthAuthorizeUrl(String clientId, String redirectUri, String state) {
+        try {
+            return OAuth.authorizeUrl(oauthAuthorizeParams(clientId, redirectUri, state), requestOptions());
+        } catch (StripeException e) {
+            logStripeFailure("oauth_authorize_url", e);
+            throw StripeConnectException.apiError("Failed to build the Stripe authorization URL", e);
+        }
+    }
+
+    /** The authorize request, separate so a test can pin it without a live Stripe. */
+    Map<String, Object> oauthAuthorizeParams(String clientId, String redirectUri, String state) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("response_type", "code");
+        params.put("client_id", clientId);
+        params.put("scope", "read_write");
+        params.put("redirect_uri", redirectUri);
+        params.put("state", state);
+        return params;
+    }
+
+    @Override
+    public String exchangeOAuthCode(String code) {
+        try {
+            String accountId = OAuth.token(
+                    Map.of("grant_type", "authorization_code", "code", code), oauthTokenOptions())
+                    .getStripeUserId();
+            if (accountId == null || accountId.isBlank()) {
+                throw StripeConnectException.apiError(
+                        "Stripe's OAuth response carried no account id", null);
+            }
+            return accountId;
+        } catch (StripeException e) {
+            logStripeFailure("oauth_token", e);
+            // A 4xx is Stripe saying the code is expired, used or not ours. The farm can only start again.
+            if (e.getStatusCode() != null && e.getStatusCode() >= 400 && e.getStatusCode() < 500) {
+                throw StripeConnectException.oauthCodeRejected(e);
+            }
+            throw StripeConnectException.apiError("Failed to exchange the Stripe authorization code", e);
+        }
+    }
+
+    /**
+     * Zero network retries, on purpose. The SDK retries a failed call by default, and the token endpoint is not
+     * idempotent: Stripe revokes the connection when an authorization code is consumed twice. A timeout that
+     * Stripe had in fact processed, followed by a retry, would disconnect the farm it just connected.
+     */
+    RequestOptions oauthTokenOptions() {
+        return gatewayProperties.requestOptions()
+                .setApiKey(gatewayProperties.getSecretKey())
+                .setMaxNetworkRetries(0)
+                .build();
+    }
+
     private RequestOptions requestOptions() {
         return gatewayProperties.requestOptions()
                 .setApiKey(gatewayProperties.getSecretKey())
@@ -261,7 +318,11 @@ public class StripeSdkConnectClient implements StripeConnectClient {
                 List.copyOf(currentlyDue),
                 account.getRequirements() == null ? null : account.getRequirements().getDisabledReason(),
                 account.getCountry(),
-                Objects.toString(account.getEmail(), null)
+                Objects.toString(account.getEmail(), null),
+                AccountControls.type(account),
+                AccountControls.feePayer(account),
+                AccountControls.lossesPayer(account),
+                AccountControls.dashboardType(account)
         );
     }
 

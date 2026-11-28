@@ -366,6 +366,47 @@ Example response:
 nostr+cash://pay?k=02a1b2c3...&ref=6f2c1d&amt=1500&fiat=USD&exp=1739878200&r=wss%3A%2F%2Frelay.damus.io&r=wss%3A%2F%2Fnos.lol&enc=nip44&v=0.2
 ```
 
+## Stripe Connect: connect a stall's existing Stripe account
+
+For a farm that already has a Stripe account. Both calls are server to server, like the rest of
+`/api/v1/stripe/connect`. Needs `stripe.connect.oauth.client-id` and `stripe.connect.oauth.redirect-uri`
+([configuration](configuration.md)); otherwise both answer `503 OAUTH_DISABLED`.
+
+### Start
+
+`POST /api/v1/stripe/connect/oauth/start`
+
+```json
+{ "merchant_pubkey": "npub1..." }
+```
+
+Returns `{ "authorize_url": "https://connect.stripe.com/oauth/authorize?...", "expires_at": "..." }`. Send the farm's
+browser to `authorize_url`. A merchant that already has a connected account gets `409 MERCHANT_ALREADY_LINKED`.
+
+### Complete
+
+`POST /api/v1/stripe/connect/oauth/complete`
+
+```json
+{ "code": "ac_...", "state": "..." }
+```
+
+Call this with the `code` and `state` Stripe appended to the redirect URI. The merchant is read from the stored
+`state`, never from this body. The state works once: a second call with it, an expired one or an unknown one answers
+`400 OAUTH_STATE_INVALID` and no code is sent to Stripe. The authorization code is exchanged exactly once, with no
+retries, because Stripe revokes the connection if a code is used twice. Success returns the same account body as
+`POST /api/v1/stripe/connect/accounts`. The account is stored even if it cannot take cards yet; check
+`charges_enabled`.
+
+| Status | Code | Meaning |
+|---|---|---|
+| 400 | `OAUTH_STATE_INVALID` | Unknown, expired or already-used state, or missing input. Start again. |
+| 400 | `OAUTH_CODE_REJECTED` | Stripe refused the code (expired, used, or not ours). Start again. |
+| 409 | `MERCHANT_ALREADY_LINKED` | The Stripe account belongs to another merchant, or this merchant already has a different one. |
+| 409 | `OWNERSHIP_MISMATCH` | The Stripe account carries another merchant's key. |
+| 502 | `STRIPE_API_ERROR` | Stripe could not be reached or failed. The state is spent, so start again. |
+| 503 | `OAUTH_DISABLED` | OAuth is not configured. |
+
 ## Error codes
 
 The API uses standard HTTP status codes:

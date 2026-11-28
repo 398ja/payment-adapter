@@ -12,6 +12,9 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import xyz.tcheeric.payment.adapter.stripe.connect.model.StripeConnectAccountRequest;
 import xyz.tcheeric.payment.adapter.stripe.connect.model.StripeConnectAccountResponse;
+import xyz.tcheeric.payment.adapter.stripe.connect.model.StripeConnectOAuthCompleteRequest;
+import xyz.tcheeric.payment.adapter.stripe.connect.model.StripeConnectOAuthStartRequest;
+import xyz.tcheeric.payment.adapter.stripe.connect.model.StripeConnectOAuthStartResponse;
 import xyz.tcheeric.payment.adapter.stripe.connect.model.StripeConnectRefreshRequest;
 import xyz.tcheeric.payment.adapter.stripe.connect.model.StripeConnectWebhookResponse;
 
@@ -49,6 +52,21 @@ public class StripeConnectController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void disconnect(@PathVariable String merchantPubkey) {
         stripeConnectService.disconnect(merchantPubkey);
+    }
+
+    /** Connect a stall's existing Stripe account, step 1: the URL to send the farm's browser to. */
+    @PostMapping("/oauth/start")
+    public StripeConnectOAuthStartResponse startOAuth(@RequestBody StripeConnectOAuthStartRequest request) {
+        return stripeConnectService.startOAuth(request.merchantPubkey());
+    }
+
+    /**
+     * Step 2, called by whoever serves the redirect URI with the {@code code} and {@code state} Stripe appended.
+     * The merchant is read from the stored state, never from this body.
+     */
+    @PostMapping("/oauth/complete")
+    public StripeConnectAccountResponse completeOAuth(@RequestBody StripeConnectOAuthCompleteRequest request) {
+        return stripeConnectService.completeOAuth(request.code(), request.state());
     }
 
     @PostMapping("/webhooks")

@@ -163,18 +163,21 @@ Requirements:
     `fees=account` (not on Stripe's unsupported list, but not shown as an example either; verify before using).
   - Keep `card_payments` requested so `charges_enabled` means what the wallet assumes. `transfers` is no longer
     requested: it serves only destination charges and separate charges and transfers, which are refused.
-  - **Done 2026-11-28 (uncommitted):** `StripeSdkConnectClient.accountCreateParams` now uses `Type.STANDARD`, and
+  - **Done 2026-11-28 (PR #341):** `StripeSdkConnectClient.accountCreateParams` now uses `Type.STANDARD`, and
     ADR 0001 records the reversal. Not yet exercised against live Stripe: confirm a Standard account created this way
     reaches `charges_enabled` with `card_payments` active in test mode, and that the account link flow works unchanged.
   - Account links need a `return_url` and a `refresh_url`, a user who has finished the flow still needs the
     `charges_enabled` check, and account-link URLs must only be given to the authenticated account holder.
 - **R6. Route 1, a farm with an existing account: connect through Stripe OAuth.** New endpoints, alongside the current ones:
-  - `GET /api/v1/stripe/connect/oauth/start?merchantPubkey=...` builds the
+  - `POST /api/v1/stripe/connect/oauth/start` with `{merchant_pubkey}` builds the
     `https://connect.stripe.com/oauth/authorize` URL (`response_type=code`, Imani's `client_id`, `scope=read_write`,
     a registered `redirect_uri`, and a `state`).
-  - `GET /api/v1/stripe/connect/oauth/callback?code=...&state=...` exchanges the code at the token endpoint, reads
-    `stripe_user_id`, retrieves the account, requires `charges_enabled` and active `card_payments`
-    (`CardChargeCapability`), and stores it.
+  - `POST /api/v1/stripe/connect/oauth/complete` with `{code, state}`, called by whoever serves the redirect URI
+    (server to server, like the other Connect endpoints, so the adapter needs no public browser-facing route).
+    It exchanges the code once, reads `stripe_user_id`, retrieves the account and stores it. **It stores the
+    account even when it cannot take cards yet** (the farm's own account; the status says what is left), rather
+    than requiring `charges_enabled`: refusing would force the farm through consent again. The plan gate (R4)
+    is where card capability is enforced.
   - Only the account id is stored. Imani acts with its platform key plus the `Stripe-Account` header, as ADR 0001
     requires, so there is still no per-stall secret.
   - Stripe's OAuth page says OAuth "isn't recommended for new Connect platforms" and recommends Connect Onboarding
@@ -188,10 +191,14 @@ Requirements:
     OAuth for existing Standard accounts is staying, and until then keep the OAuth code behind one interface.
 - **R7. Ownership comes from the OAuth consent, not from a client-supplied account id.** Today
   `ensureOwnership` passes whenever the Stripe account carries no `merchant_pubkey` metadata, which is true of every
-  existing account. Accepting an `acct_...` id from a request would let anyone claim any farm's account. So:
-  `state` is HMAC-signed, single-use and short-lived, and binds the OAuth round trip to the `merchantPubkey` that
-  authenticated at `start`. The callback refuses an expired, replayed or tampered `state`. One Stripe account maps
-  to one `merchantPubkey` (unique constraint), and a second claim is refused, not overwritten.
+  existing account. Accepting an `acct_...` id from a request would let anyone claim any farm's account. So the
+  `state` is a random, single-use, short-lived token stored against the `merchantPubkey` that called `start`
+  (table `stripe_oauth_state`), and the merchant is read back from it, never from the callback.
+  **Implemented as a database-backed opaque token, not an HMAC:** a lookup gives the same guarantees (unforgeable,
+  bound to the merchant, expiring) and needs no new signing secret. It is consumed in one atomic statement
+  (`UPDATE ... WHERE consumed_at IS NULL AND expires_at > now`) and **committed before the code is exchanged**, so a
+  failure later cannot hand the same state, and so the same single-use code, a second chance. One Stripe account
+  maps to one `merchantPubkey` (unique constraint), and a second claim is refused, not overwritten.
 - **R8. Disconnecting is blocked while plans are active.** Stripe keeps charging buyers after a disconnect.
   `disconnect` today only deletes Imani's database row, and `account.application.deauthorized` also deletes the
   row. With plans, both must first mark every active plan on the account `orphaned` and notify buyers (see Risks).

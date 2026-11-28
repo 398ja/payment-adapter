@@ -88,7 +88,31 @@ class FlywayMigrationIT extends BasePostgresIT {
                 "id", "merchant_pubkey", "stripe_account_id", "onboarding_complete",
                 "charges_enabled", "payouts_enabled", "details_submitted", "default_currency",
                 "requirements_due", "disabled_reason", "country", "email",
+                "connection_type", "account_type", "fee_payer", "losses_payer", "dashboard_type",
                 "created_at", "updated_at");
+    }
+
+    // Verifies that an account recorded before V24 reads back as one Imani created, not as an OAuth connection.
+    @Test
+    void connectedStripeAccount_connectionTypeDefaultsToCreated() {
+        String defaultValue = jdbcTemplate.queryForObject(
+                "SELECT column_default FROM information_schema.columns"
+                        + " WHERE table_name = 'connected_stripe_account' AND column_name = 'connection_type'",
+                String.class);
+
+        assertThat(defaultValue).contains("CREATED");
+    }
+
+    // Verifies the OAuth state table: one single-use row per flow, keyed by the opaque state.
+    @Test
+    void stripeOAuthStateTable_hasExpectedColumnsAndKey() {
+        assertThat(getColumnNames("stripe_oauth_state")).containsExactlyInAnyOrder(
+                "state", "merchant_pubkey", "created_at", "expires_at", "consumed_at");
+        Integer primaryKeyColumns = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.table_constraints"
+                        + " WHERE table_name = 'stripe_oauth_state' AND constraint_type = 'PRIMARY KEY'",
+                Integer.class);
+        assertThat(primaryKeyColumns).isEqualTo(1);
     }
 
     // Verifies that unique indexes exist on cash_invoice.ref
