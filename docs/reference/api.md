@@ -465,6 +465,17 @@ Each plan in a list or read also carries `interval`. The stall summary keeps `mo
 and adds `totals: [{currency, interval, amountMinor}]` across every interval, since a weekly and a monthly amount
 cannot be summed.
 
+### Start a PayPal plan (public, like a purchase)
+
+`POST /api/v1/checkout/paypal/plan` takes the same body, gives the same refusals and codes, and answers the same
+`{checkoutUrl, planId}` as `POST /api/v1/checkout/plan`, for a stall that takes cards through PayPal. Needs
+`paypal.enabled=true` and `paypal.recurring.enabled=true`. The product, billing plan and subscription are created on
+the stall's own PayPal account before this answers, and `checkoutUrl` is PayPal's approval page. A fixed term is
+PayPal's own `total_cycles`. `404 NOT_CONNECTED` when the stall has no PayPal seller account; `409` when it cannot take
+cards yet, has no currency or one the deployment does not accept, does not offer the plan, or is not ready. The
+plan list, read and cancel routes above serve PayPal plans too: cancel stops all further PayPal instalments. See
+[ADR 0003](../adr/0003-paypal-instalment-plans.md).
+
 ### A stall's offer (signed by the stall)
 
 Whether a stall offers instalment plans, and how often a buyer may pay, is decided HERE, not by the stall's public

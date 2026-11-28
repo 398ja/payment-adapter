@@ -387,6 +387,11 @@ Partner Referrals. `PaypalPaymentEvent` today lists only `CHECKOUT.ORDER.APPROVE
 `CUSTOMER.DISPUTE.*`. PayPal parity needs its own ADR after the Subscriptions API and platform docs are read.
 Do not promise PayPal instalments until then.
 
+**Update 2026-11-28:** built behind `paypal.recurring.enabled`; see
+[ADR 0003](../adr/0003-paypal-instalment-plans.md). PayPal's multiparty subscriptions guide confirms
+`total_cycles` fixed terms, subscription webhooks and creation as the seller, for select partners only. Not yet
+run against PayPal.
+
 ## Configuration
 
 | Property | Default | Meaning |

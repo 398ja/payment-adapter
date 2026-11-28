@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -24,9 +25,11 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 import xyz.tcheeric.payment.adapter.core.model.entity.paypal.ConnectedPaypalAccount;
 import xyz.tcheeric.payment.adapter.core.model.entity.paypal.ProcessedPaypalWebhookEvent;
+import xyz.tcheeric.payment.adapter.core.model.entity.stripe.RecurringPlan;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeWebhookProcessingStatus;
 import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedPaypalAccountRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.ProcessedPaypalWebhookEventRepository;
+import xyz.tcheeric.payment.adapter.core.model.repository.RecurringPlanRepository;
 import xyz.tcheeric.payment.adapter.paypal.connect.config.PaypalConnectProperties;
 import xyz.tcheeric.payment.adapter.paypal.connect.exception.PaypalConnectException;
 import xyz.tcheeric.payment.adapter.paypal.connect.exception.PaypalConnectExceptionCode;
@@ -187,6 +190,36 @@ class PaypalConnectServiceTest {
                 h -> null);
 
         verify(accounts).delete(mine);
+    }
+
+    // A seller with instalment plans still charging buyers cannot disconnect (ADR 0003).
+    @Test
+    void disconnectIsBlockedWhilePlansAreRunning() {
+        byPubkey.put(STALL, account(STALL, "stall-1", "SELLER123"));
+        RecurringPlanRepository plans = mock(RecurringPlanRepository.class);
+        when(plans.existsByConnectedAccountIdAndStatusIn("SELLER123", RecurringPlan.CHARGING)).thenReturn(true);
+        service.setRecurringPlans(plans);
+
+        assertThatThrownBy(() -> service.disconnect(STALL)).isInstanceOf(PaypalConnectException.class)
+                .extracting("code").isEqualTo(PaypalConnectExceptionCode.ACTIVE_PLANS);
+        verify(accounts, never()).deleteByMerchantPubkey(STALL);
+    }
+
+    // A revoked consent orphans every live PayPal plan on the seller, so a person follows them up.
+    @Test
+    void consentRevokedOrphansThePlans() {
+        byPubkey.put(STALL, account(STALL, "stall-1", "SELLER123"));
+        RecurringPlanRepository plans = mock(RecurringPlanRepository.class);
+        RecurringPlan plan = new RecurringPlan();
+        plan.setProcessor(RecurringPlan.PROCESSOR_PAYPAL);
+        plan.setStatus(RecurringPlan.Status.ACTIVE);
+        when(plans.findByConnectedAccountIdAndStatusIn("SELLER123", RecurringPlan.LIVE)).thenReturn(List.of(plan));
+        service.setRecurringPlans(plans);
+
+        service.handleWebhook(body("WH-9", "MERCHANT.PARTNER-CONSENT.REVOKED", "{\"merchant_id\":\"SELLER123\"}"),
+                h -> null);
+
+        assertThat(plan.getStatus()).isEqualTo(RecurringPlan.Status.ORPHANED);
     }
 
     @Test

@@ -24,7 +24,8 @@ import lombok.NoArgsConstructor;
 @Table(name = "recurring_plan", indexes = {
         @Index(name = "idx_recurring_plan_account_status", columnList = "connected_account_id, status"),
         @Index(name = "idx_recurring_plan_buyer", columnList = "buyer_pubkey"),
-        @Index(name = "idx_recurring_plan_reconciled", columnList = "reconciled_at")
+        @Index(name = "idx_recurring_plan_reconciled", columnList = "reconciled_at"),
+        @Index(name = "idx_recurring_plan_processor_status", columnList = "processor, status")
 })
 public class RecurringPlan {
 
@@ -55,8 +56,18 @@ public class RecurringPlan {
      */
     public static final Set<Status> CHARGING = EnumSet.of(Status.ACTIVE, Status.PAST_DUE, Status.ATTENTION);
 
+    public static final String PROCESSOR_STRIPE = "stripe";
+    public static final String PROCESSOR_PAYPAL = "paypal";
+
     @Id
     private UUID id;
+
+    /**
+     * Who moves the money: {@code stripe} or {@code paypal} (V28). The other columns keep their Stripe names; for
+     * PayPal {@code connectedAccountId} is the seller's merchant id and {@code subscriptionId} PayPal's subscription.
+     */
+    @Column(name = "processor", nullable = false, length = 16)
+    private String processor = PROCESSOR_STRIPE;
 
     @Column(name = "connected_account_id", nullable = false)
     private String connectedAccountId;
@@ -108,5 +119,9 @@ public class RecurringPlan {
 
     public boolean isLive() {
         return LIVE.contains(status);
+    }
+
+    public boolean isPaypal() {
+        return PROCESSOR_PAYPAL.equals(processor);
     }
 }

@@ -23,7 +23,9 @@ import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.ConnectEv
 import xyz.tcheeric.payment.adapter.core.model.entity.paypal.ConnectedPaypalAccount;
 import xyz.tcheeric.payment.adapter.core.model.entity.paypal.ProcessedPaypalWebhookEvent;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeWebhookProcessingStatus;
+import xyz.tcheeric.payment.adapter.core.model.entity.stripe.RecurringPlan;
 import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedPaypalAccountRepository;
+import xyz.tcheeric.payment.adapter.core.model.repository.RecurringPlanRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.ProcessedPaypalWebhookEventRepository;
 import xyz.tcheeric.payment.adapter.paypal.connect.config.PaypalConnectProperties;
 import xyz.tcheeric.payment.adapter.paypal.connect.exception.PaypalConnectException;
@@ -62,6 +64,13 @@ public class PaypalConnectService {
     private final TransactionTemplate requiresNewTx;
 
     private PaymentMetrics metrics = new PaymentMetrics();
+    private RecurringPlanRepository recurringPlans;
+
+    /** Instalment plans on PayPal (ADR 0003): guards disconnect and orphans plans on a revoked consent. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRecurringPlans(RecurringPlanRepository recurringPlans) {
+        this.recurringPlans = recurringPlans;
+    }
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setMeterRegistry(io.micrometer.core.instrument.MeterRegistry registry) {
@@ -123,6 +132,15 @@ public class PaypalConnectService {
     @Transactional
     public void disconnect(String merchantPubkey) {
         requireEnabled();
+        if (recurringPlans != null) {
+            accounts.findByMerchantPubkey(merchantPubkey)
+                    .map(ConnectedPaypalAccount::getPaypalMerchantId)
+                    .filter(merchantId -> recurringPlans.existsByConnectedAccountIdAndStatusIn(
+                            merchantId, RecurringPlan.CHARGING))
+                    .ifPresent(merchantId -> {
+                        throw PaypalConnectException.activePlans();
+                    });
+        }
         accounts.deleteByMerchantPubkey(merchantPubkey);
     }
 
@@ -256,6 +274,25 @@ public class PaypalConnectService {
             throw PaypalConnectException.apiError("PayPal consent-revoked webhook has no merchant id", null);
         }
         accounts.findByPaypalMerchantId(merchantId).ifPresent(accounts::delete);
+        orphanPlans(merchantId);
+    }
+
+    /**
+     * The seller withdrew Imani's permissions. PayPal may keep billing its subscriptions, but Imani can neither see
+     * nor cancel them any more, so every live plan on the account is marked ORPHANED for a person to follow up.
+     */
+    private void orphanPlans(String merchantId) {
+        if (recurringPlans == null) {
+            return;
+        }
+        recurringPlans.findByConnectedAccountIdAndStatusIn(merchantId, RecurringPlan.LIVE).stream()
+                .filter(RecurringPlan::isPaypal)
+                .forEach(plan -> {
+                    plan.setStatus(RecurringPlan.Status.ORPHANED);
+                    plan.setUpdatedAt(Instant.now());
+                    recurringPlans.save(plan);
+                    log.warn("[alert] paypal_plan_orphaned plan={} merchant={}", plan.getId(), merchantId);
+                });
     }
 
     private void ensureOwnership(PaypalSellerStatus status, ConnectedPaypalAccount account) {

@@ -175,12 +175,31 @@ public class PaypalWebhookVerifier {
             throw new PaypalSignatureException("PayPal certificate is issued to "
                     + leaf.getSubjectX500Principal().getName() + ", not PayPal");
         }
-        chainTrust.check(chain);
+        chainTrust.check(withIssuer(chain));
         if (verifiedLeaves.size() >= CERT_CACHE_LIMIT) {
             verifiedLeaves.clear();
         }
         verifiedLeaves.put(certUrl, leaf);
         return leaf;
+    }
+
+    /**
+     * PayPal's sandbox serves the leaf alone, without the DigiCert intermediate PKIX needs. The leaf names its
+     * issuer's certificate (Authority Information Access, caIssuers), which is fetched to complete the chain. The
+     * fetched certificate earns no trust of its own: the completed chain must still validate to a JDK root.
+     */
+    private List<X509Certificate> withIssuer(List<X509Certificate> chain) {
+        if (chain.size() > 1) {
+            return chain;
+        }
+        return IssuerLocator.caIssuersUri(chain.get(0))
+                .filter(IssuerLocator::isCertificateAuthorityHost)
+                .map(uri -> {
+                    List<X509Certificate> completed = new ArrayList<>(chain);
+                    completed.addAll(parse(certFetcher.apply(uri)));
+                    return completed;
+                })
+                .orElse(chain);
     }
 
     private boolean inDate(X509Certificate cert) {

@@ -10,6 +10,8 @@ import xyz.tcheeric.payment.adapter.paypal.gateway.service.PaypalCheckoutService
 import xyz.tcheeric.payment.adapter.paypal.gateway.service.PaypalHttp;
 import xyz.tcheeric.payment.adapter.paypal.gateway.service.PaypalOrdersClient;
 import xyz.tcheeric.payment.adapter.paypal.gateway.service.PaypalRestOrdersClient;
+import xyz.tcheeric.payment.adapter.paypal.gateway.service.PaypalRestSubscriptionsClient;
+import xyz.tcheeric.payment.adapter.paypal.gateway.service.PaypalSubscriptionsClient;
 import xyz.tcheeric.payment.adapter.paypal.gateway.webhook.PaypalWebhookVerifier;
 
 /** PayPal on, or nothing at all: the counterpart of {@code StripeGatewayConfig}. */
@@ -28,6 +30,12 @@ public class PaypalGatewayConfig {
     @ConditionalOnMissingBean
     PaypalOrdersClient paypalOrdersClient(PaypalHttp paypalHttp) {
         return new PaypalRestOrdersClient(paypalHttp);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    PaypalSubscriptionsClient paypalSubscriptionsClient(PaypalHttp paypalHttp) {
+        return new PaypalRestSubscriptionsClient(paypalHttp);
     }
 
     @Bean

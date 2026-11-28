@@ -27,6 +27,12 @@ public class PaypalConnectException extends RuntimeException {
         return status;
     }
 
+    /** Disconnecting would leave PayPal billing buyers whose instalments Imani could no longer see (ADR 0003). */
+    public static PaypalConnectException activePlans() {
+        return new PaypalConnectException(PaypalConnectExceptionCode.ACTIVE_PLANS, HttpStatus.CONFLICT,
+                "This PayPal account has instalment plans that are still running. Cancel them first.");
+    }
+
     public static PaypalConnectException connectDisabled() {
         return new PaypalConnectException(PaypalConnectExceptionCode.CONNECT_DISABLED,
                 HttpStatus.SERVICE_UNAVAILABLE, "PayPal seller onboarding is disabled");

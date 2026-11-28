@@ -34,6 +34,8 @@ import xyz.tcheeric.payment.adapter.core.model.repository.ProcessedPaypalWebhook
 import xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseRepository;
 import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalCapture;
 import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalMoney;
+import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalSale;
+import xyz.tcheeric.payment.adapter.paypal.webhook.recurring.PaypalRecurringPlanService;
 import xyz.tcheeric.payment.adapter.paypal.gateway.webhook.PaypalSignatureException;
 import xyz.tcheeric.payment.adapter.paypal.gateway.webhook.PaypalWebhookVerifier;
 import xyz.tcheeric.payment.adapter.paypal.webhook.PaypalCaptureService.Outcome;
@@ -83,6 +85,7 @@ public class PaypalWebhookHandler implements WebhookHandler<PaypalWebhookPayload
     private final boolean livemode;
 
     private PaymentMetrics metrics = new PaymentMetrics();
+    private PaypalRecurringPlanService recurringPlans;
     private Duration processingStaleAfter = DEFAULT_PROCESSING_STALE_AFTER;
 
     /** Set by {@link #startEventProcessing}: this delivery retries an event seen before. */
@@ -224,7 +227,97 @@ public class PaypalWebhookHandler implements WebhookHandler<PaypalWebhookPayload
             case PAYMENT_CAPTURE_REVERSED -> refunded(payload, record, resource, true);
             case CUSTOMER_DISPUTE_CREATED -> disputeCreated(payload, record, resource);
             case CUSTOMER_DISPUTE_RESOLVED -> disputeResolved(payload, record, resource);
+            case BILLING_SUBSCRIPTION_ACTIVATED -> subscriptionEvent(payload, record, plan -> plan.activated(text(resource.path("id"))));
+            case BILLING_SUBSCRIPTION_PAYMENT_FAILED, BILLING_SUBSCRIPTION_SUSPENDED ->
+                    subscriptionEvent(payload, record, plan -> plan.paymentFailed(text(resource.path("id"))));
+            case BILLING_SUBSCRIPTION_CANCELLED, BILLING_SUBSCRIPTION_EXPIRED ->
+                    subscriptionEvent(payload, record, plan -> plan.ended(text(resource.path("id"))));
+            case PAYMENT_SALE_COMPLETED -> saleCompleted(payload, record, resource);
+            case PAYMENT_SALE_REFUNDED -> saleReturned(payload, record, resource, false);
+            case PAYMENT_SALE_REVERSED -> saleReturned(payload, record, resource, true);
         };
+    }
+
+    /**
+     * Instalment plans are optional ({@code paypal.recurring.enabled}). Without them, a subscription event is somebody
+     * else's and is acknowledged.
+     */
+    public void setRecurringPlans(PaypalRecurringPlanService recurringPlans) {
+        this.recurringPlans = recurringPlans;
+    }
+
+    private WebhookResult subscriptionEvent(PaypalWebhookPayload payload, ProcessedPaypalWebhookEvent record,
+            java.util.function.Consumer<PaypalRecurringPlanService> work) {
+        if (recurringPlans != null) {
+            work.accept(recurringPlans);
+        }
+        return acknowledge(payload, record);
+    }
+
+    /** An instalment was paid: one ledger row per sale, for the buyer on Imani's plan row. */
+    private WebhookResult saleCompleted(PaypalWebhookPayload payload, ProcessedPaypalWebhookEvent record,
+            JsonNode resource) throws WebhookProcessingException {
+        PaypalSale sale = PaypalSale.fromSale(resource);
+        if (recurringPlans == null) {
+            return acknowledge(payload, record);
+        }
+        boolean ours;
+        try {
+            ours = recurringPlans.salePaid(sale);
+        } catch (RuntimeException e) {
+            // Not marked processed: the instalment was not recorded, so PayPal must come back with it.
+            throw new WebhookProcessingException("Could not record PayPal instalment " + sale.id(), e);
+        }
+        if (!ours) {
+            log.info("PayPal sale {} pays no plan of ours; acknowledged", sale.id());
+            return acknowledge(payload, record);
+        }
+        markProcessed(record);
+        return purchaseResult(payload, sale.id());
+    }
+
+    /**
+     * A refund or reversal of an instalment. The ledger row is found by its sale id (its processor reference), and
+     * reversed exactly as a capture refund is; the plan is then flagged for a person.
+     */
+    private WebhookResult saleReturned(PaypalWebhookPayload payload, ProcessedPaypalWebhookEvent record,
+            JsonNode resource, boolean reversal) throws WebhookProcessingException {
+        String saleId = reversal ? text(resource.path("id")) : text(resource.path("sale_id"));
+        Optional<StripePurchase> row = saleId == null ? Optional.empty()
+                : purchases.findByPaymentIntentId(saleId).filter(StripePurchase::isPaypal);
+        if (saleId == null) {
+            return acknowledge(payload, record);
+        }
+        // Reversed even when no row exists yet: a refund can overtake its sale, and the listener records it either
+        // way, exactly as for a capture refund.
+        Long thisRefund = saleMinor(resource.path("amount"));
+        Long total = saleMinor(resource.path("total_refunded_amount"));
+        Long rowAmount = row.map(StripePurchase::getAmountMinor).orElse(null);
+        Long refundedTotal = reversal ? (rowAmount != null ? rowAmount : thisRefund) : total != null ? total : thisRefund;
+        reverse(payload, new StripePurchaseListener.ReversedPurchase(payload.getEventId(), saleId,
+                text(resource.path("id")), row.map(StripePurchase::getConnectedAccountId).orElse(null), refundedTotal,
+                rowAmount != null ? rowAmount : thisRefund, false));
+        if (recurringPlans != null) {
+            recurringPlans.instalmentReturned(saleId);
+        }
+        markProcessed(record);
+        metrics.record(Source.CARD, Status.REFUNDED, Reason.NONE,
+                lower(row.map(StripePurchase::getCurrency).orElse(null)), thisRefund);
+        return purchaseResult(payload, saleId);
+    }
+
+    /** A v1 amount: {@code {total|value, currency}}, or a v2 one ({@code value, currency_code}). */
+    private static Long saleMinor(JsonNode money) {
+        String currency = text(money.path("currency"));
+        String value = text(money.path("total")) != null ? text(money.path("total")) : text(money.path("value"));
+        if (currency == null || value == null) {
+            return minor(money);
+        }
+        try {
+            return PaypalMoney.toMinor(value, currency);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /** Approved, not paid: capture now, so the money moves while the buyer is still here. */
@@ -307,6 +400,10 @@ public class PaypalWebhookHandler implements WebhookHandler<PaypalWebhookPayload
             captureId = disputed;
             reverse(payload, new StripePurchaseListener.ReversedPurchase(payload.getEventId(), disputed,
                     text(dispute.path("dispute_id")), sellerOf(dispute), null, amount, true));
+            if (recurringPlans != null) {
+                // A disputed instalment (its sale id is the disputed transaction) flags its plan, as a refund does.
+                recurringPlans.instalmentReturned(disputed);
+            }
         }
         markProcessed(record);
         metrics.record(Source.CARD, Status.DISPUTED, Reason.NONE, lower(currency), amount);

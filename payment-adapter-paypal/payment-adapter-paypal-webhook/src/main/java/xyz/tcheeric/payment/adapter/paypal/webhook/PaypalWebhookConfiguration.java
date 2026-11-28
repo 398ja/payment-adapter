@@ -20,6 +20,7 @@ import xyz.tcheeric.payment.adapter.core.model.repository.ProcessedPaypalWebhook
 import xyz.tcheeric.payment.adapter.core.model.repository.StripePurchaseRepository;
 import xyz.tcheeric.payment.adapter.paypal.gateway.config.PaypalGatewayProperties;
 import xyz.tcheeric.payment.adapter.paypal.gateway.service.PaypalOrdersClient;
+import xyz.tcheeric.payment.adapter.paypal.gateway.service.PaypalSubscriptionsClient;
 import xyz.tcheeric.payment.adapter.paypal.gateway.webhook.PaypalWebhookVerifier;
 import xyz.tcheeric.payment.adapter.paypal.webhook.reconcile.PaypalPaymentStateReader;
 import xyz.tcheeric.payment.adapter.paypal.webhook.reconcile.PaypalPurchaseReconciler;
@@ -65,8 +66,8 @@ public class PaypalWebhookConfiguration {
     }
 
     @Bean
-    PaypalPaymentStateReader paypalPaymentStateReader(PaypalOrdersClient orders) {
-        return new PaypalPaymentStateReader(orders);
+    PaypalPaymentStateReader paypalPaymentStateReader(PaypalOrdersClient orders, PaypalSubscriptionsClient sales) {
+        return new PaypalPaymentStateReader(orders, sales);
     }
 
     @Bean

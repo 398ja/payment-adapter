@@ -24,7 +24,23 @@ public enum PaypalPaymentEvent {
     /** Dispute opened: {@code charge.dispute.created}. */
     CUSTOMER_DISPUTE_CREATED("CUSTOMER.DISPUTE.CREATED"),
     /** Dispute ended: {@code charge.dispute.closed}. Seller-favoured restores the voucher. */
-    CUSTOMER_DISPUTE_RESOLVED("CUSTOMER.DISPUTE.RESOLVED");
+    CUSTOMER_DISPUTE_RESOLVED("CUSTOMER.DISPUTE.RESOLVED"),
+    /** An instalment plan's subscription was approved and started (ADR 0003). Issues nothing. */
+    BILLING_SUBSCRIPTION_ACTIVATED("BILLING.SUBSCRIPTION.ACTIVATED"),
+    /** An instalment was paid: paid means owed, per instalment. Stripe's {@code invoice.paid}. */
+    PAYMENT_SALE_COMPLETED("PAYMENT.SALE.COMPLETED"),
+    /** An instalment was refunded. */
+    PAYMENT_SALE_REFUNDED("PAYMENT.SALE.REFUNDED"),
+    /** PayPal took an instalment back outside a dispute. */
+    PAYMENT_SALE_REVERSED("PAYMENT.SALE.REVERSED"),
+    /** An instalment failed. Stripe's {@code invoice.payment_failed}. */
+    BILLING_SUBSCRIPTION_PAYMENT_FAILED("BILLING.SUBSCRIPTION.PAYMENT.FAILED"),
+    /** PayPal stopped billing after repeated failures. */
+    BILLING_SUBSCRIPTION_SUSPENDED("BILLING.SUBSCRIPTION.SUSPENDED"),
+    /** The buyer, the stall or Imani ended the plan. */
+    BILLING_SUBSCRIPTION_CANCELLED("BILLING.SUBSCRIPTION.CANCELLED"),
+    /** A fixed-term plan ran its course: every instalment was billed. */
+    BILLING_SUBSCRIPTION_EXPIRED("BILLING.SUBSCRIPTION.EXPIRED");
 
     private final String type;
 

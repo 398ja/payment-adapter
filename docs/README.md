@@ -26,3 +26,10 @@ layout and links to the active references, guides, and specifications.
 ## Specs
 
 - [Stripe Module Spec](specs/payment-adapter-stripe-spec.md)
+- [Stripe Recurring Purchases (Instalment Plans) Spec](specs/payment-adapter-stripe-recurring-spec.md)
+
+## Explanation (architecture decisions)
+
+- [ADR 0001: Coupon purchases are direct charges](adr/0001-coupon-purchases-are-direct-charges.md)
+- [ADR 0002: PayPal card purchases mirror Stripe](adr/0002-paypal-card-purchases-mirror-stripe.md)
+- [ADR 0003: PayPal instalment plans mirror Stripe's](adr/0003-paypal-instalment-plans.md)

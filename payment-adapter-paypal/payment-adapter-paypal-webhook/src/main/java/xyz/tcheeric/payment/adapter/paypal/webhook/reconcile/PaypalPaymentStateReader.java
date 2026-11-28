@@ -6,6 +6,8 @@ import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalCapture;
 import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalDispute;
 import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalOrder;
 import xyz.tcheeric.payment.adapter.paypal.gateway.service.PaypalOrdersClient;
+import xyz.tcheeric.payment.adapter.paypal.gateway.service.PaypalSubscriptionsClient;
+import xyz.tcheeric.payment.adapter.paypal.gateway.model.PaypalSale;
 import xyz.tcheeric.payment.adapter.stripe.webhook.reconcile.PaymentStateReader;
 import xyz.tcheeric.payment.adapter.stripe.webhook.reconcile.StripeReconcileException;
 import xyz.tcheeric.payment.adapter.stripe.webhook.reconcile.StripeReconcileSource.PaymentState;
@@ -27,8 +29,18 @@ public class PaypalPaymentStateReader implements PaymentStateReader {
 
     private final PaypalOrdersClient paypal;
 
+    private final PaypalSubscriptionsClient sales;
+
     public PaypalPaymentStateReader(PaypalOrdersClient paypal) {
+        this(paypal, null);
+    }
+
+    /**
+     * @param sales reads an instalment's sale (ADR 0003) when the reference is not a capture; null without plans
+     */
+    public PaypalPaymentStateReader(PaypalOrdersClient paypal, PaypalSubscriptionsClient sales) {
         this.paypal = paypal;
+        this.sales = sales;
     }
 
     @Override
@@ -51,7 +63,28 @@ public class PaypalPaymentStateReader implements PaymentStateReader {
             boolean disputed = disputes.stream().anyMatch(PaypalDispute::open);
             return new PaymentState(captureId, amount, refunded, disputed);
         } catch (PaypalApiException e) {
+            if (e.isNotFound() && sales != null) {
+                return saleState(merchantId, captureId);
+            }
             throw new StripeReconcileException("PayPal capture " + captureId + " could not be read: " + e.getMessage(),
+                    e, e.isRateLimited());
+        }
+    }
+
+    /**
+     * An instalment's reference is a v1 sale, not a capture. A sale reports no refunded figure, only its state, so a
+     * partial refund reads as one minor unit refunded: enough to stop issuance, while the exact cumulative figure
+     * arrives with {@code PAYMENT.SALE.REFUNDED}.
+     */
+    private PaymentState saleState(String merchantId, String saleId) {
+        try {
+            PaypalSale sale = sales.getSale(merchantId, saleId);
+            long amount = sale.amountMinor() == null ? 0L : sale.amountMinor();
+            long refunded = sale.fullyReturned() ? amount : "partially_refunded".equals(sale.state()) ? 1L : 0L;
+            boolean disputed = paypal.disputesFor(merchantId, saleId).stream().anyMatch(PaypalDispute::open);
+            return new PaymentState(saleId, amount, refunded, disputed);
+        } catch (PaypalApiException e) {
+            throw new StripeReconcileException("PayPal sale " + saleId + " could not be read: " + e.getMessage(),
                     e, e.isRateLimited());
         }
     }
