@@ -56,29 +56,31 @@ public class StripeSdkConnectClient implements StripeConnectClient {
      */
     AccountCreateParams accountCreateParams(String merchantPubkey, String country) {
         AccountCreateParams.Builder builder = AccountCreateParams.builder()
-                .setType(AccountCreateParams.Type.EXPRESS)
+                // STANDARD, NOT EXPRESS. See ADR 0001, "Express accounts: reversed".
+                // A Standard account is the stall's own Stripe account: the stall
+                // pays Stripe's fees, Stripe bears negative balances, and Imani is
+                // billed no Connect fees. A legacy Express account does the
+                // opposite on all three, which contradicts "stalls only pay
+                // Stripe's costs" and the no-float position.
+                .setType(AccountCreateParams.Type.STANDARD)
                 // CARD_PAYMENTS IS THE WHOLE POINT OF THIS ACCOUNT, and it has
                 // to be asked for. Stripe requests no capability by default, so
-                // an Express account created without this comes back with
-                // `card_payments: unrequested` and Express's own default
-                // `transfers: active` — which is enough to make
-                // `charges_enabled` TRUE.
+                // an account created without this can show `charges_enabled`
+                // while `card_payments` is `unrequested`.
                 //
                 // That flag is the trap. The wallet reads it, shows the stall
                 // as ready, publishes acceptsCards, and every shopper gets a
                 // Buy button. The direct charge then fails inside Stripe's own
-                // hosted checkout, at confirm, with a 400 — after the buyer has
+                // hosted checkout, at confirm, with a 400 - after the buyer has
                 // typed their card. Nothing on our side logs anything, because
                 // nothing on our side is called.
                 //
-                // Transfers alone cannot take a card. Requesting both is what
-                // makes `charges_enabled` mean what every caller here already
-                // assumes it means.
+                // `transfers` is deliberately NOT requested any more. It exists
+                // for money moved from the platform to the account (destination
+                // charges, separate charges and transfers), which this adapter
+                // refuses. Direct charges settle on the account itself.
                 .setCapabilities(AccountCreateParams.Capabilities.builder()
                         .setCardPayments(AccountCreateParams.Capabilities.CardPayments.builder()
-                                .setRequested(true)
-                                .build())
-                        .setTransfers(AccountCreateParams.Capabilities.Transfers.builder()
                                 .setRequested(true)
                                 .build())
                         .build())

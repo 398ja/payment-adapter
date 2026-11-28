@@ -118,7 +118,30 @@ times out and retries.
 `ProcessedStripeWebhookEvent` already gives replay idempotency, and it applies to
 the new consequence unchanged: Stripe retries, and a coupon cannot be un-minted.
 
-## Express accounts, inherited rather than chosen
+## Express accounts: reversed (2026-11-28)
+
+**`StripeSdkConnectClient` now creates `Type.STANDARD`. The section below is kept as the record of the earlier
+decision and no longer describes the code.**
+
+What changed: the earlier decision rejected Standard "on cost of reversal", because switching meant re-onboarding
+every connected stall. No stall was live, so that cost was zero. What the earlier reading missed is who pays under a
+legacy Express account, which Stripe documents on its fee-payer and risk pages:
+
+- the platform is billed Stripe Billing, Stripe Tax and Connect fees (a per-active-account fee plus payout fees);
+- the platform bears a connected account's negative balance (`losses.payments=application`);
+- Stripe itself recommends destination charges, not direct charges, for legacy Express, and destination charges put
+  funds on the platform balance, which is the float this ADR exists to avoid.
+
+A Standard account is the stall's own Stripe account. The stall pays Stripe's fees and Stripe bears negative balances.
+That matches "stalls only pay Stripe's costs", and it is what instalment plans need
+([`payment-adapter-stripe-recurring-spec.md`](../specs/payment-adapter-stripe-recurring-spec.md)). The `transfers`
+capability is no longer requested, since it only serves charge types this adapter refuses.
+
+The Express-era consequences above still hold in one respect: Standard accounts give Imani less control than Express
+did (no payout-timing control, and Stripe is the stall's first-line support), so the reserve disclosure is still
+needed. Connecting a stall's existing Stripe account is a separate piece of work (OAuth), described in the spec.
+
+## Express accounts, inherited rather than chosen (superseded)
 
 `StripeSdkConnectClient` creates `Type.EXPRESS`, and that stands. Express
 supports direct charges, so the property that matters — merchant of record, no

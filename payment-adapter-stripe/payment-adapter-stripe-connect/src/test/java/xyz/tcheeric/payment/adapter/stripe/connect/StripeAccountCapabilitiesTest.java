@@ -61,20 +61,28 @@ class StripeAccountCapabilitiesTest {
     }
 
     /**
-     * Transfers stays requested. Express defaults it on, but relying on a
-     * default that is granted implicitly is what made {@code charges_enabled}
-     * misleading in the first place — so both are asked for explicitly.
+     * Transfers is no longer requested: it serves destination charges and
+     * separate charges and transfers, which this adapter refuses. Direct
+     * charges settle on the account itself.
      */
     @Test
-    void transfersIsStillRequested() {
-        assertThat(capability("transfers")).isEqualTo(Map.of("requested", true));
+    void transfersIsNotRequested() {
+        assertThat(capability("transfers")).isNull();
+    }
+
+    /**
+     * Standard, so the stall pays Stripe's fees and Stripe bears negative
+     * balances. A legacy Express type would put both on Imani.
+     */
+    @Test
+    void accountIsStandardNotExpress() {
+        assertThat(params().get("type")).isEqualTo("standard");
     }
 
     /** The identity that ties the account back to a stall must survive. */
     @Test
     void merchantPubkeyIsStillCarried() {
         assertThat(params().get("metadata")).isEqualTo(Map.of("merchant_pubkey", "npub_test"));
-        assertThat(params().get("type")).isEqualTo("express");
         assertThat(params().get("country")).isEqualTo("GB");
     }
 
