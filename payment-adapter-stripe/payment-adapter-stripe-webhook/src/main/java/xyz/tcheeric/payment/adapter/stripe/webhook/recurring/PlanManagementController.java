@@ -194,12 +194,14 @@ public class PlanManagementController {
      * @param cancelRequested the buyer asked to stop; no further payments will be taken
      */
     public record PlanView(String planId, String stallPubkey, String status, long amountMinor, String currency,
-            Integer totalInstalments, long instalmentsPaid, boolean cancelRequested, Instant cancelRequestedAt,
-            Instant createdAt) {
+            String interval, Integer totalInstalments, long instalmentsPaid, boolean cancelRequested,
+            Instant cancelRequestedAt, Instant createdAt) {
 
         static PlanView of(RecurringPlan plan, long paid) {
             return new PlanView(plan.getId().toString(), plan.getStallPubkey(), plan.getStatus().name(),
-                    plan.getAmountMinor(), plan.getCurrency(), plan.getTotalInstalments(), paid,
+                    plan.getAmountMinor(), plan.getCurrency(),
+                    plan.getIntervalUnit() == null ? "month" : plan.getIntervalUnit(),
+                    plan.getTotalInstalments(), paid,
                     plan.getCancelRequestedAt() != null, plan.getCancelRequestedAt(), plan.getCreatedAt());
         }
     }
@@ -207,18 +209,34 @@ public class PlanManagementController {
     /** A plan and the vouchers its instalments issued, oldest first. */
     public record PlanDetail(PlanView plan, List<String> voucherIds) {}
 
-    /** What a stall sees: how many people pay it monthly, and the monthly total per currency. */
-    public record StallSummary(int activePlans, List<CurrencyTotal> monthlyTotals) {
+    /**
+     * What a stall sees: how many people pay it by instalments, and the total per currency AND interval. A weekly
+     * £10 and a monthly £40 are not summed into one figure: {@code monthlyTotals} keeps its meaning (monthly plans
+     * only, so an older wallet reading it is not misled), and {@code totals} carries every interval.
+     */
+    public record StallSummary(int activePlans, List<CurrencyTotal> monthlyTotals, List<IntervalTotal> totals) {
 
         static StallSummary of(List<RecurringPlan> active) {
-            Map<String, Long> byCurrency = new java.util.TreeMap<>();
-            active.forEach(plan -> byCurrency.merge(plan.getCurrency(), plan.getAmountMinor(), Long::sum));
-            List<CurrencyTotal> totals = byCurrency.entrySet().stream()
-                    .map(entry -> new CurrencyTotal(entry.getKey(), entry.getValue()))
-                    .sorted(Comparator.comparing(CurrencyTotal::currency)).toList();
-            return new StallSummary(active.size(), totals);
+            Map<String, Long> monthly = new java.util.TreeMap<>();
+            Map<List<String>, Long> all = new java.util.TreeMap<>(
+                    Comparator.<List<String>, String>comparing(key -> key.get(0)).thenComparing(key -> key.get(1)));
+            active.forEach(plan -> {
+                String interval = plan.getIntervalUnit() == null ? "month" : plan.getIntervalUnit();
+                if ("month".equals(interval)) {
+                    monthly.merge(plan.getCurrency(), plan.getAmountMinor(), Long::sum);
+                }
+                all.merge(List.of(plan.getCurrency(), interval), plan.getAmountMinor(), Long::sum);
+            });
+            List<CurrencyTotal> monthlyTotals = monthly.entrySet().stream()
+                    .map(entry -> new CurrencyTotal(entry.getKey(), entry.getValue())).toList();
+            List<IntervalTotal> totals = all.entrySet().stream()
+                    .map(entry -> new IntervalTotal(entry.getKey().get(0), entry.getKey().get(1), entry.getValue()))
+                    .toList();
+            return new StallSummary(active.size(), monthlyTotals, totals);
         }
     }
 
     public record CurrencyTotal(String currency, long amountMinor) {}
+
+    public record IntervalTotal(String currency, String interval, long amountMinor) {}
 }

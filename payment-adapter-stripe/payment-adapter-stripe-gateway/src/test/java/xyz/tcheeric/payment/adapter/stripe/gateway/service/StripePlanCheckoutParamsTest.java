@@ -15,10 +15,14 @@ import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripePlanCheckoutReque
 class StripePlanCheckoutParamsTest {
 
     private static Map<String, Object> params() {
+        return params(null);
+    }
+
+    private static Map<String, Object> params(String interval) {
         StripeGatewayProperties properties = new StripeGatewayProperties();
         properties.setCheckoutExpirySeconds(900);
         StripePlanCheckoutRequest request = StripePlanCheckoutRequest.builder()
-                .connectedAccountId("acct_farm").planId("plan-1").amountMinor(5000).currency("gbp")
+                .connectedAccountId("acct_farm").planId("plan-1").amountMinor(5000).currency("gbp").interval(interval)
                 .description("Veg box").metadata(Map.of("plan_id", "plan-1", "buyer_pubkey", "ab"))
                 .successUrl("https://w/ok").cancelUrl("https://w/no").idempotencyKey("stripe:plan:plan-1").build();
         return new StripeSdkCheckoutClient(properties).planCheckoutParams(request).toMap();
@@ -57,5 +61,18 @@ class StripePlanCheckoutParamsTest {
 
         assertThat(params).doesNotContainKey("payment_intent_data");
         assertThat(params.toString()).doesNotContain("application_fee");
+    }
+
+    // The stall's chosen interval is the price's interval; a request built before intervals existed is monthly.
+    @SuppressWarnings("unchecked")
+    @Test
+    void thePriceRecursAtTheChosenInterval() {
+        for (String interval : List.of("week", "month", "year")) {
+            Map<String, Object> item = ((List<Map<String, Object>>) params(interval).get("line_items")).get(0);
+            Map<String, Object> recurring = (Map<String, Object>) ((Map<String, Object>) item.get("price_data")).get("recurring");
+            assertThat(recurring.get("interval")).isEqualTo(interval);
+        }
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> params("day"))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

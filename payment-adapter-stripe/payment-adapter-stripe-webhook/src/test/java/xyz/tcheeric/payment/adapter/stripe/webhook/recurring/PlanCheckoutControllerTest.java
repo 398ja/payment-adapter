@@ -22,6 +22,8 @@ import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAcco
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.RecurringPlan;
 import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccountRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.RecurringPlanRepository;
+import xyz.tcheeric.payment.adapter.core.model.repository.StallInstalmentSettingsRepository;
+import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StallInstalmentSettings;
 import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripeCheckoutSession;
 import xyz.tcheeric.payment.adapter.stripe.gateway.service.StripeCheckoutService;
 import xyz.tcheeric.payment.adapter.stripe.webhook.purchase.StallReadinessClient;
@@ -43,6 +45,8 @@ class PlanCheckoutControllerTest {
     private StripeRecurringProperties properties;
     private PlanCheckoutController controller;
     private ConnectedStripeAccount account;
+    private StallInstalmentSettingsRepository settings;
+    private StallInstalmentSettings offer;
 
     @BeforeEach
     void setUp() {
@@ -52,7 +56,13 @@ class PlanCheckoutControllerTest {
         readiness = mock(StallReadinessClient.class);
         properties = new StripeRecurringProperties();
         properties.setEnabled(true);
-        controller = new PlanCheckoutController(accounts, plans, checkout, readiness, properties);
+        settings = mock(StallInstalmentSettingsRepository.class);
+        controller = new PlanCheckoutController(accounts, plans, checkout, readiness, properties, settings);
+        offer = new StallInstalmentSettings();
+        offer.setStallPubkey(STALL);
+        offer.setEnabled(true);
+        offer.setIntervals("month");
+        when(settings.findById(STALL)).thenReturn(Optional.of(offer));
 
         account = new ConnectedStripeAccount();
         account.setMerchantPubkey(STALL);
@@ -64,7 +74,7 @@ class PlanCheckoutControllerTest {
         when(accounts.findByMerchantPubkey(STALL)).thenReturn(Optional.of(account));
         when(readiness.checkSale(anyString(), anyString(), anyLong())).thenReturn(StallReadinessClient.Readiness.ready());
         when(plans.save(any(RecurringPlan.class))).thenAnswer(i -> i.getArgument(0));
-        when(checkout.createPlanSession(anyString(), anyLong(), anyString(), anyString(), anyString(), any(), any(), any()))
+        when(checkout.createPlanSession(anyString(), anyLong(), anyString(), anyString(), anyString(), anyString(), any(), any(), any()))
                 .thenReturn(StripeCheckoutSession.builder().sessionId("cs_plan").sessionUrl("https://checkout.stripe.com/x").build());
     }
 
@@ -81,7 +91,7 @@ class PlanCheckoutControllerTest {
         ArgumentCaptor<RecurringPlan> saved = ArgumentCaptor.forClass(RecurringPlan.class);
         InOrder order = inOrder(plans, checkout);
         order.verify(plans).save(saved.capture());
-        order.verify(checkout).createPlanSession(anyString(), eq(5000L), anyString(), eq("gbp"), eq("acct_farm"), any(), any(), any());
+        order.verify(checkout).createPlanSession(anyString(), eq(5000L), eq("month"), anyString(), eq("gbp"), eq("acct_farm"), any(), any(), any());
         assertThat(saved.getAllValues().get(0).getBuyerPubkey()).isEqualTo(BUYER);
         assertThat(saved.getAllValues().get(0).getStallPubkey()).isEqualTo(STALL);
         assertThat(saved.getAllValues().get(0).getTotalInstalments()).isEqualTo(6);
@@ -100,7 +110,7 @@ class PlanCheckoutControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         verify(plans, never()).save(any());
-        verify(checkout, never()).createPlanSession(any(), anyLong(), any(), any(), any(), any(), any(), any());
+        verify(checkout, never()).createPlanSession(any(), anyLong(), any(), any(), any(), any(), any(), any(), any());
     }
 
     // A buyer with no wallet key cannot be delivered vouchers by claim link on a recurring plan, so it is refused.
@@ -186,13 +196,13 @@ class PlanCheckoutControllerTest {
                 .thenReturn(StallReadinessClient.Readiness.notReady(StallReadinessClient.NOT_IN_PLAN));
 
         assertThat(controller.start(request(5000, 6)).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        verify(checkout, never()).createPlanSession(any(), anyLong(), any(), any(), any(), any(), any(), any());
+        verify(checkout, never()).createPlanSession(any(), anyLong(), any(), any(), any(), any(), any(), any(), any());
     }
 
     // If Stripe cannot create the session, no subscription exists, so the plan row is closed and not left pending.
     @Test
     void aStripeFailureClosesThePlanRow() {
-        when(checkout.createPlanSession(anyString(), anyLong(), anyString(), anyString(), anyString(), any(), any(), any()))
+        when(checkout.createPlanSession(anyString(), anyLong(), anyString(), anyString(), anyString(), anyString(), any(), any(), any()))
                 .thenThrow(new IllegalStateException("stripe down"));
 
         ResponseEntity<?> response = controller.start(request(5000, 6));
@@ -210,9 +220,100 @@ class PlanCheckoutControllerTest {
 
         ArgumentCaptor<String> success = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> cancel = ArgumentCaptor.forClass(String.class);
-        verify(checkout).createPlanSession(anyString(), anyLong(), anyString(), anyString(), anyString(), any(),
+        verify(checkout).createPlanSession(anyString(), anyLong(), anyString(), anyString(), anyString(), anyString(), any(),
                 success.capture(), cancel.capture());
         assertThat(success.getValue()).isNull();
         assertThat(cancel.getValue()).isNull();
+    }
+
+    // The bug the staging e2e found: a stall that never switched instalment plans on was still sold one, because the
+    // switch lived only in its public profile. Refused here, before any row or any call to Stripe.
+    @Test
+    void aStallThatNeverOptedInIsRefused() {
+        when(settings.findById(STALL)).thenReturn(Optional.empty());
+
+        ResponseEntity<?> response = controller.start(request(5000, 6));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat((java.util.Map<String, Object>) response.getBody()).containsEntry("code", "NOT_OFFERED");
+        verify(plans, never()).save(any());
+        verify(readiness, never()).checkSale(anyString(), anyString(), anyLong());
+        verify(checkout, never()).createPlanSession(any(), anyLong(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    // Switching off stops new plans.
+    @Test
+    void aStallThatSwitchedOffIsRefused() {
+        offer.setEnabled(false);
+
+        assertThat((java.util.Map<String, Object>) controller.start(request(5000, 6)).getBody())
+                .containsEntry("code", "NOT_OFFERED");
+        verify(plans, never()).save(any());
+    }
+
+    // An interval the stall does not offer is refused, naming the ones it does.
+    @Test
+    void anIntervalTheStallDoesNotOfferIsRefused() {
+        ResponseEntity<?> response = controller.start(new PlanRequest(STALL, BUYER, 5000L, 6, "week"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat((java.util.Map<String, Object>) response.getBody())
+                .containsEntry("code", "INTERVAL_NOT_OFFERED")
+                .containsEntry("intervals", java.util.List.of("month"));
+        verify(plans, never()).save(any());
+    }
+
+    // A weekly plan on a stall offering weeks: recorded as weekly and priced weekly at Stripe.
+    @Test
+    void aWeeklyPlanIsRecordedAndPricedWeekly() {
+        offer.setIntervals("week,month");
+
+        ResponseEntity<?> response = controller.start(new PlanRequest(STALL, BUYER, 2500L, 8, "week"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        ArgumentCaptor<RecurringPlan> saved = ArgumentCaptor.forClass(RecurringPlan.class);
+        verify(plans, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+        assertThat(saved.getAllValues().get(0).getIntervalUnit()).isEqualTo("week");
+        verify(checkout).createPlanSession(anyString(), eq(2500L), eq("week"), anyString(), eq("gbp"), eq("acct_farm"),
+                any(), any(), any());
+    }
+
+    // An unknown interval is a 400, never passed on to Stripe.
+    @Test
+    void anUnknownIntervalIsABadRequest() {
+        assertThat(controller.start(new PlanRequest(STALL, BUYER, 5000L, 6, "day")).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(controller.start(new PlanRequest(STALL, BUYER, 5000L, 6, "fortnight")).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        verify(plans, never()).save(any());
+    }
+
+    // Each interval has its own longest term: 52 weeks, 24 months, 5 years.
+    @Test
+    void theLongestTermDependsOnTheInterval() {
+        offer.setIntervals("week,month,year");
+
+        assertThat(controller.start(new PlanRequest(STALL, BUYER, 5000L, 52, "week")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(controller.start(new PlanRequest(STALL, BUYER, 5000L, 53, "week")).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(controller.start(new PlanRequest(STALL, BUYER, 5000L, 5, "year")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(controller.start(new PlanRequest(STALL, BUYER, 5000L, 6, "year")).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    // The wire name is `interval`; absent means monthly, so a wallet from before intervals keeps working.
+    @Test
+    void theIntervalIsReadFromTheBodyAndDefaultsToMonth() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        PlanRequest weekly = mapper.readValue(
+                "{\"stallPubkey\":\"" + STALL + "\",\"buyerPubkey\":\"" + BUYER + "\",\"amountMinor\":2500,\"interval\":\"week\"}",
+                PlanRequest.class);
+        PlanRequest old = mapper.readValue(
+                "{\"stallPubkey\":\"" + STALL + "\",\"buyerPubkey\":\"" + BUYER + "\",\"amountMinor\":2500}",
+                PlanRequest.class);
+
+        assertThat(weekly.interval()).isEqualTo("week");
+        assertThat(old.interval()).isNull();
+        controller.start(old);
+        verify(checkout).createPlanSession(anyString(), eq(2500L), eq("month"), anyString(), anyString(), anyString(),
+                any(), any(), any());
     }
 }
