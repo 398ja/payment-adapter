@@ -135,7 +135,9 @@ legacy Express account, which Stripe documents on its fee-payer and risk pages:
 A Standard account is the stall's own Stripe account. The stall pays Stripe's fees and Stripe bears negative balances.
 That matches "stalls only pay Stripe's costs", and it is what instalment plans need
 ([`payment-adapter-stripe-recurring-spec.md`](../specs/payment-adapter-stripe-recurring-spec.md)). The `transfers`
-capability is no longer requested, since it only serves charge types this adapter refuses.
+capability is still requested, but only because Stripe refuses `card_payments` without it (a 400, "Accounts do not
+currently support `card_payments` without `transfers`", found by the staging e2e on 2026-11-28). This adapter never
+uses it: no charge type it makes moves money from the platform to the account.
 
 The Express-era consequences above still hold in one respect: Standard accounts give Imani less control than Express
 did (no payout-timing control, and Stripe is the stall's first-line support), so the reserve disclosure is still

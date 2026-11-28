@@ -78,12 +78,18 @@ public class StripeSdkConnectClient implements StripeConnectClient {
                 // typed their card. Nothing on our side logs anything, because
                 // nothing on our side is called.
                 //
-                // `transfers` is deliberately NOT requested any more. It exists
-                // for money moved from the platform to the account (destination
-                // charges, separate charges and transfers), which this adapter
-                // refuses. Direct charges settle on the account itself.
+                // `transfers` is requested too, because Stripe refuses the
+                // request without it: "Accounts do not currently support
+                // `card_payments` without `transfers`" (400, seen on staging
+                // 2026-11-28, which failed every Create a Stripe account). The
+                // adapter still makes direct charges only and never moves money
+                // from the platform to the account; the capability is asked
+                // for because Stripe pairs them, not because it is used.
                 .setCapabilities(AccountCreateParams.Capabilities.builder()
                         .setCardPayments(AccountCreateParams.Capabilities.CardPayments.builder()
+                                .setRequested(true)
+                                .build())
+                        .setTransfers(AccountCreateParams.Capabilities.Transfers.builder()
                                 .setRequested(true)
                                 .build())
                         .build())
