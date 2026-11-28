@@ -23,6 +23,7 @@ import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics;
 import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.ConnectEvent;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAccount;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ProcessedStripeWebhookEvent;
+import xyz.tcheeric.payment.adapter.core.model.entity.stripe.RecurringEligibility;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.RecurringPlan;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeConnectionType;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeOAuthState;
@@ -131,12 +132,34 @@ public class StripeConnectService {
     public void disconnect(String merchantPubkey) {
         requireEnabled();
         // Stripe keeps charging buyers after a disconnect and Imani stops seeing it (spec R8).
-        connectedStripeAccountRepository.findByMerchantPubkey(merchantPubkey).ifPresent(account -> {
+        java.util.Optional<ConnectedStripeAccount> found = connectedStripeAccountRepository.findByMerchantPubkey(merchantPubkey);
+        found.ifPresent(account -> {
             if (recurringPlans.existsByConnectedAccountIdAndStatusIn(account.getStripeAccountId(), RecurringPlan.CHARGING)) {
                 throw StripeConnectException.activePlans();
             }
         });
         connectedStripeAccountRepository.deleteByMerchantPubkey(merchantPubkey);
+        // An account the stall connected through OAuth is its own: Stop must also remove Imani from its connected
+        // apps, or Imani's platform key could still act on it. After the plan guard, so a refused Stop changes
+        // nothing. Best effort: the row is gone either way, and a failure is logged for an operator.
+        found.filter(account -> account.getConnectionType() == StripeConnectionType.OAUTH)
+                .filter(account -> connectProperties.getOauth().isConfigured())
+                .ifPresent(account -> afterCommit(() -> deauthorizeQuietly(account.getStripeAccountId())));
+    }
+
+    /** Runs once the row's deletion is committed, so a rollback never leaves Imani removed from a kept account. */
+    private static void afterCommit(Runnable action) {
+        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            action.run();
+            return;
+        }
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        action.run();
+                    }
+                });
     }
 
     @Transactional
@@ -356,7 +379,13 @@ public class StripeConnectService {
                 account.isPayoutsEnabled(),
                 account.isDetailsSubmitted(),
                 account.getDefaultCurrency(),
-                requirementsDue
+                requirementsDue,
+                account.getConnectionType() == null ? null : account.getConnectionType().name(),
+                account.getFeePayer(),
+                account.getLossesPayer(),
+                RecurringEligibility.eligible(account),
+                account.getStripeAccountId() != null && recurringPlans.existsByConnectedAccountIdAndStatusIn(
+                        account.getStripeAccountId(), RecurringPlan.CHARGING)
         );
     }
 
@@ -593,6 +622,14 @@ public class StripeConnectService {
             // unique constraints decide the winner, and the loser gets the same answer as a late claim, not a 500.
             throw StripeConnectException.merchantAlreadyLinked(
                     "This Stripe account or merchant was connected by another request. Check the status.");
+        }
+    }
+
+    private void deauthorizeQuietly(String stripeAccountId) {
+        try {
+            stripeConnectClient.deauthorize(connectProperties.getOauth().getClientId(), stripeAccountId);
+        } catch (RuntimeException e) {
+            log.warn("[alert] stripe_oauth_deauthorize_failed account={} error={}", stripeAccountId, e.getMessage());
         }
     }
 

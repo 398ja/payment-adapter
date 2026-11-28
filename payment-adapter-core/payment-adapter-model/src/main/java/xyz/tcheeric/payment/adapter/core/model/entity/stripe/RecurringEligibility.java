@@ -1,7 +1,6 @@
-package xyz.tcheeric.payment.adapter.stripe.webhook.recurring;
+package xyz.tcheeric.payment.adapter.core.model.entity.stripe;
 
 import java.util.Optional;
-import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAccount;
 
 /**
  * Whether a connected account may run instalment plans: the stall must pay Stripe's fees and Stripe must bear a
@@ -14,6 +13,15 @@ import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAcco
 public final class RecurringEligibility {
 
     private RecurringEligibility() {}
+
+    /**
+     * Whether the stall may offer plans, as its own status screen reports it. Always strict: an account Stripe did
+     * not report on is not eligible, whatever {@code requireControls} says, because a stall told "available" on a
+     * guess would publish an offer every buyer then sees refused.
+     */
+    public static boolean eligible(ConnectedStripeAccount account) {
+        return account != null && account.getStripeAccountId() != null && refusal(account, true).isEmpty();
+    }
 
     /** The reason the account may not run plans, or empty when it may. Text is safe to show a buyer. */
     public static Optional<String> refusal(ConnectedStripeAccount account, boolean requireControls) {

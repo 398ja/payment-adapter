@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAccount;
+import xyz.tcheeric.payment.adapter.core.model.entity.stripe.RecurringEligibility;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.RecurringPlan;
 import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccountRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.RecurringPlanRepository;
@@ -75,7 +76,10 @@ public class PlanCheckoutController {
                     .body(Map.of("error", PurchaseCheckoutController.GUEST_REFUSED));
         }
         if (request.amountMinor() < properties.getMinInstalmentMinor()) {
-            return bad("the instalment is below the minimum of " + properties.getMinInstalmentMinor() + " minor units");
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "the instalment is below the minimum of " + properties.getMinInstalmentMinor() + " minor units",
+                    "code", "BELOW_MINIMUM",
+                    "minAmountMinor", properties.getMinInstalmentMinor()));
         }
         Integer instalments = request.instalments();
         if (instalments != null && (instalments < 2 || instalments > properties.getMaxInstalments())) {
@@ -85,7 +89,7 @@ public class PlanCheckoutController {
         Optional<ConnectedStripeAccount> found = accounts.findByMerchantPubkey(stall);
         if (found.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "this stall does not take card payments"));
+                    .body(Map.of("error", "this stall does not take card payments", "code", "NOT_CONNECTED"));
         }
         ConnectedStripeAccount account = found.get();
         if (!account.isChargesEnabled()) {
@@ -97,7 +101,8 @@ public class PlanCheckoutController {
         }
         Optional<String> ineligible = RecurringEligibility.refusal(account, properties.isRequireControls());
         if (ineligible.isPresent()) {
-            return conflict(ineligible.get());
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", ineligible.get(), "code", "ACCOUNT_NOT_ELIGIBLE"));
         }
 
         StallReadinessClient.Readiness ready = readiness.checkSale(stall, currency, request.amountMinor());
@@ -172,7 +177,6 @@ public class PlanCheckoutController {
             @JsonProperty("amount_minor") @JsonAlias("amountMinor") Long amountMinor,
             @JsonProperty("instalments") Integer instalments) {}
 
-    public record PlanResponse(
-            @JsonProperty("checkout_url") String checkoutUrl,
-            @JsonProperty("plan_id") String planId) {}
+    /** camelCase, as {@code POST /api/v1/checkout/purchase} answers, so the wallet reads both purchase kinds alike. */
+    public record PlanResponse(String checkoutUrl, String planId) {}
 }

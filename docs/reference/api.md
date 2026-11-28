@@ -432,16 +432,34 @@ always returns to the deployment's own purchase pages; a caller cannot choose th
 | 422 | `buyer_pubkey` is not a wallet key: a plan cannot be delivered by claim link. |
 | 503 | Stripe or the readiness check is unavailable; retry after the `Retry-After` header. |
 
-### Read and cancel a plan (token-protected, for the wallet's backend)
+### Read and cancel a plan (signed by the buyer, from the wallet)
 
-Under `/api/v1/purchases`, so the purchase API token applies. The caller has authenticated the buyer; the buyer's
-key must still match the plan. A wrong key answers `404`, the same as an unknown plan.
+Every route below is a **signed request**: `Authorization: Nostr <base64 NIP-98 event>` for the exact URL and verb,
+against one of `purchase.state.public-origins`. The buyer is whoever signed; no key is taken from the query or body.
+`401` without a valid signature, `503` when no public origin is configured. A plan that belongs to someone else answers
+`404`, the same as an unknown one. Answers are camelCase.
 
-* `GET /api/v1/purchases/plans/{planId}?buyer_pubkey=...` returns `{plan_id, status, amount_minor, currency,
-  total_instalments, instalments_paid, cancel_requested}`.
-* `POST /api/v1/purchases/plans/{planId}/cancel` with `{ "buyer_pubkey": "..." }` ends the subscription at period end
-  on the stall's account. Vouchers already issued stay valid and nothing is refunded (a refund is the stall's decision,
-  made in its own Stripe account). `409` if the plan already ended or is `ORPHANED`; `502` if Stripe cannot be reached.
+* `GET /api/v1/checkout/plans` lists the signer's plans, newest first (at most 100): `[{planId, stallPubkey, status,
+  amountMinor, currency, totalInstalments, instalmentsPaid, cancelRequested, cancelRequestedAt, createdAt}]`.
+* `GET /api/v1/checkout/plans/{planId}` returns `{plan: {...as above}, voucherIds: [...]}`, the vouchers its
+  instalments issued, oldest first.
+* `POST /api/v1/checkout/plans/{planId}/cancel` (no body) ends the subscription at period end on the stall's account.
+  Vouchers already issued stay valid and nothing is refunded (a refund is the stall's decision, made in its own Stripe
+  account). Repeating it on a plan already stopping changes nothing. A `PENDING` plan (Stripe's page never finished)
+  has its open Checkout Session expired first, so the buyer cannot finish it afterwards, and is then closed. `409` if
+  the plan already ended or is `ORPHANED`; `502` if Stripe cannot be reached, or the pending page has just been
+  completed (the plan is left as it was).
+* `GET /api/v1/checkout/plans/summary?stall=<pubkey>`, signed BY that stall (`403` otherwise): `{activePlans,
+  monthlyTotals: [{currency, amountMinor}]}` over `ACTIVE` plans. No buyers.
+
+The plan start (`POST /api/v1/checkout/plan`) answers `{checkoutUrl, planId}`. Its refusals carry a `code` beside
+`error` where the wallet words them itself: `BELOW_MINIMUM` (with `minAmountMinor`), `NOT_CONNECTED`,
+`ACCOUNT_NOT_ELIGIBLE`.
+
+The Connect status (`GET /api/v1/stripe/connect/accounts/{merchantPubkey}`) also carries `connection_type`
+(`CREATED` | `OAUTH`), `fee_payer`, `losses_payer`, `instalments_eligible` (strict: unknown is false) and
+`active_plans` (a plan is charging, so disconnecting is refused). Disconnecting an `OAUTH` account also calls Stripe's
+`oauth/deauthorize` after the plan guard, best effort.
 
 Statuses: `PENDING`, `ACTIVE`, `PAST_DUE`, `COMPLETED`, `CANCELLED`, `ORPHANED` (the stall disconnected from Imani; Stripe
 keeps charging), `ATTENTION` (charged after the plan ended or past its term; a person decides about a refund).
