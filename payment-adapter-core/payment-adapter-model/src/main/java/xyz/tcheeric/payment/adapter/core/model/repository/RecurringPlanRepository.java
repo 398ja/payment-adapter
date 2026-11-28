@@ -29,15 +29,27 @@ public interface RecurringPlanRepository extends CrudRepository<RecurringPlan, U
     java.util.List<RecurringPlan> findByConnectedAccountIdAndStatusIn(
             String connectedAccountId, Collection<RecurringPlan.Status> statuses);
 
+    /** One processor's plan by its subscription: a PayPal {@code I-...} is never looked up among Stripe's. */
+    Optional<RecurringPlan> findByProcessorAndSubscriptionId(String processor, String subscriptionId);
+
     /**
-     * Plans worth reading from Stripe now, least recently checked first. A plan qualifies when it is running
+     * Stripe plans worth reading from Stripe now, least recently checked first. A plan qualifies when it is running
      * ({@code live}), or ended within the lookback ({@code ended}: a late instalment can still land), is older than the
      * webhook grace ({@code before}), and was not checked within the recheck window ({@code recheckBefore}).
+     * PayPal plans are never returned: Stripe cannot read them.
      */
-    @Query("select p from RecurringPlan p where (p.status in :live or (p.status in :ended and p.updatedAt > :since))"
+    default List<RecurringPlan> findReconcilable(Collection<RecurringPlan.Status> live,
+            Collection<RecurringPlan.Status> ended, Instant since, Instant before, Instant recheckBefore, Pageable page) {
+        return findReconcilableFor(RecurringPlan.PROCESSOR_STRIPE, live, ended, since, before, recheckBefore, page);
+    }
+
+    /** As {@link #findReconcilable}, for one processor's plans. */
+    @Query("select p from RecurringPlan p where p.processor = :processor"
+            + " and (p.status in :live or (p.status in :ended and p.updatedAt > :since))"
             + " and p.createdAt < :before and (p.reconciledAt is null or p.reconciledAt < :recheckBefore)"
             + " order by p.reconciledAt asc nulls first, p.createdAt asc")
-    List<RecurringPlan> findReconcilable(@Param("live") Collection<RecurringPlan.Status> live,
+    List<RecurringPlan> findReconcilableFor(@Param("processor") String processor,
+            @Param("live") Collection<RecurringPlan.Status> live,
             @Param("ended") Collection<RecurringPlan.Status> ended, @Param("since") Instant since,
             @Param("before") Instant before, @Param("recheckBefore") Instant recheckBefore, Pageable page);
 

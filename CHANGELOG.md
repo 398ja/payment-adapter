@@ -12,6 +12,17 @@
 
 ### Added
 
+- **PayPal instalment plans, mirroring Stripe's** ([ADR 0003](docs/adr/0003-paypal-instalment-plans.md)).
+  `POST /api/v1/checkout/paypal/plan` (Stripe's plan body, refusals, codes and response) creates a product,
+  billing plan (`total_cycles` = the fixed term) and subscription on the stall's own PayPal account and returns
+  PayPal's approval page. Each `PAYMENT.SALE.COMPLETED` issues one instalment of vouchers through the shared ledger;
+  `BILLING.SUBSCRIPTION.*` events move the plan; sale refunds and reversals reverse the row and mark the plan
+  `ATTENTION`. `recurring_plan` gains a `processor` column (V28); the shared plan cancel route hands PayPal plans to
+  a new `ProcessorPlanCanceller`; a PayPal instalment reconciler recovers lost sales, lost activations and abandoned
+  approvals. PayPal disconnect is refused while plans charge (`ACTIVE_PLANS`) and a revoked consent orphans them.
+  Off unless `paypal.recurring.enabled=true`. Not yet run against PayPal (account KYC pending; third-party
+  subscriptions need PayPal to enable them for the partner app).
+
 - **PayPal card payments, mirroring Stripe** ([ADR 0002](docs/adr/0002-paypal-card-purchases-mirror-stripe.md)).
   A stall onboards its own PayPal seller account (`/api/v1/paypal/connect/accounts`, Partner
   Referrals) and a buyer pays it on PayPal's card form (`POST /api/v1/checkout/paypal/purchase`,

@@ -54,6 +54,42 @@ public class PlanManagementController {
     private final StripePurchaseRepository purchases;
     private final StripeSubscriptionClient subscriptions;
     private final SignedCaller signed;
+    private List<ProcessorPlanCanceller> otherProcessors = List.of();
+
+    /** Cancellers for plans another processor runs (PayPal, ADR 0003). Without one, such a plan answers 409. */
+    @Autowired(required = false)
+    public void setOtherProcessors(List<ProcessorPlanCanceller> otherProcessors) {
+        this.otherProcessors = otherProcessors == null ? List.of() : List.copyOf(otherProcessors);
+    }
+
+    /**
+     * A plan another processor runs. Its subscription exists from the start (PayPal creates it before the buyer
+     * approves), so cancelling it also closes a plan whose approval page is still open.
+     */
+    private ResponseEntity<?> cancelElsewhere(RecurringPlan plan) {
+        Optional<ProcessorPlanCanceller> canceller = otherProcessors.stream()
+                .filter(candidate -> candidate.processor().equals(plan.getProcessor())).findFirst();
+        if (canceller.isEmpty() || plan.getStatus() == Status.ORPHANED) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error",
+                    "this plan can no longer be managed here; ask the stall to cancel it"));
+        }
+        if (plan.getCancelRequestedAt() == null) {
+            try {
+                canceller.get().cancel(plan);
+            } catch (RuntimeException e) {
+                log.warn("Could not cancel {} plan {}: {}", plan.getProcessor(), plan.getId(), e.getMessage());
+                return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                        .body(Map.of("error", "could not reach " + plan.getProcessor() + " to cancel; try again"));
+            }
+            plan.setCancelRequestedAt(Instant.now());
+        }
+        if (plan.getStatus() == Status.PENDING) {
+            plan.setStatus(Status.CANCELLED);
+        }
+        plan.setUpdatedAt(Instant.now());
+        plans.save(plan);
+        return ResponseEntity.ok(view(plan));
+    }
 
     @Autowired
     public PlanManagementController(RecurringPlanRepository plans, StripePurchaseRepository purchases,
@@ -129,6 +165,9 @@ public class PlanManagementController {
     private ResponseEntity<?> cancel(RecurringPlan plan) {
         if (plan.getStatus() == Status.COMPLETED || plan.getStatus() == Status.CANCELLED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "this plan has already ended"));
+        }
+        if (!RecurringPlan.PROCESSOR_STRIPE.equals(plan.getProcessor())) {
+            return cancelElsewhere(plan);
         }
         if (plan.getStatus() == Status.ORPHANED) {
             // Imani can no longer act on this subscription. Say so rather than pretend it was cancelled.

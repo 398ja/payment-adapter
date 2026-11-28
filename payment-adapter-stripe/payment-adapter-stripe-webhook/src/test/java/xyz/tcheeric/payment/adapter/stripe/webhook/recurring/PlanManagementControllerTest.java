@@ -124,6 +124,31 @@ class PlanManagementControllerTest {
         assertThat(plan.getCancelRequestedAt()).isNotNull();
     }
 
+    // A plan another processor runs is cancelled through that processor's canceller, never through Stripe.
+    @Test
+    void aPaypalPlanIsCancelledThroughPaypal() throws Exception {
+        plan.setProcessor(RecurringPlan.PROCESSOR_PAYPAL);
+        ProcessorPlanCanceller paypal = org.mockito.Mockito.mock(ProcessorPlanCanceller.class);
+        when(paypal.processor()).thenReturn(RecurringPlan.PROCESSOR_PAYPAL);
+        controller.setOtherProcessors(List.of(paypal));
+
+        assertThat(cancelAs(BUYER_SK)).isEqualTo(HttpStatus.OK);
+
+        verify(paypal).cancel(plan);
+        verify(subscriptions, org.mockito.Mockito.never()).cancelAtPeriodEnd(any(), any());
+        assertThat(plan.getCancelRequestedAt()).isNotNull();
+    }
+
+    // A plan whose processor has no canceller here is refused, not sent to Stripe.
+    @Test
+    void aPlanOfAnUnservedProcessorIsRefused() throws Exception {
+        plan.setProcessor(RecurringPlan.PROCESSOR_PAYPAL);
+
+        assertThat(cancelAs(BUYER_SK)).isEqualTo(HttpStatus.CONFLICT);
+
+        verify(subscriptions, org.mockito.Mockito.never()).cancelAtPeriodEnd(any(), any());
+    }
+
     // Somebody else's signature gets 404, exactly like an unknown plan, so a plan id cannot be probed.
     @Test
     void anotherSignerGetsNotFoundAndNothingIsCancelled() throws Exception {

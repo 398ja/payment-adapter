@@ -168,6 +168,24 @@ acts for every connected account through `Stripe-Account`. Every `paypal.*` prop
 | `paypal.webhook-tolerance-seconds` (`PAYPAL_WEBHOOK_TOLERANCE_SECONDS`) | `0` | Maximum age of `PAYPAL-TRANSMISSION-TIME`; 0 is no bound (the event-id table already makes a replay a duplicate). |
 | `paypal.api-base` (`PAYPAL_API_BASE`) | *(empty)* | Local mock only (`localhost`, `127.0.0.1`, `host.docker.internal`, `paypal-mock`); refused at startup otherwise, as `stripe.api-base`. |
 
+### PayPal instalment plans
+
+Off by default; needs `paypal.enabled=true` as well. See [ADR 0003](../adr/0003-paypal-instalment-plans.md). Subscribe
+the payments webhook to the `BILLING.SUBSCRIPTION.*` and `PAYMENT.SALE.*` events listed there.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `paypal.recurring.enabled` (`PAYPAL_RECURRING_ENABLED`) | `false` | Turns on `POST /api/v1/checkout/paypal/plan`, the subscription and sale event handlers, the PayPal plan cancel and the instalment reconciler. |
+| `paypal.recurring.min-instalment-minor` | `2000` | Smallest instalment accepted, in minor units. |
+| `paypal.recurring.max-instalments` / `-weekly` / `-yearly` | `24` / `52` / `5` | Longest fixed term per interval. |
+| `paypal.recurring.description` | `Instalment plan` | Product and billing plan name shown on PayPal's approval page. |
+| `paypal.recurring.reconcile-interval` | `PT10M` | How often the instalment reconciler runs. |
+| `paypal.recurring.reconcile-grace` | `PT10M` | A sale younger than this is left to its webhook. |
+| `paypal.recurring.reconcile-recheck` | `PT1H` | A plan read within this window is skipped; also the claim window between replicas. |
+| `paypal.recurring.reconcile-lookback` | `P35D` | How far back transactions are read, and how long an ended plan is still read. |
+| `paypal.recurring.abandon-after` | `PT6H` | A subscription never approved after this long is cancelled and its plan closed. |
+| `paypal.recurring.reconcile-batch-size` | `50` | Plans read per run. A 429 ends the run. |
+
 Webhook signatures are verified locally against PayPal's certificate (fetched only over HTTPS from a
 `paypal.com` host, chain-validated against the JDK trust store, and cached), never through PayPal's
 `verify-webhook-signature` call.
