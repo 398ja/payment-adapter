@@ -77,8 +77,10 @@ Checked 2026-11-27. These are the facts this design relies on.
 2. ~~That events for subscriptions on connected accounts reach the existing Connect webhook endpoint.~~
    **Resolved** (docs.stripe.com/connect/accounts-v2/migrate-integration): updates to invoices and subscriptions
    that connected accounts charge their customers using direct charges, and direct charges themselves, are in the
-   **Connected accounts** event scope, which is the scope the Connect endpoint listens to. Enable the new event types
-   on that endpoint.
+   **Connected accounts** event scope, the same scope as the `checkout.session.completed` events the adapter already
+   receives for direct-charge purchases. They therefore arrive on the **payments** endpoint (`/webhook/stripe`,
+   `stripe.webhook-endpoint-id`), NOT on the account-updates Connect endpoint (which handles only `account.updated` and
+   `account.application.deauthorized`). An earlier draft of this spec said the Connect endpoint; that was wrong.
 3. Whether a customer portal session can be created on a connected account (`Stripe-Account`) for direct-charge
    subscriptions, and what Express accounts allow. If not, cancellation and payment-method updates are built
    against the Subscriptions API.
@@ -473,3 +475,53 @@ debit. The case for them rests on admin, gifting and vouchers, not on fees.
 - CSA farm pages (2026): Tyninghame Community Farm about 70 weekly shares; Food Smiles about 30 members.
 - Wales impact summary: 11 CSAs, 500 families, members provided £17,500 of credit.
 - CSA Network membership bands (under 50, 50-100, over 100 members) match the three farm sizes above.
+
+## Implementation status (2026-11-28)
+
+Built on branch `feat/stripe-recurring-plans`. **Not yet run against live Stripe.** Where the build differs from the
+design above, and what is still open:
+
+### Differences from the design
+
+1. **Fixed term by counting, not by a subscription schedule.** The design called for a schedule with a fixed number of
+   phases. The build instead creates an ordinary monthly subscription and, when the Nth instalment's purchase row is
+   recorded, sets `cancel_at_period_end` on it. The count is the number of recorded purchase rows, so a redelivery
+   cannot count an instalment twice, and a failed cancel is retried because the event is refused and redelivered.
+   Cost: the final cancel depends on the webhook arriving (Stripe retries for up to three days; the next charge is a
+   month away). It avoids unverified schedule-from-Checkout behaviour. Revisit if over-billing is ever observed.
+2. **No ledger schema change beyond a link.** An instalment's `stripe_purchase` row stores the invoice id in
+   `checkout_session_id` and the invoice's payment intent in `payment_intent_id` (the reuse ADR 0002 makes for PayPal),
+   plus a new nullable `recurring_plan_id`. Both ids stay unique, so "one row per paid invoice" is a database fact.
+3. **The first instalment is issued from its invoice, not from the Checkout Session.** A session carrying a plan id
+   only links the subscription to the plan. Recording the session as a purchase as well would issue the first
+   instalment twice, so the handler and the lost-purchase reconciler both skip plan sessions.
+4. **Disconnect guard counts only plans that have a subscription** (`ACTIVE`, `PAST_DUE`, `ATTENTION`). A `PENDING`
+   plan has none, and the plan-start endpoint is public, so counting it would let anyone stop a stall from ever
+   disconnecting. On a Stripe-side disconnect every live plan, `PENDING` included, is marked `ORPHANED`.
+5. **No caller-supplied return URL.** A plan always returns the buyer to the deployment's own purchase pages.
+6. **Cancel is token-protected, not public.** There is no buyer authentication in this service, so cancel and read live
+   under `/api/v1/purchases/plans` (the purchase API token), and the wallet's backend must authenticate the buyer.
+
+### Not built (open)
+
+* **No reconciler for missed instalments.** One-off purchases have a reconciler that recovers a paid Checkout Session
+  whose webhook was lost. Instalments have none, so a lost `invoice.paid` is recovered only by Stripe's own retries
+  (up to three days). **This is the largest gap for a feature that moves money.** The next piece is a job that lists a
+  live plan's paid invoices and records any the ledger lacks.
+* **A refund or dispute on an instalment does not mark its plan `ATTENTION`.** The existing refund and dispute handling
+  still applies to the purchase row, but the plan is not flagged.
+* **Stall readiness and sales limits are checked once, when the plan starts,** not per instalment. A later instalment is
+  issued even if the stall has since passed a limit (paid means owed).
+* **No payment-method update link for the buyer,** and no wallet screen. Both need verification of the customer portal on
+  a connected account (unverified item 3) and work in `imani-wallet`.
+* **Plan status is not exposed to the stall** (no stall-side list of its plans).
+
+### Still unverified against Stripe
+
+* The `invoice.paid` payload shape for the API version of the deployment's webhook endpoint. The parser accepts both
+  the newer (`parent.subscription_details`) and older (`subscription_details`, `subscription`, `payment_intent`)
+  shapes, and reads the payment intent from the invoice's payments when it is absent. Tested against hand-written
+  fixtures only.
+* That a subscription's metadata appears on every renewal invoice as the parser expects.
+* Whether an account the stall opened itself reports `controller.fees.payer` and `controller.losses.payments`. If not,
+  plans are refused on it while `stripe.recurring.require-controls` is true.

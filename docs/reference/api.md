@@ -407,6 +407,45 @@ retries, because Stripe revokes the connection if a code is used twice. Success 
 | 502 | `STRIPE_API_ERROR` | Stripe could not be reached or failed. The state is spent, so start again. |
 | 503 | `OAUTH_DISABLED` | OAuth is not configured. |
 
+## Instalment plans
+
+Needs `stripe.recurring.enabled=true` ([configuration](configuration.md)). A plan is a Stripe subscription on the
+STALL's own account; Imani issues vouchers for each instalment when, and only when, that instalment's invoice is paid.
+
+### Start a plan (public, like a purchase)
+
+`POST /api/v1/checkout/plan`
+
+```json
+{ "stall_pubkey": "<64 hex>", "buyer_pubkey": "<64 hex>", "amount_minor": 5000, "instalments": 6 }
+```
+
+`instalments` is 2 to `stripe.recurring.max-instalments`, or omitted for an open-ended plan. Returns
+`{ "checkout_url": "https://checkout.stripe.com/...", "plan_id": "..." }`: send the buyer to `checkout_url`. The buyer
+always returns to the deployment's own purchase pages; a caller cannot choose the return URL.
+
+| Status | Meaning |
+|---|---|
+| 400 | Missing or invalid input, an instalment below the minimum, or a term out of range. |
+| 404 | The stall does not take card payments. |
+| 409 | The stall cannot take cards yet, has no currency, is not ready or over its sales limit, or its Stripe account is not set up for plans (Imani would bear fees or losses). |
+| 422 | `buyer_pubkey` is not a wallet key: a plan cannot be delivered by claim link. |
+| 503 | Stripe or the readiness check is unavailable; retry after the `Retry-After` header. |
+
+### Read and cancel a plan (token-protected, for the wallet's backend)
+
+Under `/api/v1/purchases`, so the purchase API token applies. The caller has authenticated the buyer; the buyer's
+key must still match the plan. A wrong key answers `404`, the same as an unknown plan.
+
+* `GET /api/v1/purchases/plans/{planId}?buyer_pubkey=...` returns `{plan_id, status, amount_minor, currency,
+  total_instalments, instalments_paid, cancel_requested}`.
+* `POST /api/v1/purchases/plans/{planId}/cancel` with `{ "buyer_pubkey": "..." }` ends the subscription at period end
+  on the stall's account. Vouchers already issued stay valid and nothing is refunded (a refund is the stall's decision,
+  made in its own Stripe account). `409` if the plan already ended or is `ORPHANED`; `502` if Stripe cannot be reached.
+
+Statuses: `PENDING`, `ACTIVE`, `PAST_DUE`, `COMPLETED`, `CANCELLED`, `ORPHANED` (the stall disconnected from Imani; Stripe
+keeps charging), `ATTENTION` (charged after the plan ended or past its term; a person decides about a refund).
+
 ## Error codes
 
 The API uses standard HTTP status codes:

@@ -87,6 +87,23 @@ Configuration is read from `cash.properties` on the classpath.
 | `stripe.min-amount-minor` | `1` | Minimum amount in minor currency units. |
 | `stripe.max-amount-minor` | `2147483647` | Maximum amount in minor currency units. |
 
+## Stripe instalment plans (`payment-adapter-stripe-webhook`, package `recurring`)
+
+Off by default. Nothing about plans exists until `stripe.recurring.enabled=true`, and the endpoints also need
+`stripe.enabled=true`. See [the spec](../specs/payment-adapter-stripe-recurring-spec.md).
+
+| Property | Default | Meaning |
+|---|---|---|
+| `stripe.recurring.enabled` (`STRIPE_RECURRING_ENABLED`) | `false` | Turns on plan creation, the plan endpoints and the invoice event handlers. |
+| `stripe.recurring.min-instalment-minor` (`STRIPE_RECURRING_MIN_INSTALMENT_MINOR`) | `2000` | Smallest instalment accepted, in minor units. Small instalments cost the stall more: Stripe's 20p per payment plus the 0.7% Billing fee (spec, Appendix A). |
+| `stripe.recurring.max-instalments` (`STRIPE_RECURRING_MAX_INSTALMENTS`) | `24` | Longest fixed term. A plan may also be open-ended. |
+| `stripe.recurring.require-controls` (`STRIPE_RECURRING_REQUIRE_CONTROLS`) | `true` | Refuse a plan on an account whose fee payer or loss collector Stripe has not reported. Relax only after confirming Stripe reports them for the accounts you connect. A reported "Imani pays" is refused either way. |
+
+**Enable these events on the PAYMENTS webhook endpoint** (the one with `charge.refunded` and
+`checkout.session.completed`, `stripe.webhook-endpoint-id`), not the account-updates endpoint:
+`invoice.paid`, `invoice.payment_failed`, `customer.subscription.deleted`. With plans on, the webhook subscription
+check (#286) requires them; with plans off it does not.
+
 ## Stripe Connect module ([payment-adapter-stripe/payment-adapter-stripe-connect](../../payment-adapter-stripe/payment-adapter-stripe-connect))
 
 | Property | Default | Description |

@@ -44,8 +44,15 @@ public class RecurringPlan {
         ATTENTION
     }
 
-    /** Statuses in which a subscription may still be charging a buyer. */
+    /** Statuses in which a plan is not finished: a buyer may be about to pay, or already is. */
     public static final Set<Status> LIVE = EnumSet.of(Status.PENDING, Status.ACTIVE, Status.PAST_DUE, Status.ATTENTION);
+
+    /**
+     * Statuses in which a subscription EXISTS and may be charging a buyer. PENDING is deliberately not here: it has
+     * no subscription, and a public endpoint creates PENDING rows, so counting them would let anyone stop a stall
+     * from ever disconnecting.
+     */
+    public static final Set<Status> CHARGING = EnumSet.of(Status.ACTIVE, Status.PAST_DUE, Status.ATTENTION);
 
     @Id
     private UUID id;

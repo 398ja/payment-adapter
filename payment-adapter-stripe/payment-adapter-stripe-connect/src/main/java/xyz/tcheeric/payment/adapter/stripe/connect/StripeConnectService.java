@@ -23,11 +23,13 @@ import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics;
 import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.ConnectEvent;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAccount;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ProcessedStripeWebhookEvent;
+import xyz.tcheeric.payment.adapter.core.model.entity.stripe.RecurringPlan;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeConnectionType;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeOAuthState;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeWebhookProcessingStatus;
 import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccountRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.ProcessedStripeWebhookEventRepository;
+import xyz.tcheeric.payment.adapter.core.model.repository.RecurringPlanRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.StripeOAuthStateRepository;
 import xyz.tcheeric.payment.adapter.stripe.connect.config.StripeConnectProperties;
 import xyz.tcheeric.payment.adapter.stripe.connect.exception.StripeConnectException;
@@ -50,6 +52,7 @@ public class StripeConnectService {
     private final ConnectedStripeAccountRepository connectedStripeAccountRepository;
     private final ProcessedStripeWebhookEventRepository processedEventRepository;
     private final StripeOAuthStateRepository oauthStateRepository;
+    private final RecurringPlanRepository recurringPlans;
     private final TransactionTemplate requiresNewTx;
 
     /** imani-deploy#210. Connect lifecycle transitions, seen here first via account.updated. */
@@ -68,6 +71,7 @@ public class StripeConnectService {
             ConnectedStripeAccountRepository connectedStripeAccountRepository,
             ProcessedStripeWebhookEventRepository processedEventRepository,
             StripeOAuthStateRepository oauthStateRepository,
+            RecurringPlanRepository recurringPlans,
             PlatformTransactionManager transactionManager) {
         this.connectProperties = connectProperties;
         this.gatewayProperties = gatewayProperties;
@@ -76,6 +80,7 @@ public class StripeConnectService {
         this.connectedStripeAccountRepository = connectedStripeAccountRepository;
         this.processedEventRepository = processedEventRepository;
         this.oauthStateRepository = oauthStateRepository;
+        this.recurringPlans = recurringPlans;
         this.requiresNewTx = new TransactionTemplate(transactionManager);
         this.requiresNewTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -125,6 +130,12 @@ public class StripeConnectService {
     @Transactional
     public void disconnect(String merchantPubkey) {
         requireEnabled();
+        // Stripe keeps charging buyers after a disconnect and Imani stops seeing it (spec R8).
+        connectedStripeAccountRepository.findByMerchantPubkey(merchantPubkey).ifPresent(account -> {
+            if (recurringPlans.existsByConnectedAccountIdAndStatusIn(account.getStripeAccountId(), RecurringPlan.CHARGING)) {
+                throw StripeConnectException.activePlans();
+            }
+        });
         connectedStripeAccountRepository.deleteByMerchantPubkey(merchantPubkey);
     }
 
@@ -222,6 +233,14 @@ public class StripeConnectService {
                     StripeConnectExceptionCode.STRIPE_API_ERROR,
                     "Deauthorization webhook missing account ID");
         }
+        // The stall disconnected on Stripe's side. Its subscriptions keep running there, but Imani can no longer see or
+        // end them, so every live plan is marked ORPHANED rather than left looking healthy (spec R8).
+        recurringPlans.findByConnectedAccountIdAndStatusIn(stripeAccountId, RecurringPlan.LIVE).forEach(plan -> {
+            plan.setStatus(RecurringPlan.Status.ORPHANED);
+            plan.setUpdatedAt(Instant.now());
+            recurringPlans.save(plan);
+            log.warn("[alert] recurring_plan_orphaned plan={} account={}", plan.getId(), stripeAccountId);
+        });
         connectedStripeAccountRepository.findByStripeAccountId(stripeAccountId)
                 .ifPresent(connectedStripeAccountRepository::delete);
     }

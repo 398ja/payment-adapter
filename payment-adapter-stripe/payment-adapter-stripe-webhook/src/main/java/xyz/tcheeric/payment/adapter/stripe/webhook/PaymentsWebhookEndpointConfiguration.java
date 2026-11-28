@@ -14,7 +14,8 @@ public class PaymentsWebhookEndpointConfiguration {
     static final String NAME = "payments";
 
     @Bean
-    StripeWebhookEndpoint paymentsWebhookEndpoint(StripeGatewayProperties properties) {
-        return new StripeWebhookEndpoint(NAME, properties.getWebhookEndpointId(), StripePaymentEvent.types());
+    StripeWebhookEndpoint paymentsWebhookEndpoint(StripeGatewayProperties properties,
+            @org.springframework.beans.factory.annotation.Value("${stripe.recurring.enabled:false}") boolean plans) {
+        return new StripeWebhookEndpoint(NAME, properties.getWebhookEndpointId(), StripePaymentEvent.types(plans));
     }
 }
