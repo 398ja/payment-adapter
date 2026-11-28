@@ -126,6 +126,44 @@ class PaypalWebhookHandlerPlanTest {
         verify(plans).instalmentReturned(SALE);
     }
 
+    // Regression: a refund that overtakes its sale is still handed to the ledger, never silently acknowledged.
+    @Test
+    void aRefundBeforeItsSaleIsStillRecorded() throws Exception {
+        when(purchases.findByPaymentIntentId(SALE)).thenReturn(Optional.empty());
+
+        handler.handle(PaypalWebhookHandlerTest.payload("WH-8", "PAYMENT.SALE.REFUNDED",
+                "{\"id\":\"REF-2\",\"sale_id\":\"" + SALE + "\",\"amount\":{\"total\":\"50.00\",\"currency\":\"GBP\"}}"));
+
+        ArgumentCaptor<ReversedPurchase> reversed = ArgumentCaptor.forClass(ReversedPurchase.class);
+        verify(listener).onPurchaseReversed(reversed.capture());
+        assertThat(reversed.getValue().paymentIntentId()).isEqualTo(SALE);
+        assertThat(reversed.getValue().refundedAmountMinor()).isEqualTo(5000L);
+    }
+
+    // Regression: a reversal (PayPal took the money back) is a full refund of the sale.
+    @Test
+    void aReversalIsAFullRefund() throws Exception {
+        when(purchases.findByPaymentIntentId(SALE)).thenReturn(Optional.empty());
+
+        handler.handle(PaypalWebhookHandlerTest.payload("WH-10", "PAYMENT.SALE.REVERSED", sale("reversed")));
+
+        ArgumentCaptor<ReversedPurchase> reversed = ArgumentCaptor.forClass(ReversedPurchase.class);
+        verify(listener).onPurchaseReversed(reversed.capture());
+        assertThat(reversed.getValue().refundedAmountMinor()).isEqualTo(5000L);
+        verify(plans).instalmentReturned(SALE);
+    }
+
+    // Regression: a dispute on an instalment flags its plan, as a refund does.
+    @Test
+    void aDisputedInstalmentFlagsThePlan() throws Exception {
+        handler.handle(PaypalWebhookHandlerTest.payload("WH-9", "CUSTOMER.DISPUTE.CREATED",
+                "{\"dispute_id\":\"PP-D-1\",\"dispute_amount\":{\"currency_code\":\"GBP\",\"value\":\"50.00\"},"
+                        + "\"disputed_transactions\":[{\"seller_transaction_id\":\"" + SALE + "\","
+                        + "\"seller\":{\"merchant_id\":\"SELLER123\"}}]}"));
+
+        verify(plans).instalmentReturned(SALE);
+    }
+
     // Subscription lifecycle events reach the plan service by subscription id.
     @Test
     void lifecycleEventsReachThePlan() throws Exception {

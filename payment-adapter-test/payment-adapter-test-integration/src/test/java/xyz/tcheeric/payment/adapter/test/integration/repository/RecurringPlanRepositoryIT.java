@@ -10,6 +10,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.RecurringPlan;
 import xyz.tcheeric.payment.adapter.core.model.repository.RecurringPlanRepository;
 import xyz.tcheeric.payment.adapter.test.integration.BasePostgresIT;
@@ -92,5 +93,49 @@ class RecurringPlanRepositoryIT extends BasePostgresIT {
         for (RecurringPlan.Status status : EnumSet.allOf(RecurringPlan.Status.class)) {
             assertThat(plan("acct_x", status, null).getStatus()).isEqualTo(status);
         }
+    }
+
+    // Regression: a plan saved without a processor is Stripe's (V28 default), and a PayPal plan keeps its processor.
+    @Test
+    void aPlanRemembersItsProcessor() {
+        RecurringPlan stripe = plan("acct_x", RecurringPlan.Status.ACTIVE, "sub_1");
+        RecurringPlan paypal = paypalPlan("I-1");
+
+        assertThat(plans.findById(stripe.getId()).orElseThrow().getProcessor()).isEqualTo("stripe");
+        assertThat(plans.findByProcessorAndSubscriptionId("paypal", "I-1")).map(RecurringPlan::getId)
+                .contains(paypal.getId());
+        assertThat(plans.findByProcessorAndSubscriptionId("stripe", "I-1")).isEmpty();
+    }
+
+    // Regression: Stripe's instalment reconciler never receives a PayPal plan, and PayPal's never a Stripe one.
+    @Test
+    void eachReconcilerReadsOnlyItsOwnProcessor() {
+        RecurringPlan stripe = plan("acct_x", RecurringPlan.Status.ACTIVE, "sub_1");
+        RecurringPlan paypal = paypalPlan("I-1");
+        Instant later = Instant.now().plusSeconds(60);
+        var live = RecurringPlan.LIVE;
+        var ended = EnumSet.of(RecurringPlan.Status.COMPLETED);
+        var page = PageRequest.of(0, 10);
+
+        assertThat(plans.findReconcilable(live, ended, Instant.EPOCH, later, later, page))
+                .extracting(RecurringPlan::getId).containsExactly(stripe.getId());
+        assertThat(plans.findReconcilableFor("paypal", live, ended, Instant.EPOCH, later, later, page))
+                .extracting(RecurringPlan::getId).containsExactly(paypal.getId());
+    }
+
+    private RecurringPlan paypalPlan(String subscription) {
+        RecurringPlan p = new RecurringPlan();
+        p.setId(UUID.randomUUID());
+        p.setProcessor(RecurringPlan.PROCESSOR_PAYPAL);
+        p.setConnectedAccountId("SELLER123");
+        p.setStallPubkey("a".repeat(64));
+        p.setBuyerPubkey("b".repeat(64));
+        p.setAmountMinor(5000);
+        p.setCurrency("gbp");
+        p.setStatus(RecurringPlan.Status.ACTIVE);
+        p.setSubscriptionId(subscription);
+        p.setCreatedAt(Instant.now());
+        p.setUpdatedAt(Instant.now());
+        return plans.save(p);
     }
 }

@@ -285,20 +285,24 @@ public class PaypalWebhookHandler implements WebhookHandler<PaypalWebhookPayload
         String saleId = reversal ? text(resource.path("id")) : text(resource.path("sale_id"));
         Optional<StripePurchase> row = saleId == null ? Optional.empty()
                 : purchases.findByPaymentIntentId(saleId).filter(StripePurchase::isPaypal);
-        if (row.isEmpty()) {
+        if (saleId == null) {
             return acknowledge(payload, record);
         }
+        // Reversed even when no row exists yet: a refund can overtake its sale, and the listener records it either
+        // way, exactly as for a capture refund.
         Long thisRefund = saleMinor(resource.path("amount"));
         Long total = saleMinor(resource.path("total_refunded_amount"));
-        Long refundedTotal = reversal ? row.get().getAmountMinor() : total != null ? total : thisRefund;
+        Long rowAmount = row.map(StripePurchase::getAmountMinor).orElse(null);
+        Long refundedTotal = reversal ? (rowAmount != null ? rowAmount : thisRefund) : total != null ? total : thisRefund;
         reverse(payload, new StripePurchaseListener.ReversedPurchase(payload.getEventId(), saleId,
-                text(resource.path("id")), row.get().getConnectedAccountId(), refundedTotal,
-                row.get().getAmountMinor(), false));
+                text(resource.path("id")), row.map(StripePurchase::getConnectedAccountId).orElse(null), refundedTotal,
+                rowAmount != null ? rowAmount : thisRefund, false));
         if (recurringPlans != null) {
             recurringPlans.instalmentReturned(saleId);
         }
         markProcessed(record);
-        metrics.record(Source.CARD, Status.REFUNDED, Reason.NONE, lower(row.get().getCurrency()), thisRefund);
+        metrics.record(Source.CARD, Status.REFUNDED, Reason.NONE,
+                lower(row.map(StripePurchase::getCurrency).orElse(null)), thisRefund);
         return purchaseResult(payload, saleId);
     }
 
@@ -396,6 +400,10 @@ public class PaypalWebhookHandler implements WebhookHandler<PaypalWebhookPayload
             captureId = disputed;
             reverse(payload, new StripePurchaseListener.ReversedPurchase(payload.getEventId(), disputed,
                     text(dispute.path("dispute_id")), sellerOf(dispute), null, amount, true));
+            if (recurringPlans != null) {
+                // A disputed instalment (its sale id is the disputed transaction) flags its plan, as a refund does.
+                recurringPlans.instalmentReturned(disputed);
+            }
         }
         markProcessed(record);
         metrics.record(Source.CARD, Status.DISPUTED, Reason.NONE, lower(currency), amount);

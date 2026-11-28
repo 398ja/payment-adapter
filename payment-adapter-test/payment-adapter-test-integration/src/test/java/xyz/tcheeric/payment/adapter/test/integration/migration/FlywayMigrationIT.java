@@ -109,7 +109,7 @@ class FlywayMigrationIT extends BasePostgresIT {
         assertThat(getColumnNames("recurring_plan")).containsExactlyInAnyOrder(
                 "id", "connected_account_id", "stall_pubkey", "buyer_pubkey", "amount_minor", "currency",
                 "interval_unit", "total_instalments", "status", "checkout_session_id", "subscription_id",
-                "livemode", "cancel_requested_at", "reconciled_at", "created_at", "updated_at");
+                "livemode", "cancel_requested_at", "reconciled_at", "created_at", "updated_at", "processor");
         assertThat(getColumnNames("stripe_purchase")).contains("recurring_plan_id");
         assertThat(indexExists("idx_stripe_purchase_recurring_plan")).isTrue();
     }
