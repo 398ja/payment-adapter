@@ -61,6 +61,11 @@ class LostPurchaseRecorder {
         if (foreign.test(session)) {
             return Outcome.FOREIGN;
         }
+        // A subscription-mode session is a plan. Its instalments are recorded from their invoices, so recording the
+        // session as a purchase would issue the first instalment twice.
+        if (xyz.tcheeric.payment.adapter.stripe.webhook.recurring.RecurringPlanService.isPlanEvent(session.metadata())) {
+            return Outcome.FOREIGN;
+        }
         if (purchases.findByCheckoutSessionId(session.id()).isPresent()) {
             return Outcome.ALREADY_RECORDED;
         }

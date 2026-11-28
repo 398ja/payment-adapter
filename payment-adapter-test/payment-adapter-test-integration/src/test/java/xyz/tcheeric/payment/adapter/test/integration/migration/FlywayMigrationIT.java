@@ -103,6 +103,17 @@ class FlywayMigrationIT extends BasePostgresIT {
         assertThat(defaultValue).contains("CREATED");
     }
 
+    // Verifies the plan table and the link from a purchase row to its plan (V25).
+    @Test
+    void recurringPlanTableAndPurchaseLink_exist() {
+        assertThat(getColumnNames("recurring_plan")).containsExactlyInAnyOrder(
+                "id", "connected_account_id", "stall_pubkey", "buyer_pubkey", "amount_minor", "currency",
+                "interval_unit", "total_instalments", "status", "checkout_session_id", "subscription_id",
+                "livemode", "cancel_requested_at", "created_at", "updated_at");
+        assertThat(getColumnNames("stripe_purchase")).contains("recurring_plan_id");
+        assertThat(indexExists("idx_stripe_purchase_recurring_plan")).isTrue();
+    }
+
     // Verifies the OAuth state table: one single-use row per flow, keyed by the opaque state.
     @Test
     void stripeOAuthStateTable_hasExpectedColumnsAndKey() {

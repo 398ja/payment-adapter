@@ -31,6 +31,7 @@ import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeConnectionTyp
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeOAuthState;
 import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccountRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.ProcessedStripeWebhookEventRepository;
+import xyz.tcheeric.payment.adapter.core.model.repository.RecurringPlanRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.StripeOAuthStateRepository;
 import xyz.tcheeric.payment.adapter.stripe.connect.config.StripeConnectProperties;
 import xyz.tcheeric.payment.adapter.stripe.connect.exception.StripeConnectException;
@@ -52,6 +53,7 @@ class StripeConnectOAuthServiceTest {
     @Mock private ConnectedStripeAccountRepository accounts;
     @Mock private ProcessedStripeWebhookEventRepository processedEvents;
     @Mock private StripeOAuthStateRepository states;
+    @Mock private RecurringPlanRepository recurringPlans;
     @Mock private StripeConnectClient client;
 
     private StripeConnectProperties props;
@@ -68,7 +70,7 @@ class StripeConnectOAuthServiceTest {
         PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
         lenient().when(tx.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         service = new StripeConnectService(
-                props, gateway, client, new ObjectMapper(), accounts, processedEvents, states, tx);
+                props, gateway, client, new ObjectMapper(), accounts, processedEvents, states, recurringPlans, tx);
         lenient().when(accounts.save(any(ConnectedStripeAccount.class))).thenAnswer(i -> i.getArgument(0));
     }
 
@@ -330,6 +332,60 @@ class StripeConnectOAuthServiceTest {
                         e -> assertThat(e.getCode()).isEqualTo(StripeConnectExceptionCode.STRIPE_API_ERROR));
         verify(accounts, never()).save(any());
         verify(client, org.mockito.Mockito.times(1)).exchangeOAuthCode(anyString());
+    }
+
+    // ---- disconnect guard (spec R8) ----
+
+    private ConnectedStripeAccount connected() {
+        ConnectedStripeAccount mine = new ConnectedStripeAccount();
+        mine.setMerchantPubkey(MERCHANT);
+        mine.setStripeAccountId(ACCOUNT);
+        return mine;
+    }
+
+    /**
+     * Stripe keeps charging buyers after a stall disconnects, and Imani stops seeing the payments. Disconnecting
+     * is therefore refused while any plan on the account may still be charging.
+     */
+    @Test
+    void disconnectIsRefusedWhileAPlanIsStillRunning() {
+        when(accounts.findByMerchantPubkey(MERCHANT)).thenReturn(Optional.of(connected()));
+        when(recurringPlans.existsByConnectedAccountIdAndStatusIn(eq(ACCOUNT), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.disconnect(MERCHANT))
+                .isInstanceOfSatisfying(StripeConnectException.class, e -> {
+                    assertThat(e.getCode()).isEqualTo(StripeConnectExceptionCode.ACTIVE_PLANS);
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+                });
+        verify(accounts, never()).deleteByMerchantPubkey(anyString());
+    }
+
+    // With no live plan, disconnecting works as before.
+    @Test
+    void disconnectProceedsWhenNoPlanIsRunning() {
+        when(accounts.findByMerchantPubkey(MERCHANT)).thenReturn(Optional.of(connected()));
+        when(recurringPlans.existsByConnectedAccountIdAndStatusIn(eq(ACCOUNT), any())).thenReturn(false);
+
+        service.disconnect(MERCHANT);
+
+        verify(accounts).deleteByMerchantPubkey(MERCHANT);
+    }
+
+    // Only plans with a subscription block disconnecting. A PENDING plan has none, and a public endpoint creates
+    // them, so counting it would let anyone stop a stall from ever disconnecting.
+    @Test
+    void aPendingPlanDoesNotBlockDisconnecting() {
+        when(accounts.findByMerchantPubkey(MERCHANT)).thenReturn(Optional.of(connected()));
+
+        service.disconnect(MERCHANT);
+
+        ArgumentCaptor<java.util.Collection<xyz.tcheeric.payment.adapter.core.model.entity.stripe.RecurringPlan.Status>> asked =
+                ArgumentCaptor.forClass(java.util.Collection.class);
+        verify(recurringPlans).existsByConnectedAccountIdAndStatusIn(eq(ACCOUNT), asked.capture());
+        assertThat(asked.getValue()).containsExactlyInAnyOrder(
+                xyz.tcheeric.payment.adapter.core.model.entity.stripe.RecurringPlan.Status.ACTIVE,
+                xyz.tcheeric.payment.adapter.core.model.entity.stripe.RecurringPlan.Status.PAST_DUE,
+                xyz.tcheeric.payment.adapter.core.model.entity.stripe.RecurringPlan.Status.ATTENTION);
     }
 
     /** With OAuth unconfigured, completing is refused too: nothing was ever started. */

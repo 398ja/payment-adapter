@@ -231,4 +231,7 @@ public interface StripePurchaseRepository extends CrudRepository<StripePurchase,
             @Param("status") StripePurchase.Status status,
             @Param("createdAfter") Instant createdAfter,
             org.springframework.data.domain.Pageable page);
+
+    /** How many instalments of a plan have been recorded: the count that decides a fixed-term plan is complete. */
+    long countByRecurringPlanId(UUID recurringPlanId);
 }

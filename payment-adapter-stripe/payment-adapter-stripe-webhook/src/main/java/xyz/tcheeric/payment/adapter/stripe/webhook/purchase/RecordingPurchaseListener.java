@@ -250,6 +250,16 @@ public class RecordingPurchaseListener implements StripePurchaseListener {
                         .map(account -> account.getMerchantPubkey())
                         .orElse(null));
         row.setRecipientPubkey(normalisePubkey(purchase.metadata().get(BUYER_PUBKEY)));
+        // An instalment names its plan. The plan service built this metadata from Imani's own plan row, never from
+        // an event, so the id is trusted here; a malformed one simply leaves the row unlinked.
+        String planId = purchase.metadata().get("plan_id");
+        if (planId != null) {
+            try {
+                row.setRecurringPlanId(java.util.UUID.fromString(planId.trim()));
+            } catch (IllegalArgumentException e) {
+                log.warn("Purchase {} carries a malformed plan_id; recorded unlinked", purchase.eventId());
+            }
+        }
         applyDraft(row, purchase);
         row.setAmountMinor(purchase.amountMinor());
         row.setCurrency(purchase.currency());

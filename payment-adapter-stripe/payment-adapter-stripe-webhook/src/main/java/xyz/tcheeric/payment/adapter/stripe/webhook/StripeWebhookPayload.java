@@ -53,6 +53,12 @@ public class StripeWebhookPayload implements WebhookPayload {
      */
     private java.util.Map<String, String> metadata;
 
+    /**
+     * The subscription an {@code invoice.*} or {@code customer.subscription.*} event belongs to, or the one a
+     * subscription-mode Checkout Session created. Null for one-off payments.
+     */
+    private String subscriptionId;
+
     @Override
     public String getIdempotencyKey() {
         return eventId;

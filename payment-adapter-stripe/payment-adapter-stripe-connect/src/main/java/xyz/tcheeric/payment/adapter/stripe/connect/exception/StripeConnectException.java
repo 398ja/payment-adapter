@@ -55,6 +55,17 @@ public class StripeConnectException extends RuntimeException {
                 "Stripe account ownership mismatch: " + stripeAccountId);
     }
 
+    /**
+     * Stripe keeps charging buyers after a stall disconnects, and Imani stops seeing the payments, so a buyer could be
+     * charged and receive nothing. The stall ends or moves its plans first.
+     */
+    public static StripeConnectException activePlans() {
+        return new StripeConnectException(
+                StripeConnectExceptionCode.ACTIVE_PLANS,
+                HttpStatus.CONFLICT,
+                "This Stripe account has instalment plans that are still running. Cancel them first.");
+    }
+
     public static StripeConnectException oauthDisabled() {
         return new StripeConnectException(
                 StripeConnectExceptionCode.OAUTH_DISABLED,

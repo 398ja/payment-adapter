@@ -503,4 +503,11 @@ public class StripePurchase {
 
     @Column(name = "gift_outcome_at")
     private Instant giftOutcomeAt;
+
+    /**
+     * The instalment plan this purchase belongs to, or null for a one-off purchase. For an instalment,
+     * {@code checkout_session_id} holds the invoice id (see {@code V25__stripe_recurring_plans.sql}).
+     */
+    @Column(name = "recurring_plan_id")
+    private UUID recurringPlanId;
 }

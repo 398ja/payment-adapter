@@ -12,6 +12,7 @@ import xyz.tcheeric.payment.adapter.stripe.gateway.exception.StripeGatewayExcept
 import xyz.tcheeric.payment.adapter.stripe.gateway.exception.StripeValidationException;
 import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripeCheckoutRequest;
 import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripeCheckoutSession;
+import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripePlanCheckoutRequest;
 
 @RequiredArgsConstructor
 public class StripeSdkCheckoutClient implements StripeCheckoutClient {
@@ -116,6 +117,58 @@ public class StripeSdkCheckoutClient implements StripeCheckoutClient {
         } catch (StripeException e) {
             throw new StripeGatewayException("Failed to retrieve Stripe checkout session: " + sessionId, e);
         }
+    }
+
+    @Override
+    public StripeCheckoutSession createPlanCheckoutSession(StripePlanCheckoutRequest request) {
+        try {
+            RequestOptions options = properties.requestOptions()
+                    .setApiKey(properties.getSecretKey())
+                    .setIdempotencyKey(request.getIdempotencyKey())
+                    .setConnectTimeout(properties.getCheckoutConnectTimeoutMs())
+                    .setReadTimeout(properties.getCheckoutReadTimeoutMs())
+                    .setMaxNetworkRetries(properties.getCheckoutMaxNetworkRetries())
+                    .setStripeAccount(request.getConnectedAccountId())
+                    .build();
+            return toCheckoutSession(Session.create(planCheckoutParams(request), options));
+        } catch (StripeException e) {
+            throw new StripeCheckoutCreationException(request.getPlanId(), request.getCurrency(), e);
+        }
+    }
+
+    /** The plan session we ask Stripe for. Separate so a test can pin it without a live Stripe. */
+    SessionCreateParams planCheckoutParams(StripePlanCheckoutRequest request) {
+        SessionCreateParams.SubscriptionData.Builder subscription = SessionCreateParams.SubscriptionData.builder();
+        SessionCreateParams.Builder params = SessionCreateParams.builder()
+                .setMode(SessionCreateParams.Mode.SUBSCRIPTION)
+                .setSuccessUrl(request.getSuccessUrl())
+                .setCancelUrl(request.getCancelUrl())
+                .setClientReferenceId(request.getPlanId())
+                .setExpiresAt(expirationEpochSeconds())
+                .addLineItem(SessionCreateParams.LineItem.builder()
+                        .setQuantity(1L)
+                        .setPriceData(SessionCreateParams.LineItem.PriceData.builder()
+                                .setCurrency(request.getCurrency())
+                                .setUnitAmount(request.getAmountMinor())
+                                .setRecurring(SessionCreateParams.LineItem.PriceData.Recurring.builder()
+                                        .setInterval(SessionCreateParams.LineItem.PriceData.Recurring.Interval.MONTH)
+                                        .build())
+                                .setProductData(SessionCreateParams.LineItem.PriceData.ProductData.builder()
+                                        .setName(request.getDescription())
+                                        .build())
+                                .build())
+                        .build());
+        // On the session (the first webhook) AND on the subscription (every invoice carries it from here on):
+        // renewals have no Checkout Session, so the subscription is the only thing that can name the plan.
+        if (request.getMetadata() != null) {
+            request.getMetadata().forEach((key, value) -> {
+                params.putMetadata(key, value);
+                subscription.putMetadata(key, value);
+            });
+        }
+        // No payment_intent_data and no application fee: neither is valid in subscription mode, and Imani takes
+        // no cut of a plan in v1.
+        return params.setSubscriptionData(subscription.build()).build();
     }
 
     private SessionCreateParams.LineItem buildLineItem(StripeCheckoutRequest checkoutRequest) {

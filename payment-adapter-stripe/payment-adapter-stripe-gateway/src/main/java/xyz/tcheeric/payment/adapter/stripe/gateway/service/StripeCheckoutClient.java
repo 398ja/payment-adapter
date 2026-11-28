@@ -1,11 +1,15 @@
 package xyz.tcheeric.payment.adapter.stripe.gateway.service;
 
 import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripeCheckoutRequest;
+import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripePlanCheckoutRequest;
 import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripeCheckoutSession;
 
 public interface StripeCheckoutClient {
 
     StripeCheckoutSession createCheckoutSession(StripeCheckoutRequest checkoutRequest);
+
+    /** A subscription Checkout on the stall's account: the instalment plan the buyer is about to start. */
+    StripeCheckoutSession createPlanCheckoutSession(StripePlanCheckoutRequest request);
 
     /** Retrieve a PLATFORM session. Equivalent to passing a null account. */
     StripeCheckoutSession retrieveCheckoutSession(String sessionId);

@@ -19,6 +19,7 @@ import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ProcessedStripeWebh
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeWebhookProcessingStatus;
 import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccountRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.ProcessedStripeWebhookEventRepository;
+import xyz.tcheeric.payment.adapter.core.model.repository.RecurringPlanRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.StripeOAuthStateRepository;
 import xyz.tcheeric.payment.adapter.stripe.connect.config.StripeConnectProperties;
 import xyz.tcheeric.payment.adapter.stripe.connect.exception.StripeConnectException;
@@ -48,6 +49,8 @@ class StripeConnectServiceTest {
     private StripeConnectClient stripeConnectClient;
     @Mock
     private StripeOAuthStateRepository oauthStateRepository;
+    @Mock
+    private RecurringPlanRepository recurringPlans;
 
     private StripeConnectService service;
 
@@ -74,6 +77,7 @@ class StripeConnectServiceTest {
                 accountRepository,
                 processedEventRepository,
                 oauthStateRepository,
+                recurringPlans,
                 txManager);
     }
 

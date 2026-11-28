@@ -31,6 +31,7 @@ import xyz.tcheeric.payment.adapter.core.model.repository.ProcessedStripeWebhook
 import xyz.tcheeric.payment.adapter.core.model.repository.StripePaymentReferenceRepository;
 import xyz.tcheeric.payment.adapter.stripe.webhook.service.DefaultStripeWebhookSignatureVerifier;
 import xyz.tcheeric.payment.adapter.stripe.webhook.service.StripeWebhookSignatureVerifier;
+import xyz.tcheeric.payment.adapter.stripe.webhook.recurring.RecurringPlanService;
 import xyz.tcheeric.payment.adapter.stripe.webhook.spi.StripePurchaseListener;
 import xyz.tcheeric.payment.adapter.webhook.exception.WebhookDuplicateException;
 import xyz.tcheeric.payment.adapter.webhook.exception.WebhookParseException;
@@ -141,6 +142,14 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         this.paymentClient = paymentClient;
     }
 
+    /** Instalment plans. Null unless {@code stripe.recurring.enabled}. */
+    private RecurringPlanService recurring;
+
+    @Autowired(required = false)
+    public void setRecurringPlans(RecurringPlanService recurring) {
+        this.recurring = recurring;
+    }
+
     @Autowired(required = false)
     public void setSignatureVerifier(StripeWebhookSignatureVerifier signatureVerifier) {
         this.signatureVerifier = signatureVerifier;
@@ -170,9 +179,11 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
                     .rawPayload(rawPayload)
                     .quoteId(optionalText(eventObject.path("metadata").path("quote_id")))
                     .checkoutSessionId(resolveCheckoutSessionId(root.path("type").asText(), eventObject))
+                    .subscriptionId(resolveSubscriptionId(root.path("type").asText(), eventObject))
                     .paymentIntentId(resolveText(eventObject, "payment_intent"))
                     .chargeId(resolveChargeId(root.path("type").asText(), eventObject))
-                    .amountTotal(resolveAmount(eventObject))
+                    .amountTotal(isInvoice(root.path("type").asText())
+                            ? resolveInvoiceAmount(eventObject) : resolveAmount(eventObject))
                     .refundedAmountMinor(resolveRefundedAmount(eventObject))
                     .currency(optionalText(eventObject.path("currency")))
                     .livemode(root.path("livemode").asBoolean(false))
@@ -183,7 +194,8 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
                     // Top-level, not inside data.object: Stripe puts the account
                     // on the event because it describes whose event it is.
                     .connectedAccountId(optionalText(root.path("account")))
-                    .metadata(readMetadata(eventObject.path("metadata")))
+                    .metadata(readMetadata(isInvoice(root.path("type").asText())
+                            ? invoiceSubscriptionMetadata(eventObject) : eventObject.path("metadata")))
                     .build();
         } catch (IOException e) {
             throw new WebhookParseException("Failed to parse Stripe webhook payload", e);
@@ -314,6 +326,13 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
         // GatewayQuote for it — findPaymentReference below would throw before
         // any consequence ran. Branch first, on the account Stripe puts on the
         // event.
+        //
+        // A subscription-mode session is a PLAN, never a one-off purchase. Its first instalment's vouchers are
+        // issued by the invoice.paid that follows, so recording the session as a purchase here would issue them
+        // twice.
+        if (RecurringPlanService.isPlanEvent(payload.getMetadata())) {
+            return handlePlanSession(payload, eventRecord);
+        }
         if (isPurchase(payload)) {
             return handlePaidPurchase(payload, eventRecord);
         }
@@ -447,8 +466,18 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
             }
             case CHECKOUT_SESSION_EXPIRED -> {
                 metrics.record(Source.CARD, Status.CANCELLED, Reason.EXPIRED, payload.getCurrency());
+                // No money moved on an expired session, so with plans off this is simply acknowledged.
+                if (recurring != null && RecurringPlanService.isPlanEvent(payload.getMetadata())) {
+                    try {
+                        recurring.checkoutExpired(payload);
+                    } catch (RuntimeException e) {
+                        throw new WebhookProcessingException("Could not close expired plan session", e);
+                    }
+                }
                 yield acknowledge(payload, eventRecord);
             }
+            case INVOICE_PAID -> handleInstalmentPaid(payload, eventRecord);
+            case INVOICE_PAYMENT_FAILED, CUSTOMER_SUBSCRIPTION_DELETED -> handlePlanLifecycle(payload, eventRecord);
         };
     }
 
@@ -530,6 +559,93 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
      * {@code createPurchaseSession}), and a mint quote is always a platform
      * charge, so only a purchase carries an account on its event.
      */
+    /**
+     * The plan service, or a refusal when the event names a plan and plans are off. Ignoring such an event would
+     * acknowledge a payment Imani cannot issue for; failing it keeps it unprocessed so Stripe redelivers and an
+     * operator sees it. Returns null for an event that does not name a plan.
+     */
+    private RecurringPlanService planServiceFor(StripeWebhookPayload payload) throws WebhookProcessingException {
+        if (recurring != null || !RecurringPlanService.isPlanEvent(payload.getMetadata())) {
+            return recurring;
+        }
+        throw new WebhookProcessingException("Stripe event " + payload.getEventId()
+                + " names an instalment plan but stripe.recurring is not enabled; refusing to acknowledge it");
+    }
+
+    private WebhookResult handlePlanSession(StripeWebhookPayload payload, ProcessedStripeWebhookEvent eventRecord)
+            throws WebhookProcessingException {
+        RecurringPlanService plans = planServiceFor(payload);
+        try {
+            plans.checkoutCompleted(payload);
+        } catch (RuntimeException e) {
+            throw new WebhookProcessingException("Could not link plan session " + payload.getCheckoutSessionId(), e);
+        }
+        markProcessed(eventRecord);
+        return new WebhookResult(true, null, State.PENDING,
+                Map.of("eventType", payload.getEventType(), "plan", true, "issued", false));
+    }
+
+    /**
+     * An instalment was paid: record it as owed through the same listener a one-off purchase uses, then update the
+     * plan. Order matters. The purchase is recorded first (paid means owed), the plan is updated second, and ending
+     * a fixed-term plan is last, so a failure anywhere leaves the instalment recorded and only the rest is retried.
+     */
+    private WebhookResult handleInstalmentPaid(StripeWebhookPayload payload, ProcessedStripeWebhookEvent eventRecord)
+            throws WebhookProcessingException {
+        RecurringPlanService plans = planServiceFor(payload);
+        if (plans == null) {
+            return acknowledge(payload, eventRecord);
+        }
+        RecurringPlanService.Instalment instalment;
+        try {
+            instalment = plans.prepare(payload);
+        } catch (RuntimeException e) {
+            throw new WebhookProcessingException("Could not match instalment " + payload.getCheckoutSessionId(), e);
+        }
+        if (instalment == null) {
+            return acknowledge(payload, eventRecord);
+        }
+        if (purchaseListener == null) {
+            recordFailed(payload, Reason.NO_LISTENER);
+            throw new WebhookProcessingException("Paid instalment on account " + payload.getConnectedAccountId()
+                    + " but no StripePurchaseListener is configured; refusing to mark it processed");
+        }
+        try {
+            purchaseListener.onPurchasePaid(instalment.purchase());
+        } catch (Exception e) {
+            throw new WebhookProcessingException("Purchase listener refused instalment " + payload.getEventId(), e);
+        }
+        try {
+            plans.recorded(instalment.plan(), payload);
+        } catch (RuntimeException e) {
+            throw new WebhookProcessingException("Instalment " + payload.getEventId()
+                    + " is recorded but its plan could not be updated; will retry", e);
+        }
+        markProcessed(eventRecord);
+        metrics.record(Source.CARD, Status.SUCCEEDED, Reason.NONE, payload.getCurrency(), amountOf(payload));
+        return new WebhookResult(true, instalment.purchase().paymentIntentId(), State.PAID,
+                Map.of("eventType", payload.getEventType(), "purchase", true, "plan", true));
+    }
+
+    /** An instalment failed or a plan's subscription ended: bookkeeping only, nothing is issued. */
+    private WebhookResult handlePlanLifecycle(StripeWebhookPayload payload, ProcessedStripeWebhookEvent eventRecord)
+            throws WebhookProcessingException {
+        RecurringPlanService plans = planServiceFor(payload);
+        if (plans == null) {
+            return acknowledge(payload, eventRecord);
+        }
+        try {
+            if (StripePaymentEvent.INVOICE_PAYMENT_FAILED.is(payload.getEventType())) {
+                plans.paymentFailed(payload);
+            } else {
+                plans.subscriptionEnded(payload);
+            }
+        } catch (RuntimeException e) {
+            throw new WebhookProcessingException("Could not update plan for " + payload.getEventType(), e);
+        }
+        return acknowledge(payload, eventRecord);
+    }
+
     private boolean isPurchase(StripeWebhookPayload payload) {
         return StringUtils.isNotBlank(payload.getConnectedAccountId());
     }
@@ -752,8 +868,46 @@ public class StripeWebhookHandler implements WebhookHandler<StripeWebhookPayload
     private String resolveCheckoutSessionId(String eventType, JsonNode eventObject) {
         return switch (eventType) {
             case "checkout.session.completed", "checkout.session.async_payment_succeeded" -> optionalText(eventObject.path("id"));
+            // An instalment has no Checkout Session. The INVOICE id takes its place as the ledger's unique key
+            // (V25): one purchase row per paid invoice, whatever number of times the event is delivered.
+            case "invoice.paid", "invoice.payment_failed" -> optionalText(eventObject.path("id"));
             default -> optionalText(eventObject.path("checkout_session"));
         };
+    }
+
+    private static boolean isInvoice(String eventType) {
+        return eventType != null && eventType.startsWith("invoice.");
+    }
+
+    /** The invoice's paid amount. {@code amount_total} and {@code amount} are not on an invoice. */
+    private Integer resolveInvoiceAmount(JsonNode invoice) {
+        return invoice.hasNonNull("amount_paid") ? invoice.get("amount_paid").asInt() : null;
+    }
+
+    /**
+     * The subscription's metadata, as snapshotted on the invoice. Newer API versions put it under
+     * {@code parent.subscription_details}; older ones under {@code subscription_details}. The invoice's OWN
+     * metadata is deliberately not read: it is not what Imani wrote.
+     */
+    private JsonNode invoiceSubscriptionMetadata(JsonNode invoice) {
+        JsonNode newer = invoice.path("parent").path("subscription_details").path("metadata");
+        return newer.isObject() ? newer : invoice.path("subscription_details").path("metadata");
+    }
+
+    /** The subscription an event belongs to, whichever shape the event has. Null for one-off payments. */
+    private String resolveSubscriptionId(String eventType, JsonNode eventObject) {
+        if (eventType == null) {
+            return null;
+        }
+        if (eventType.startsWith("customer.subscription.")) {
+            return optionalText(eventObject.path("id"));
+        }
+        if (eventType.startsWith("invoice.")) {
+            String newer = optionalText(eventObject.path("parent").path("subscription_details").path("subscription"));
+            return newer != null ? newer : optionalText(eventObject.path("subscription"));
+        }
+        // checkout.session.*: set only in subscription mode.
+        return optionalText(eventObject.path("subscription"));
     }
 
     private String resolveChargeId(String eventType, JsonNode eventObject) {
