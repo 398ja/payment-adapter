@@ -7,6 +7,7 @@ import xyz.tcheeric.payment.adapter.stripe.gateway.config.StripeGatewayPropertie
 import xyz.tcheeric.payment.adapter.stripe.gateway.exception.StripeValidationException;
 import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripeCheckoutRequest;
 import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripeCheckoutSession;
+import xyz.tcheeric.payment.adapter.stripe.gateway.model.StripePlanCheckoutRequest;
 
 @RequiredArgsConstructor
 public class StripeCheckoutService {
@@ -131,6 +132,60 @@ public class StripeCheckoutService {
             builder.metadata(StripeGatewayProperties.ENVIRONMENT_METADATA_KEY, environment);
         }
         return checkoutClient.createCheckoutSession(builder.build());
+    }
+
+    /**
+     * An instalment plan: a subscription Checkout, a DIRECT charge on the stall's connected account.
+     *
+     * <p>Separate from the one-off purchase methods for the same reason those are separate from the mint-quote
+     * flow: it answers a different question about who is selling and how often. The plan id is Imani's own record
+     * (created before the buyer reaches Stripe), carried on the session and on the subscription.
+     *
+     * @param planId Imani's id for the plan; also the idempotency key, so a retry cannot start a second plan
+     * @param amountMinor one instalment, checked against the deployment's per-payment limits
+     */
+    public StripeCheckoutSession createPlanSession(
+            String planId,
+            long amountMinor,
+            String description,
+            String currency,
+            String connectedAccountId,
+            java.util.Map<String, String> metadata,
+            String successUrl,
+            String cancelUrl) {
+        if (StringUtils.isBlank(planId)) {
+            throw new StripeValidationException("Stripe planId must not be blank");
+        }
+        if (StringUtils.isBlank(connectedAccountId)) {
+            throw new StripeValidationException("Stripe connectedAccountId must not be blank for a plan");
+        }
+        if (amountMinor < properties.getMinAmountMinor() || amountMinor > properties.getMaxAmountMinor()) {
+            throw new StripeValidationException("Stripe instalment must be between "
+                    + properties.getMinAmountMinor() + " and " + properties.getMaxAmountMinor());
+        }
+        String normalizedCurrency = properties.normalizeCurrency(currency);
+        validateCurrency(normalizedCurrency);
+        java.util.Map<String, String> carried = new java.util.LinkedHashMap<>();
+        if (metadata != null) {
+            carried.putAll(metadata);
+        }
+        carried.put("plan_id", planId);
+        // After the caller's metadata, so no caller can claim another deployment's plans.
+        String environment = properties.resolvedEnvironment();
+        if (environment != null) {
+            carried.put(StripeGatewayProperties.ENVIRONMENT_METADATA_KEY, environment);
+        }
+        return checkoutClient.createPlanCheckoutSession(StripePlanCheckoutRequest.builder()
+                .connectedAccountId(connectedAccountId)
+                .planId(planId)
+                .amountMinor(amountMinor)
+                .currency(normalizedCurrency)
+                .description(sanitizeDescription(description))
+                .metadata(carried)
+                .successUrl(StringUtils.isBlank(successUrl) ? properties.resolvedPurchaseSuccessUrl() : successUrl)
+                .cancelUrl(StringUtils.isBlank(cancelUrl) ? properties.resolvedPurchaseCancelUrl() : cancelUrl)
+                .idempotencyKey("stripe:plan:" + planId)
+                .build());
     }
 
     public String buildIdempotencyKey(String quoteId) {
