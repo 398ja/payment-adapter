@@ -61,13 +61,15 @@ class StripeAccountCapabilitiesTest {
     }
 
     /**
-     * Transfers is no longer requested: it serves destination charges and
-     * separate charges and transfers, which this adapter refuses. Direct
-     * charges settle on the account itself.
+     * Transfers is requested alongside card_payments because Stripe refuses an
+     * account that asks for card_payments alone: "Accounts do not currently
+     * support card_payments without transfers" (400). #341 dropped it and every
+     * Create a Stripe account on staging failed. Direct charges are still the
+     * only kind this adapter makes.
      */
     @Test
-    void transfersIsNotRequested() {
-        assertThat(capability("transfers")).isNull();
+    void transfersIsRequestedBecauseStripePairsItWithCardPayments() {
+        assertThat(capability("transfers")).isEqualTo(Map.of("requested", true));
     }
 
     /**
