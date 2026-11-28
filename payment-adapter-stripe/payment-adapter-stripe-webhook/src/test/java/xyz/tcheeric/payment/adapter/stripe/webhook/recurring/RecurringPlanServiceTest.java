@@ -315,4 +315,66 @@ class RecurringPlanServiceTest {
 
         assertThat(plan.getStatus()).isEqualTo(Status.ACTIVE);
     }
+
+    // settle(): a running fixed-term plan that has every instalment but was never ended is ended now.
+    @Test
+    void settleEndsAPlanThatHasEveryInstalmentButWasNeverEnded() {
+        plan.setTotalInstalments(3);
+        plan.setStatus(Status.ACTIVE);
+        plan.setSubscriptionId("sub_1");
+        when(purchases.countByRecurringPlanId(plan.getId())).thenReturn(3L);
+
+        service.settle(plan.getId());
+
+        verify(subscriptions).cancelAtPeriodEnd(ACCOUNT, "sub_1");
+        assertThat(plan.getStatus()).isEqualTo(Status.COMPLETED);
+        assertThat(plan.getCancelRequestedAt()).isNotNull();
+    }
+
+    // settle(): it does nothing unless every condition holds. Each of these must leave the subscription running.
+    @Test
+    void settleLeavesEveryOtherPlanAlone() {
+        plan.setSubscriptionId("sub_1");
+        when(purchases.countByRecurringPlanId(plan.getId())).thenReturn(3L);
+
+        plan.setTotalInstalments(null);                       // open-ended: never ends by count
+        plan.setStatus(Status.ACTIVE);
+        service.settle(plan.getId());
+
+        plan.setTotalInstalments(3);                          // already asked to cancel
+        plan.setCancelRequestedAt(java.time.Instant.now());
+        service.settle(plan.getId());
+
+        plan.setCancelRequestedAt(null);                      // already ended / orphaned / being looked at
+        for (Status ended : new Status[] {Status.COMPLETED, Status.CANCELLED, Status.ORPHANED, Status.ATTENTION, Status.PENDING}) {
+            plan.setStatus(ended);
+            service.settle(plan.getId());
+        }
+
+        plan.setStatus(Status.ACTIVE);                        // no subscription to end
+        plan.setSubscriptionId(null);
+        service.settle(plan.getId());
+
+        plan.setSubscriptionId("sub_1");                      // one instalment still owed
+        when(purchases.countByRecurringPlanId(plan.getId())).thenReturn(2L);
+        service.settle(plan.getId());
+
+        verify(subscriptions, never()).cancelAtPeriodEnd(anyString(), anyString());
+    }
+
+    // settle(): a Stripe failure surfaces so the caller can alert, and the plan is NOT marked ended.
+    @Test
+    void settleSurfacesAStripeFailureAndDoesNotMarkThePlanEnded() {
+        plan.setTotalInstalments(3);
+        plan.setStatus(Status.ACTIVE);
+        plan.setSubscriptionId("sub_1");
+        when(purchases.countByRecurringPlanId(plan.getId())).thenReturn(3L);
+        org.mockito.Mockito.doThrow(new RecurringPlanException("stripe down"))
+                .when(subscriptions).cancelAtPeriodEnd(ACCOUNT, "sub_1");
+
+        assertThatThrownBy(() -> service.settle(plan.getId())).isInstanceOf(RecurringPlanException.class);
+
+        assertThat(plan.getStatus()).isEqualTo(Status.ACTIVE);
+        assertThat(plan.getCancelRequestedAt()).isNull();
+    }
 }

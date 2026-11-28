@@ -99,6 +99,29 @@ Off by default. Nothing about plans exists until `stripe.recurring.enabled=true`
 | `stripe.recurring.max-instalments` (`STRIPE_RECURRING_MAX_INSTALMENTS`) | `24` | Longest fixed term. A plan may also be open-ended. |
 | `stripe.recurring.require-controls` (`STRIPE_RECURRING_REQUIRE_CONTROLS`) | `true` | Refuse a plan on an account whose fee payer or loss collector Stripe has not reported. Relax only after confirming Stripe reports them for the accounts you connect. A reported "Imani pays" is refused either way. |
 
+### Instalment reconciler
+
+Runs with plans on (nothing to enable). It recovers instalments whose webhook was lost: for each running plan it lists
+the subscription's paid invoices on the stall's account and records any the ledger lacks, through the same listener the
+webhook uses and after a live read of the payment (so a refunded or disputed instalment is never made owed). It also
+ends a fixed-term plan that has every instalment but whose subscription was never ended, which would otherwise be
+charged once too many.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `stripe.recurring.reconcile.enabled` | `true` | Set `false` to stop the scheduled job. |
+| `stripe.recurring.reconcile.interval` / `initial-delay` | `PT10M` / `PT3M` | Run frequency and first-run delay. |
+| `stripe.recurring.reconcile.grace` | `PT10M` | An invoice paid more recently than this is left to its own webhook. |
+| `stripe.recurring.reconcile.recheck` | `PT1H` | A plan checked within this window is skipped. Also the claim window between replicas, so an idle system makes no Stripe calls. |
+| `stripe.recurring.reconcile.ended-lookback` | `P7D` | How long after a plan ends it is still read, for an instalment paid late. |
+| `stripe.recurring.reconcile.batch-size` | `20` | Plans claimed per run. |
+| `stripe.recurring.reconcile.max-stripe-calls-per-run` | `40` | Every Stripe read counts; shared with checkout's rate limit. A 429 ends the run. |
+
+Look for these log lines: `[alert] stripe_reconcile recorded a paid instalment no webhook recorded` (a recovered
+instalment: find out why its webhook was lost), `[alert] recurring_plan_final_cancel_repaired` (a final cancel was
+repaired), and `[alert] instalment_reconcile could not match paid invoice` (an invoice the plan service refused; a person
+must look).
+
 **Enable these events on the PAYMENTS webhook endpoint** (the one with `charge.refunded` and
 `checkout.session.completed`, `stripe.webhook-endpoint-id`), not the account-updates endpoint:
 `invoice.paid`, `invoice.payment_failed`, `customer.subscription.deleted`. With plans on, the webhook subscription

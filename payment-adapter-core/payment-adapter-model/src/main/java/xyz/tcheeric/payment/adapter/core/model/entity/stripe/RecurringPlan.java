@@ -23,7 +23,8 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(name = "recurring_plan", indexes = {
         @Index(name = "idx_recurring_plan_account_status", columnList = "connected_account_id, status"),
-        @Index(name = "idx_recurring_plan_buyer", columnList = "buyer_pubkey")
+        @Index(name = "idx_recurring_plan_buyer", columnList = "buyer_pubkey"),
+        @Index(name = "idx_recurring_plan_reconciled", columnList = "reconciled_at")
 })
 public class RecurringPlan {
 
@@ -94,6 +95,10 @@ public class RecurringPlan {
 
     @Column(name = "cancel_requested_at")
     private Instant cancelRequestedAt;
+
+    /** When the instalment reconciler last claimed this plan; null until it first does. */
+    @Column(name = "reconciled_at")
+    private Instant reconciledAt;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
