@@ -55,6 +55,36 @@ public class StripeConnectException extends RuntimeException {
                 "Stripe account ownership mismatch: " + stripeAccountId);
     }
 
+    public static StripeConnectException oauthDisabled() {
+        return new StripeConnectException(
+                StripeConnectExceptionCode.OAUTH_DISABLED,
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Connecting an existing Stripe account is not configured");
+    }
+
+    /** One answer for unknown, expired and already-used state: telling them apart would help only an attacker. */
+    public static StripeConnectException oauthStateInvalid() {
+        return new StripeConnectException(
+                StripeConnectExceptionCode.OAUTH_STATE_INVALID,
+                HttpStatus.BAD_REQUEST,
+                "The connection request is invalid, expired or already used. Start again.");
+    }
+
+    public static StripeConnectException oauthCodeRejected(Throwable cause) {
+        return new StripeConnectException(
+                StripeConnectExceptionCode.OAUTH_CODE_REJECTED,
+                HttpStatus.BAD_REQUEST,
+                "Stripe rejected the authorization code. Start again.",
+                cause);
+    }
+
+    public static StripeConnectException merchantAlreadyLinked(String message) {
+        return new StripeConnectException(
+                StripeConnectExceptionCode.MERCHANT_ALREADY_LINKED,
+                HttpStatus.CONFLICT,
+                message);
+    }
+
     public static StripeConnectException apiError(String message, Throwable cause) {
         return new StripeConnectException(
                 StripeConnectExceptionCode.STRIPE_API_ERROR,

@@ -8,7 +8,9 @@ import com.stripe.model.Event;
 import com.stripe.model.StripeObject;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
@@ -21,13 +23,17 @@ import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics;
 import xyz.tcheeric.payment.adapter.core.common.metrics.PaymentMetrics.ConnectEvent;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ConnectedStripeAccount;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.ProcessedStripeWebhookEvent;
+import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeConnectionType;
+import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeOAuthState;
 import xyz.tcheeric.payment.adapter.core.model.entity.stripe.StripeWebhookProcessingStatus;
 import xyz.tcheeric.payment.adapter.core.model.repository.ConnectedStripeAccountRepository;
 import xyz.tcheeric.payment.adapter.core.model.repository.ProcessedStripeWebhookEventRepository;
+import xyz.tcheeric.payment.adapter.core.model.repository.StripeOAuthStateRepository;
 import xyz.tcheeric.payment.adapter.stripe.connect.config.StripeConnectProperties;
 import xyz.tcheeric.payment.adapter.stripe.connect.exception.StripeConnectException;
 import xyz.tcheeric.payment.adapter.stripe.connect.exception.StripeConnectExceptionCode;
 import xyz.tcheeric.payment.adapter.stripe.connect.model.StripeConnectAccountResponse;
+import xyz.tcheeric.payment.adapter.stripe.connect.model.StripeConnectOAuthStartResponse;
 import xyz.tcheeric.payment.adapter.stripe.connect.model.StripeConnectWebhookResponse;
 import xyz.tcheeric.payment.adapter.stripe.gateway.config.StripeGatewayProperties;
 
@@ -43,6 +49,7 @@ public class StripeConnectService {
     private final ObjectMapper objectMapper;
     private final ConnectedStripeAccountRepository connectedStripeAccountRepository;
     private final ProcessedStripeWebhookEventRepository processedEventRepository;
+    private final StripeOAuthStateRepository oauthStateRepository;
     private final TransactionTemplate requiresNewTx;
 
     /** imani-deploy#210. Connect lifecycle transitions, seen here first via account.updated. */
@@ -60,6 +67,7 @@ public class StripeConnectService {
             ObjectMapper objectMapper,
             ConnectedStripeAccountRepository connectedStripeAccountRepository,
             ProcessedStripeWebhookEventRepository processedEventRepository,
+            StripeOAuthStateRepository oauthStateRepository,
             PlatformTransactionManager transactionManager) {
         this.connectProperties = connectProperties;
         this.gatewayProperties = gatewayProperties;
@@ -67,6 +75,7 @@ public class StripeConnectService {
         this.objectMapper = objectMapper;
         this.connectedStripeAccountRepository = connectedStripeAccountRepository;
         this.processedEventRepository = processedEventRepository;
+        this.oauthStateRepository = oauthStateRepository;
         this.requiresNewTx = new TransactionTemplate(transactionManager);
         this.requiresNewTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -253,7 +262,11 @@ public class StripeConnectService {
                 requirementsDue,
                 account.getRequirements() == null ? null : account.getRequirements().getDisabledReason(),
                 account.getCountry(),
-                account.getEmail()
+                account.getEmail(),
+                AccountControls.type(account),
+                AccountControls.feePayer(account),
+                AccountControls.lossesPayer(account),
+                AccountControls.dashboardType(account)
         );
     }
 
@@ -274,6 +287,20 @@ public class StripeConnectService {
         account.setDisabledReason(snapshot.disabledReason());
         account.setCountry(snapshot.country());
         account.setEmail(snapshot.email());
+        // Recorded when Stripe reports them and never blanked afterwards: the fee payer and dashboard type are
+        // fixed at creation, and an event that carries no `controller` block must not erase what we learned.
+        if (snapshot.accountType() != null) {
+            account.setAccountType(snapshot.accountType());
+        }
+        if (snapshot.feePayer() != null) {
+            account.setFeePayer(snapshot.feePayer());
+        }
+        if (snapshot.lossesPayer() != null) {
+            account.setLossesPayer(snapshot.lossesPayer());
+        }
+        if (snapshot.dashboardType() != null) {
+            account.setDashboardType(snapshot.dashboardType());
+        }
         account.setUpdatedAt(Instant.now());
         if (account.getCreatedAt() == null) {
             account.setCreatedAt(Instant.now());
@@ -439,6 +466,126 @@ public class StripeConnectService {
                     StripeConnectExceptionCode.STRIPE_API_ERROR,
                     "Failed to hash webhook payload",
                     e);
+        }
+    }
+
+    private static final SecureRandom RANDOM = new SecureRandom();
+    /** Rows that expired more than this long ago are dropped when a new flow starts. */
+    private static final java.time.Duration STATE_RETENTION = java.time.Duration.ofHours(1);
+
+    /**
+     * Step 1 of connecting a stall's own Stripe account. Returns the Stripe page to send the farm's browser to.
+     *
+     * <p>The {@code state} in that URL is a random single-use token stored against {@code merchantPubkey}. It is
+     * the only link between the browser that comes back and the merchant who asked, so the merchant is never
+     * taken from the callback: {@link #completeOAuth} reads it back from here.
+     *
+     * <p>A merchant that already has an account is refused now, before the farm is sent to Stripe and consents
+     * to something we would then have to reject.
+     */
+    public StripeConnectOAuthStartResponse startOAuth(String merchantPubkey) {
+        requireEnabled();
+        requireOAuth();
+        if (merchantPubkey == null || merchantPubkey.isBlank()) {
+            throw new StripeConnectException(
+                    StripeConnectExceptionCode.OAUTH_STATE_INVALID, "merchant_pubkey is required");
+        }
+        if (connectedStripeAccountRepository.findByMerchantPubkey(merchantPubkey).isPresent()) {
+            throw StripeConnectException.merchantAlreadyLinked(
+                    "This merchant already has a connected Stripe account. Disconnect it first.");
+        }
+        Instant now = Instant.now();
+        StripeOAuthState state = new StripeOAuthState();
+        state.setState(newState());
+        state.setMerchantPubkey(merchantPubkey);
+        state.setCreatedAt(now);
+        state.setExpiresAt(now.plus(connectProperties.getOauth().getStateTtl()));
+        requiresNewTx.executeWithoutResult(tx -> {
+            oauthStateRepository.deleteExpiredBefore(now.minus(STATE_RETENTION));
+            oauthStateRepository.save(state);
+        });
+        String url = stripeConnectClient.oauthAuthorizeUrl(
+                connectProperties.getOauth().getClientId(),
+                connectProperties.getOauth().getRedirectUri(),
+                state.getState());
+        return new StripeConnectOAuthStartResponse(url, state.getExpiresAt());
+    }
+
+    /**
+     * Step 2: the farm consented and Stripe sent the browser back with a {@code code} and our {@code state}.
+     *
+     * <p>Order matters, and each step exists because of how this can go wrong:
+     * <ol>
+     * <li><b>Consume the state first, in its own committed transaction.</b> The code can be used once; Stripe
+     * revokes the connection on a second use. If the state were consumed in the same transaction as the later
+     * database work and that work failed, the rollback would hand the same state (and so the same code) a second
+     * chance. Committed first, a failure anywhere below leaves the state spent and the farm starts again.</li>
+     * <li><b>Exchange the code exactly once</b> ({@code exchangeOAuthCode} never retries).</li>
+     * <li><b>Read the account back from Stripe</b> rather than trusting the response, and refuse one that carries
+     * another merchant's {@code merchant_pubkey}.</li>
+     * <li><b>Refuse a double claim:</b> one Stripe account maps to one merchant, one merchant to one account.</li>
+     * </ol>
+     *
+     * <p>The account is stored even if it cannot take cards yet. It is the farm's own, and its status tells the
+     * wallet what is left to do; refusing would force the farm through consent again.
+     */
+    public StripeConnectAccountResponse completeOAuth(String code, String state) {
+        requireEnabled();
+        requireOAuth();
+        if (code == null || code.isBlank() || code.length() > 256
+                || state == null || state.isBlank() || state.length() > 64) {
+            throw StripeConnectException.oauthStateInvalid();
+        }
+        Instant now = Instant.now();
+        String merchantPubkey = requiresNewTx.execute(tx -> oauthStateRepository.consume(state, now) == 1
+                ? oauthStateRepository.findById(state).map(StripeOAuthState::getMerchantPubkey).orElse(null)
+                : null);
+        if (merchantPubkey == null) {
+            throw StripeConnectException.oauthStateInvalid();
+        }
+
+        String stripeAccountId = stripeConnectClient.exchangeOAuthCode(code);
+        StripeAccountSnapshot snapshot = stripeConnectClient.retrieveAccount(stripeAccountId);
+        ensureOwnership(snapshot, merchantPubkey);
+
+        try {
+            return requiresNewTx.execute(tx -> {
+                connectedStripeAccountRepository.findByStripeAccountId(stripeAccountId)
+                        .filter(existing -> !existing.getMerchantPubkey().equals(merchantPubkey))
+                        .ifPresent(existing -> {
+                            throw StripeConnectException.merchantAlreadyLinked(
+                                    "This Stripe account is already connected to another merchant.");
+                        });
+                connectedStripeAccountRepository.findByMerchantPubkey(merchantPubkey)
+                        .filter(existing -> !existing.getStripeAccountId().equals(stripeAccountId))
+                        .ifPresent(existing -> {
+                            throw StripeConnectException.merchantAlreadyLinked(
+                                    "This merchant already has a connected Stripe account. Disconnect it first.");
+                        });
+                ConnectedStripeAccount saved = saveSnapshot(merchantPubkey, snapshot);
+                if (saved.getConnectionType() != StripeConnectionType.OAUTH) {
+                    saved.setConnectionType(StripeConnectionType.OAUTH);
+                    saved = connectedStripeAccountRepository.save(saved);
+                }
+                return toResponse(saved, null);
+            });
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            // Two callbacks for the same Stripe account (or merchant) that both passed the checks above: the
+            // unique constraints decide the winner, and the loser gets the same answer as a late claim, not a 500.
+            throw StripeConnectException.merchantAlreadyLinked(
+                    "This Stripe account or merchant was connected by another request. Check the status.");
+        }
+    }
+
+    private static String newState() {
+        byte[] bytes = new byte[32];
+        RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private void requireOAuth() {
+        if (!connectProperties.getOauth().isConfigured()) {
+            throw StripeConnectException.oauthDisabled();
         }
     }
 

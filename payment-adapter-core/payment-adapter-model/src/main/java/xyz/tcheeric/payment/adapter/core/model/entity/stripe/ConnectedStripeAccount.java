@@ -2,6 +2,8 @@ package xyz.tcheeric.payment.adapter.core.model.entity.stripe;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -57,6 +59,27 @@ public class ConnectedStripeAccount {
 
     @Column(name = "email")
     private String email;
+
+    /** How this account was connected: created by Imani, or the stall's own through OAuth. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "connection_type", nullable = false, length = 16)
+    private StripeConnectionType connectionType = StripeConnectionType.CREATED;
+
+    /** Stripe's {@code type} (standard, express, custom, none). Null when Stripe did not report it. */
+    @Column(name = "account_type", length = 16)
+    private String accountType;
+
+    /** {@code controller.fees.payer}: who pays Stripe's fees. Null when Stripe did not report it. */
+    @Column(name = "fee_payer", length = 32)
+    private String feePayer;
+
+    /** {@code controller.losses.payments}: who bears a negative balance. Null when not reported. */
+    @Column(name = "losses_payer", length = 16)
+    private String lossesPayer;
+
+    /** {@code controller.stripe_dashboard.type}. Null when Stripe did not report it. */
+    @Column(name = "dashboard_type", length = 16)
+    private String dashboardType;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;

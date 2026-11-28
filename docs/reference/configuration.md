@@ -95,6 +95,9 @@ Configuration is read from `cash.properties` on the classpath.
 | `stripe.connect.refresh-url` | *(empty)* | Refresh URL used during Connect onboarding. |
 | `stripe.connect.return-url` | *(empty)* | Return URL used during Connect onboarding. |
 | `stripe.connect.webhook-endpoint-id` (`STRIPE_CONNECT_WEBHOOK_ENDPOINT_ID`) | *(empty)* | The Connect endpoint's `we_...` id, for the webhook subscription check (#286). |
+| `stripe.connect.oauth.client-id` (`STRIPE_CONNECT_OAUTH_CLIENT_ID`) | *(empty)* | The platform's Connect `client_id` (`ca_...`), from Connect settings > Onboarding options > OAuth. Live and test mode have different ids. Not a secret. Connecting an existing account is off until this and the redirect URI are both set. |
+| `stripe.connect.oauth.redirect-uri` (`STRIPE_CONNECT_OAUTH_REDIRECT_URI`) | *(empty)* | Where Stripe sends the browser after consent. Must exactly match a redirect URI registered in the same settings page, and be HTTPS in live mode. The adapter does not serve it: whoever does passes the `code` and `state` to `POST /api/v1/stripe/connect/oauth/complete`. |
+| `stripe.connect.oauth.state-ttl` (`STRIPE_CONNECT_OAUTH_STATE_TTL`) | `PT10M` | How long a farm has to finish Stripe's screens before the connection request expires. |
 
 ## PayPal Gateway module ([payment-adapter-paypal/payment-adapter-paypal-gateway](../../payment-adapter-paypal/payment-adapter-paypal-gateway))
 
